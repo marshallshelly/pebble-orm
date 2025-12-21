@@ -1,0 +1,355 @@
+package migration
+
+import (
+	"strings"
+
+	"github.com/marshallshelly/pebble-orm/pkg/schema"
+)
+
+// Differ compares schemas and generates diffs.
+type Differ struct{}
+
+// NewDiffer creates a new schema differ.
+func NewDiffer() *Differ {
+	return &Differ{}
+}
+
+// Compare compares code schema (from structs) with database schema.
+// codeSchema: TableMetadata from parsing Go structs
+// dbSchema: TableMetadata from introspecting database
+func (d *Differ) Compare(codeSchema, dbSchema map[string]*schema.TableMetadata) *SchemaDiff {
+	diff := &SchemaDiff{
+		TablesAdded:    make([]schema.TableMetadata, 0),
+		TablesDropped:  make([]string, 0),
+		TablesModified: make([]TableDiff, 0),
+	}
+
+	// Find tables that exist in code but not in DB (need to create)
+	for tableName, codeTable := range codeSchema {
+		if _, exists := dbSchema[tableName]; !exists {
+			diff.TablesAdded = append(diff.TablesAdded, *codeTable)
+		}
+	}
+
+	// Find tables that exist in DB but not in code (need to drop)
+	for tableName := range dbSchema {
+		if _, exists := codeSchema[tableName]; !exists {
+			diff.TablesDropped = append(diff.TablesDropped, tableName)
+		}
+	}
+
+	// Find tables that exist in both (check for modifications)
+	for tableName, codeTable := range codeSchema {
+		if dbTable, exists := dbSchema[tableName]; exists {
+			tableDiff := d.compareTable(codeTable, dbTable)
+			if tableDiff.HasChanges() {
+				diff.TablesModified = append(diff.TablesModified, tableDiff)
+			}
+		}
+	}
+
+	return diff
+}
+
+// compareTable compares two versions of the same table.
+func (d *Differ) compareTable(codeTable, dbTable *schema.TableMetadata) TableDiff {
+	diff := TableDiff{
+		TableName:          codeTable.Name,
+		ColumnsAdded:       make([]schema.ColumnMetadata, 0),
+		ColumnsDropped:     make([]string, 0),
+		ColumnsModified:    make([]ColumnDiff, 0),
+		IndexesAdded:       make([]schema.IndexMetadata, 0),
+		IndexesDropped:     make([]string, 0),
+		ForeignKeysAdded:   make([]schema.ForeignKeyMetadata, 0),
+		ForeignKeysDropped: make([]string, 0),
+		ConstraintsAdded:   make([]schema.ConstraintMetadata, 0),
+		ConstraintsDropped: make([]string, 0),
+	}
+
+	// Compare columns
+	d.compareColumns(codeTable, dbTable, &diff)
+
+	// Compare primary key
+	d.comparePrimaryKey(codeTable, dbTable, &diff)
+
+	// Compare indexes
+	d.compareIndexes(codeTable, dbTable, &diff)
+
+	// Compare foreign keys
+	d.compareForeignKeys(codeTable, dbTable, &diff)
+
+	// Compare constraints
+	d.compareConstraints(codeTable, dbTable, &diff)
+
+	return diff
+}
+
+// compareColumns compares columns between code and database.
+func (d *Differ) compareColumns(codeTable, dbTable *schema.TableMetadata, diff *TableDiff) {
+	// Build maps for easier lookup
+	codeColumns := make(map[string]schema.ColumnMetadata)
+	for _, col := range codeTable.Columns {
+		codeColumns[col.Name] = col
+	}
+
+	dbColumns := make(map[string]schema.ColumnMetadata)
+	for _, col := range dbTable.Columns {
+		dbColumns[col.Name] = col
+	}
+
+	// Find columns to add (in code but not in DB)
+	for colName, codeCol := range codeColumns {
+		if _, exists := dbColumns[colName]; !exists {
+			diff.ColumnsAdded = append(diff.ColumnsAdded, codeCol)
+		}
+	}
+
+	// Find columns to drop (in DB but not in code)
+	for colName := range dbColumns {
+		if _, exists := codeColumns[colName]; !exists {
+			diff.ColumnsDropped = append(diff.ColumnsDropped, colName)
+		}
+	}
+
+	// Find modified columns (exist in both but differ)
+	for colName, codeCol := range codeColumns {
+		if dbCol, exists := dbColumns[colName]; exists {
+			colDiff := d.compareColumn(codeCol, dbCol)
+			if colDiff.hasChanges() {
+				diff.ColumnsModified = append(diff.ColumnsModified, colDiff)
+			}
+		}
+	}
+}
+
+// compareColumn compares two versions of the same column.
+func (d *Differ) compareColumn(codeCol, dbCol schema.ColumnMetadata) ColumnDiff {
+	diff := ColumnDiff{
+		ColumnName: codeCol.Name,
+		OldColumn:  dbCol,
+		NewColumn:  codeCol,
+	}
+
+	// Compare SQL type (normalize for comparison)
+	diff.TypeChanged = !d.isSameType(codeCol.SQLType, dbCol.SQLType)
+
+	// Compare nullability
+	diff.NullChanged = (codeCol.Nullable != dbCol.Nullable)
+
+	// Compare default value
+	diff.DefaultChanged = !d.isSameDefault(codeCol.Default, dbCol.Default)
+
+	return diff
+}
+
+// hasChanges returns true if the column has any changes.
+func (c *ColumnDiff) hasChanges() bool {
+	return c.TypeChanged || c.NullChanged || c.DefaultChanged
+}
+
+// comparePrimaryKey compares primary keys.
+func (d *Differ) comparePrimaryKey(codeTable, dbTable *schema.TableMetadata, diff *TableDiff) {
+	codePK := codeTable.PrimaryKey
+	dbPK := dbTable.PrimaryKey
+
+	// Both nil - no change
+	if codePK == nil && dbPK == nil {
+		return
+	}
+
+	// One is nil - change
+	if (codePK == nil) != (dbPK == nil) {
+		diff.PrimaryKeyChanged = &PrimaryKeyChange{
+			Old: dbPK,
+			New: codePK,
+		}
+		return
+	}
+
+	// Both exist - compare columns
+	if !d.isSameStringSlice(codePK.Columns, dbPK.Columns) {
+		diff.PrimaryKeyChanged = &PrimaryKeyChange{
+			Old: dbPK,
+			New: codePK,
+		}
+	}
+}
+
+// compareIndexes compares indexes.
+func (d *Differ) compareIndexes(codeTable, dbTable *schema.TableMetadata, diff *TableDiff) {
+	// Build maps for easier lookup
+	codeIndexes := make(map[string]schema.IndexMetadata)
+	for _, idx := range codeTable.Indexes {
+		codeIndexes[idx.Name] = idx
+	}
+
+	dbIndexes := make(map[string]schema.IndexMetadata)
+	for _, idx := range dbTable.Indexes {
+		dbIndexes[idx.Name] = idx
+	}
+
+	// Find indexes to add
+	for idxName, codeIdx := range codeIndexes {
+		if _, exists := dbIndexes[idxName]; !exists {
+			diff.IndexesAdded = append(diff.IndexesAdded, codeIdx)
+		}
+	}
+
+	// Find indexes to drop
+	for idxName := range dbIndexes {
+		if _, exists := codeIndexes[idxName]; !exists {
+			diff.IndexesDropped = append(diff.IndexesDropped, idxName)
+		}
+	}
+}
+
+// compareForeignKeys compares foreign keys.
+func (d *Differ) compareForeignKeys(codeTable, dbTable *schema.TableMetadata, diff *TableDiff) {
+	// Build maps for easier lookup
+	codeFKs := make(map[string]schema.ForeignKeyMetadata)
+	for _, fk := range codeTable.ForeignKeys {
+		codeFKs[fk.Name] = fk
+	}
+
+	dbFKs := make(map[string]schema.ForeignKeyMetadata)
+	for _, fk := range dbTable.ForeignKeys {
+		dbFKs[fk.Name] = fk
+	}
+
+	// Find foreign keys to add
+	for fkName, codeFk := range codeFKs {
+		if _, exists := dbFKs[fkName]; !exists {
+			diff.ForeignKeysAdded = append(diff.ForeignKeysAdded, codeFk)
+		}
+	}
+
+	// Find foreign keys to drop
+	for fkName := range dbFKs {
+		if _, exists := codeFKs[fkName]; !exists {
+			diff.ForeignKeysDropped = append(diff.ForeignKeysDropped, fkName)
+		}
+	}
+}
+
+// compareConstraints compares check constraints.
+func (d *Differ) compareConstraints(codeTable, dbTable *schema.TableMetadata, diff *TableDiff) {
+	// Build maps for easier lookup
+	codeConstraints := make(map[string]schema.ConstraintMetadata)
+	for _, c := range codeTable.Constraints {
+		codeConstraints[c.Name] = c
+	}
+
+	dbConstraints := make(map[string]schema.ConstraintMetadata)
+	for _, c := range dbTable.Constraints {
+		dbConstraints[c.Name] = c
+	}
+
+	// Find constraints to add
+	for cName, codeC := range codeConstraints {
+		if _, exists := dbConstraints[cName]; !exists {
+			diff.ConstraintsAdded = append(diff.ConstraintsAdded, codeC)
+		}
+	}
+
+	// Find constraints to drop
+	for cName := range dbConstraints {
+		if _, exists := codeConstraints[cName]; !exists {
+			diff.ConstraintsDropped = append(diff.ConstraintsDropped, cName)
+		}
+	}
+}
+
+// Helper functions
+
+// isSameType compares SQL types, normalizing for common variations.
+func (d *Differ) isSameType(type1, type2 string) bool {
+	// Normalize types
+	t1 := d.normalizeType(type1)
+	t2 := d.normalizeType(type2)
+
+	return t1 == t2
+}
+
+// normalizeType normalizes SQL type strings for comparison.
+func (d *Differ) normalizeType(sqlType string) string {
+	// Convert to lowercase
+	normalized := strings.ToLower(strings.TrimSpace(sqlType))
+
+	// Handle common aliases
+	switch normalized {
+	case "int", "int4":
+		return "integer"
+	case "int2":
+		return "smallint"
+	case "int8":
+		return "bigint"
+	case "float4":
+		return "real"
+	case "float8":
+		return "double precision"
+	case "bool":
+		return "boolean"
+	case "serial4":
+		return "serial"
+	case "serial8":
+		return "bigserial"
+	}
+
+	// Remove extra whitespace
+	normalized = strings.Join(strings.Fields(normalized), " ")
+
+	return normalized
+}
+
+// isSameDefault compares default values.
+func (d *Differ) isSameDefault(default1, default2 *string) bool {
+	// Both nil - same
+	if default1 == nil && default2 == nil {
+		return true
+	}
+
+	// One nil - different
+	if (default1 == nil) != (default2 == nil) {
+		return false
+	}
+
+	// Normalize and compare
+	d1 := d.normalizeDefault(*default1)
+	d2 := d.normalizeDefault(*default2)
+
+	return d1 == d2
+}
+
+// normalizeDefault normalizes default value expressions.
+func (d *Differ) normalizeDefault(defaultVal string) string {
+	// Remove quotes and extra whitespace
+	normalized := strings.TrimSpace(defaultVal)
+
+	// Remove surrounding parentheses if both are present
+	if strings.HasPrefix(normalized, "(") && strings.HasSuffix(normalized, ")") {
+		normalized = strings.TrimPrefix(normalized, "(")
+		normalized = strings.TrimSuffix(normalized, ")")
+	}
+
+	// Handle type casts (::type)
+	if idx := strings.Index(normalized, "::"); idx != -1 {
+		normalized = normalized[:idx]
+	}
+
+	return strings.TrimSpace(normalized)
+}
+
+// isSameStringSlice compares two string slices (order matters).
+func (d *Differ) isSameStringSlice(slice1, slice2 []string) bool {
+	if len(slice1) != len(slice2) {
+		return false
+	}
+
+	for i := range slice1 {
+		if slice1[i] != slice2[i] {
+			return false
+		}
+	}
+
+	return true
+}

@@ -1,0 +1,156 @@
+// Package schema provides schema definition and metadata structures for the ORM.
+package schema
+
+import "reflect"
+
+// TableMetadata represents a database table with all its metadata.
+type TableMetadata struct {
+	Name          string                 // Table name in database
+	GoType        reflect.Type           // Go struct type
+	Columns       []ColumnMetadata       // Table columns
+	PrimaryKey    *PrimaryKeyMetadata    // Primary key definition
+	ForeignKeys   []ForeignKeyMetadata   // Foreign key constraints
+	Indexes       []IndexMetadata        // Table indexes
+	Constraints   []ConstraintMetadata   // Additional constraints
+	Relationships []RelationshipMetadata // Relationships to other tables
+	Comment       string                 // Table comment
+}
+
+// ColumnMetadata represents a single column in a table.
+type ColumnMetadata struct {
+	Name          string       // Column name in database
+	GoField       string       // Go struct field name
+	GoType        reflect.Type // Go field type
+	SQLType       string       // PostgreSQL type (e.g., "varchar(255)", "uuid")
+	Nullable      bool         // Can column be NULL
+	Default       *string      // Default value expression
+	Unique        bool         // UNIQUE constraint
+	AutoIncrement bool         // AUTO_INCREMENT / SERIAL
+	Comment       string       // Column comment
+	Position      int          // Column position in struct
+}
+
+// PrimaryKeyMetadata represents a primary key constraint.
+type PrimaryKeyMetadata struct {
+	Columns []string // Column names in the primary key
+	Name    string   // Constraint name (e.g., "users_pkey")
+}
+
+// ForeignKeyMetadata represents a foreign key constraint.
+type ForeignKeyMetadata struct {
+	Name           string   // Constraint name
+	Columns        []string // Local column names
+	ReferencedTable string   // Referenced table name
+	ReferencedColumns []string // Referenced column names
+	OnDelete       ReferenceAction // ON DELETE action
+	OnUpdate       ReferenceAction // ON UPDATE action
+}
+
+// IndexMetadata represents a database index.
+type IndexMetadata struct {
+	Name    string   // Index name
+	Columns []string // Indexed columns
+	Unique  bool     // UNIQUE index
+	Type    string   // Index type (btree, hash, gin, etc.)
+}
+
+// ConstraintMetadata represents additional constraints (CHECK, etc.).
+type ConstraintMetadata struct {
+	Name       string         // Constraint name
+	Type       ConstraintType // Constraint type
+	Expression string         // CHECK expression or other definition
+}
+
+// RelationshipMetadata represents relationships between tables.
+type RelationshipMetadata struct {
+	Type          RelationType // Relationship type
+	SourceTable   string       // Source table name
+	SourceField   string       // Source Go field name
+	TargetTable   string       // Target table name
+	TargetField   string       // Target Go field name
+	ForeignKey    string       // Foreign key column
+	References    string       // Referenced column
+	JoinTable     *string      // Junction table for many-to-many
+	InverseField  *string      // Inverse relationship field
+}
+
+// RelationType defines the type of relationship between tables.
+type RelationType string
+
+const (
+	// BelongsTo represents a many-to-one relationship.
+	BelongsTo RelationType = "belongsTo"
+	// HasOne represents a one-to-one relationship.
+	HasOne RelationType = "hasOne"
+	// HasMany represents a one-to-many relationship.
+	HasMany RelationType = "hasMany"
+	// ManyToMany represents a many-to-many relationship.
+	ManyToMany RelationType = "manyToMany"
+)
+
+// ReferenceAction defines the action for foreign key constraints.
+type ReferenceAction string
+
+const (
+	// NoAction means no action on referenced row changes.
+	NoAction ReferenceAction = "NO ACTION"
+	// Restrict prevents referenced row changes.
+	Restrict ReferenceAction = "RESTRICT"
+	// Cascade propagates changes to referencing rows.
+	Cascade ReferenceAction = "CASCADE"
+	// SetNull sets referencing columns to NULL.
+	SetNull ReferenceAction = "SET NULL"
+	// SetDefault sets referencing columns to their default values.
+	SetDefault ReferenceAction = "SET DEFAULT"
+)
+
+// ConstraintType defines the type of constraint.
+type ConstraintType string
+
+const (
+	// CheckConstraint represents a CHECK constraint.
+	CheckConstraint ConstraintType = "CHECK"
+	// ExclusionConstraint represents an EXCLUDE constraint.
+	ExclusionConstraint ConstraintType = "EXCLUDE"
+)
+
+// GetColumnByName returns a column by its database name.
+func (t *TableMetadata) GetColumnByName(name string) *ColumnMetadata {
+	for i := range t.Columns {
+		if t.Columns[i].Name == name {
+			return &t.Columns[i]
+		}
+	}
+	return nil
+}
+
+// GetColumnByField returns a column by its Go field name.
+func (t *TableMetadata) GetColumnByField(field string) *ColumnMetadata {
+	for i := range t.Columns {
+		if t.Columns[i].GoField == field {
+			return &t.Columns[i]
+		}
+	}
+	return nil
+}
+
+// PrimaryKeyColumns returns the names of primary key columns.
+func (t *TableMetadata) PrimaryKeyColumns() []string {
+	if t.PrimaryKey == nil {
+		return nil
+	}
+	return t.PrimaryKey.Columns
+}
+
+// IsPrimaryKey checks if a column is part of the primary key.
+func (t *TableMetadata) IsPrimaryKey(columnName string) bool {
+	if t.PrimaryKey == nil {
+		return false
+	}
+	for _, col := range t.PrimaryKey.Columns {
+		if col == columnName {
+			return true
+		}
+	}
+	return false
+}

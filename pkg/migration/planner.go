@@ -1,0 +1,309 @@
+package migration
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/marshallshelly/pebble-orm/pkg/schema"
+)
+
+// Planner generates SQL migration statements from schema diffs.
+type Planner struct{}
+
+// NewPlanner creates a new migration planner.
+func NewPlanner() *Planner {
+	return &Planner{}
+}
+
+// GenerateMigration generates up and down SQL from a schema diff.
+func (p *Planner) GenerateMigration(diff *SchemaDiff) (upSQL, downSQL string) {
+	var upStatements []string
+	var downStatements []string
+
+	// Generate CREATE TABLE statements (up) and DROP TABLE statements (down)
+	for _, table := range diff.TablesAdded {
+		upStatements = append(upStatements, p.generateCreateTable(&table))
+		downStatements = append(downStatements, p.generateDropTable(table.Name))
+	}
+
+	// Generate DROP TABLE statements (up) and CREATE TABLE statements (down)
+	// Note: For dropped tables, we can't recreate them perfectly in down migration
+	// without storing the schema, so we just generate comments
+	for _, tableName := range diff.TablesDropped {
+		upStatements = append(upStatements, p.generateDropTable(tableName))
+		downStatements = append(downStatements, fmt.Sprintf("-- TODO: Recreate table %s", tableName))
+	}
+
+	// Generate ALTER TABLE statements for modified tables
+	for _, tableDiff := range diff.TablesModified {
+		upAlter, downAlter := p.generateAlterTable(tableDiff)
+		upStatements = append(upStatements, upAlter...)
+		downStatements = append(downStatements, downAlter...)
+	}
+
+	// Join statements
+	up := strings.Join(upStatements, "\n\n") + "\n"
+	down := strings.Join(downStatements, "\n\n") + "\n"
+
+	return up, down
+}
+
+// generateCreateTable generates a CREATE TABLE statement.
+func (p *Planner) generateCreateTable(table *schema.TableMetadata) string {
+	var parts []string
+
+	// Columns
+	for _, col := range table.Columns {
+		parts = append(parts, "    "+p.generateColumnDefinition(col))
+	}
+
+	// Primary key
+	if table.PrimaryKey != nil && len(table.PrimaryKey.Columns) > 0 {
+		pkCols := strings.Join(table.PrimaryKey.Columns, ", ")
+		parts = append(parts, fmt.Sprintf("    CONSTRAINT %s PRIMARY KEY (%s)", table.PrimaryKey.Name, pkCols))
+	}
+
+	// Foreign keys
+	for _, fk := range table.ForeignKeys {
+		parts = append(parts, "    "+p.generateForeignKeyDefinition(fk))
+	}
+
+	// Check constraints
+	for _, constraint := range table.Constraints {
+		if constraint.Type == schema.CheckConstraint {
+			parts = append(parts, fmt.Sprintf("    CONSTRAINT %s CHECK %s", constraint.Name, constraint.Expression))
+		}
+	}
+
+	sql := fmt.Sprintf("CREATE TABLE %s (\n%s\n);", table.Name, strings.Join(parts, ",\n"))
+
+	// Indexes (separate statements)
+	var indexStatements []string
+	for _, idx := range table.Indexes {
+		indexStatements = append(indexStatements, p.generateCreateIndex(table.Name, idx))
+	}
+
+	if len(indexStatements) > 0 {
+		sql += "\n\n" + strings.Join(indexStatements, "\n")
+	}
+
+	return sql
+}
+
+// generateColumnDefinition generates a column definition.
+func (p *Planner) generateColumnDefinition(col schema.ColumnMetadata) string {
+	parts := []string{col.Name, col.SQLType}
+
+	if !col.Nullable {
+		parts = append(parts, "NOT NULL")
+	}
+
+	if col.Default != nil {
+		parts = append(parts, "DEFAULT", *col.Default)
+	}
+
+	if col.Unique {
+		parts = append(parts, "UNIQUE")
+	}
+
+	return strings.Join(parts, " ")
+}
+
+// generateForeignKeyDefinition generates a foreign key constraint.
+func (p *Planner) generateForeignKeyDefinition(fk schema.ForeignKeyMetadata) string {
+	localCols := strings.Join(fk.Columns, ", ")
+	refCols := strings.Join(fk.ReferencedColumns, ", ")
+
+	parts := []string{
+		fmt.Sprintf("CONSTRAINT %s FOREIGN KEY (%s)", fk.Name, localCols),
+		fmt.Sprintf("REFERENCES %s (%s)", fk.ReferencedTable, refCols),
+	}
+
+	if fk.OnDelete != schema.NoAction && fk.OnDelete != "" {
+		parts = append(parts, "ON DELETE "+string(fk.OnDelete))
+	}
+
+	if fk.OnUpdate != schema.NoAction && fk.OnUpdate != "" {
+		parts = append(parts, "ON UPDATE "+string(fk.OnUpdate))
+	}
+
+	return strings.Join(parts, " ")
+}
+
+// generateCreateIndex generates a CREATE INDEX statement.
+func (p *Planner) generateCreateIndex(tableName string, idx schema.IndexMetadata) string {
+	unique := ""
+	if idx.Unique {
+		unique = "UNIQUE "
+	}
+
+	method := ""
+	if idx.Type != "" && idx.Type != "btree" {
+		method = " USING " + idx.Type
+	}
+
+	cols := strings.Join(idx.Columns, ", ")
+	return fmt.Sprintf("CREATE %sINDEX %s ON %s%s (%s);", unique, idx.Name, tableName, method, cols)
+}
+
+// generateDropTable generates a DROP TABLE statement.
+func (p *Planner) generateDropTable(tableName string) string {
+	return fmt.Sprintf("DROP TABLE IF EXISTS %s;", tableName)
+}
+
+// generateAlterTable generates ALTER TABLE statements for table modifications.
+func (p *Planner) generateAlterTable(diff TableDiff) (upSQL, downSQL []string) {
+	tableName := diff.TableName
+
+	// Add columns
+	for _, col := range diff.ColumnsAdded {
+		upSQL = append(upSQL, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s;",
+			tableName, p.generateColumnDefinition(col)))
+		downSQL = append(downSQL, fmt.Sprintf("ALTER TABLE %s DROP COLUMN IF EXISTS %s;",
+			tableName, col.Name))
+	}
+
+	// Drop columns
+	for _, colName := range diff.ColumnsDropped {
+		upSQL = append(upSQL, fmt.Sprintf("ALTER TABLE %s DROP COLUMN IF EXISTS %s;",
+			tableName, colName))
+		downSQL = append(downSQL, fmt.Sprintf("-- TODO: Re-add column %s to table %s", colName, tableName))
+	}
+
+	// Modify columns
+	for _, colDiff := range diff.ColumnsModified {
+		alterUp, alterDown := p.generateColumnModification(tableName, colDiff)
+		upSQL = append(upSQL, alterUp...)
+		downSQL = append(downSQL, alterDown...)
+	}
+
+	// Primary key changes
+	if diff.PrimaryKeyChanged != nil {
+		pkUp, pkDown := p.generatePrimaryKeyChange(tableName, diff.PrimaryKeyChanged)
+		upSQL = append(upSQL, pkUp...)
+		downSQL = append(downSQL, pkDown...)
+	}
+
+	// Add indexes
+	for _, idx := range diff.IndexesAdded {
+		upSQL = append(upSQL, p.generateCreateIndex(tableName, idx))
+		downSQL = append(downSQL, fmt.Sprintf("DROP INDEX IF EXISTS %s;", idx.Name))
+	}
+
+	// Drop indexes
+	for _, idxName := range diff.IndexesDropped {
+		upSQL = append(upSQL, fmt.Sprintf("DROP INDEX IF EXISTS %s;", idxName))
+		downSQL = append(downSQL, fmt.Sprintf("-- TODO: Recreate index %s", idxName))
+	}
+
+	// Add foreign keys
+	for _, fk := range diff.ForeignKeysAdded {
+		upSQL = append(upSQL, fmt.Sprintf("ALTER TABLE %s ADD %s;",
+			tableName, p.generateForeignKeyDefinition(fk)))
+		downSQL = append(downSQL, fmt.Sprintf("ALTER TABLE %s DROP CONSTRAINT IF EXISTS %s;",
+			tableName, fk.Name))
+	}
+
+	// Drop foreign keys
+	for _, fkName := range diff.ForeignKeysDropped {
+		upSQL = append(upSQL, fmt.Sprintf("ALTER TABLE %s DROP CONSTRAINT IF EXISTS %s;",
+			tableName, fkName))
+		downSQL = append(downSQL, fmt.Sprintf("-- TODO: Re-add foreign key %s", fkName))
+	}
+
+	// Add constraints
+	for _, c := range diff.ConstraintsAdded {
+		upSQL = append(upSQL, fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s CHECK %s;",
+			tableName, c.Name, c.Expression))
+		downSQL = append(downSQL, fmt.Sprintf("ALTER TABLE %s DROP CONSTRAINT IF EXISTS %s;",
+			tableName, c.Name))
+	}
+
+	// Drop constraints
+	for _, cName := range diff.ConstraintsDropped {
+		upSQL = append(upSQL, fmt.Sprintf("ALTER TABLE %s DROP CONSTRAINT IF EXISTS %s;",
+			tableName, cName))
+		downSQL = append(downSQL, fmt.Sprintf("-- TODO: Re-add constraint %s", cName))
+	}
+
+	return upSQL, downSQL
+}
+
+// generateColumnModification generates ALTER statements for column changes.
+func (p *Planner) generateColumnModification(tableName string, colDiff ColumnDiff) (upSQL, downSQL []string) {
+	colName := colDiff.ColumnName
+
+	// Type change
+	if colDiff.TypeChanged {
+		upSQL = append(upSQL, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s TYPE %s;",
+			tableName, colName, colDiff.NewColumn.SQLType))
+		downSQL = append(downSQL, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s TYPE %s;",
+			tableName, colName, colDiff.OldColumn.SQLType))
+	}
+
+	// Nullability change
+	if colDiff.NullChanged {
+		if colDiff.NewColumn.Nullable {
+			upSQL = append(upSQL, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s DROP NOT NULL;",
+				tableName, colName))
+			downSQL = append(downSQL, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s SET NOT NULL;",
+				tableName, colName))
+		} else {
+			upSQL = append(upSQL, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s SET NOT NULL;",
+				tableName, colName))
+			downSQL = append(downSQL, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s DROP NOT NULL;",
+				tableName, colName))
+		}
+	}
+
+	// Default value change
+	if colDiff.DefaultChanged {
+		if colDiff.NewColumn.Default != nil {
+			upSQL = append(upSQL, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s SET DEFAULT %s;",
+				tableName, colName, *colDiff.NewColumn.Default))
+		} else {
+			upSQL = append(upSQL, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT;",
+				tableName, colName))
+		}
+
+		if colDiff.OldColumn.Default != nil {
+			downSQL = append(downSQL, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s SET DEFAULT %s;",
+				tableName, colName, *colDiff.OldColumn.Default))
+		} else {
+			downSQL = append(downSQL, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT;",
+				tableName, colName))
+		}
+	}
+
+	return upSQL, downSQL
+}
+
+// generatePrimaryKeyChange generates ALTER statements for primary key changes.
+func (p *Planner) generatePrimaryKeyChange(tableName string, pkChange *PrimaryKeyChange) (upSQL, downSQL []string) {
+	// Drop old primary key
+	if pkChange.Old != nil {
+		upSQL = append(upSQL, fmt.Sprintf("ALTER TABLE %s DROP CONSTRAINT IF EXISTS %s;",
+			tableName, pkChange.Old.Name))
+	}
+
+	// Add new primary key
+	if pkChange.New != nil {
+		cols := strings.Join(pkChange.New.Columns, ", ")
+		upSQL = append(upSQL, fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s PRIMARY KEY (%s);",
+			tableName, pkChange.New.Name, cols))
+	}
+
+	// Reverse for down migration
+	if pkChange.New != nil {
+		downSQL = append(downSQL, fmt.Sprintf("ALTER TABLE %s DROP CONSTRAINT IF EXISTS %s;",
+			tableName, pkChange.New.Name))
+	}
+
+	if pkChange.Old != nil {
+		cols := strings.Join(pkChange.Old.Columns, ", ")
+		downSQL = append(downSQL, fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s PRIMARY KEY (%s);",
+			tableName, pkChange.Old.Name, cols))
+	}
+
+	return upSQL, downSQL
+}

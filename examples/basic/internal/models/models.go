@@ -1,0 +1,27 @@
+package models
+
+import "time"
+
+// table_name: users
+type User struct {
+	ID        string    `po:"id,primaryKey,uuid,default(gen_random_uuid())"`
+	Name      string    `po:"name,varchar(255),notNull"`
+	Email     string    `po:"email,varchar(320),unique,notNull"`
+	Age       int       `po:"age,integer,notNull"`
+	CreatedAt time.Time `po:"created_at,timestamptz,default(NOW()),notNull"`
+	UpdatedAt time.Time `po:"updated_at,timestamptz,default(NOW()),notNull"`
+}
+
+// table_name: posts
+type Post struct {
+	ID        string    `po:"id,primaryKey,uuid,default(gen_random_uuid())"`
+	Title     string    `po:"title,varchar(500),notNull"`
+	Content   string    `po:"content,text,notNull"`
+	AuthorID  string    `po:"author_id,uuid,notNull"`
+	Published bool      `po:"published,boolean,default(false),notNull"`
+	CreatedAt time.Time `po:"created_at,timestamptz,default(NOW()),notNull"`
+	UpdatedAt time.Time `po:"updated_at,timestamptz,default(NOW()),notNull"`
+
+	// Relationships
+	Author *User `po:"-,belongsTo,foreignKey(author_id),references(id)"`
+}
