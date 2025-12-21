@@ -40,20 +40,37 @@ archives:
       - LICENSE*
 
 checksum:
-  name_template: 'checksums.txt'
+  name_template: "checksums.txt"
 
 snapshot:
   version_template: "{{ incpatch .Version }}-next"
 
 changelog:
+  use: github
   sort: asc
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: Bug Fixes
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: Performance Improvements
+      regexp: '^.*?perf(\([[:word:]]+\))??!?:.+$'
+      order: 2
+    - title: Documentation
+      regexp: '^.*?docs(\([[:word:]]+\))??!?:.+$'
+      order: 3
+    - title: Other Changes
+      order: 999
   filters:
     exclude:
-      - '^docs:'
-      - '^test:'
-      - '^chore:'
-      - Merge pull request
-      - Merge branch
+      - "^test:"
+      - "^chore:"
+      - "^ci:"
+      - "Merge pull request"
+      - "Merge branch"
+      - "go mod tidy"
 
 release:
   github:
@@ -68,7 +85,7 @@ brews:
       owner: marshallshelly
       name: homebrew-tap
     homepage: https://github.com/marshallshelly/pebble-orm
-    description: Type-safe PostgreSQL ORM for Go
+    description: Type-safe PostgreSQL ORM for Go. Compile-time safety, runtime speed.
     license: MIT
     install: |
       bin.install "pebble"
