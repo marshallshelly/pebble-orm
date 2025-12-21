@@ -2,7 +2,7 @@
   <img src="assets/images/logo.png" alt="Pebble ORM Logo" width="200"/>
 </p>
 
-<h1 align="center">🪨 Pebble ORM</h1>
+<h1 align="center">Pebble ORM</h1>
 
 > **Type-safe PostgreSQL ORM for Go. Compile-time safety, runtime speed.**
 
