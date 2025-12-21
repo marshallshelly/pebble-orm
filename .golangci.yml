@@ -1,3 +1,5 @@
+version: 2
+
 linters:
   enable:
     - errcheck
@@ -7,9 +9,9 @@ linters:
     - staticcheck
     - unused
   disable:
-    - goconst    # Too strict for examples
-    - gocyclo    # Complex functions are sometimes necessary
-    - gosec      # File permissions warnings not critical
+    - goconst # Too strict for examples
+    - gocyclo # Complex functions are sometimes necessary
+    - gosec # File permissions warnings not critical
 
 linters-settings:
   errcheck:
