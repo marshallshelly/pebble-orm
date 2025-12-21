@@ -1,4 +1,8 @@
-# 🪨 Pebble ORM
+<p align="center">
+  <img src="assets/images/logo.png" alt="Pebble ORM Logo" width="200"/>
+</p>
+
+<h1 align="center">🪨 Pebble ORM</h1>
 
 > **Type-safe PostgreSQL ORM for Go. Compile-time safety, runtime speed.**
 
@@ -20,7 +24,6 @@ A production-ready ORM leveraging Go generics for type-safe queries, struct-tag 
 - **CASCADE DELETE**: Database-level foreign key constraints via tags
 - **Transactions**: Full transaction support with proper error handling
 - **PostgreSQL Features**: JSONB, arrays, UUID, geometric types, full-text search
-
 
 ## Quick Start
 
@@ -535,4 +538,3 @@ This project is inspired by:
 - [sqlc](https://sqlc.dev/) - Type safety from SQL
 
 ---
-
