@@ -69,9 +69,50 @@ CREATE TABLE IF NOT EXISTS people (
 
 ## Limitations
 
-- Generated columns **cannot** have `NOT NULL`, `DEFAULT`, or `UNIQUE` constraints
-- They are **read-only** - you cannot INSERT or UPDATE them directly
-- The expression can only reference columns in the same table
+Generated columns have specific constraints in PostgreSQL:
+
+### **Column Constraints:**
+
+- ❌ Cannot have `NOT NULL` constraint (use expression logic instead)
+- ❌ Cannot have `DEFAULT` value
+- ❌ Cannot have `IDENTITY` definition
+- ❌ Cannot have `UNIQUE` constraint directly (create separate index instead)
+- ✅ Can be indexed (create index separately)
+
+### **Expression Constraints:**
+
+- ❌ Cannot use subqueries
+- ❌ Cannot reference other generated columns
+- ❌ Cannot use volatile functions (`CURRENT_TIMESTAMP`, `RANDOM()`, etc.)
+- ❌ Cannot reference system columns (except `tableoid`)
+- ✅ Must use immutable functions only
+
+### **Table Constraints:**
+
+- ❌ Cannot be part of a partition key
+- ❌ Cannot be used in `BEFORE` triggers
+- ✅ Read-only - cannot INSERT or UPDATE directly
+
+### **Workarounds:**
+
+**For UNIQUE constraint:**
+
+```sql
+-- Instead of: column GENERATED ... UNIQUE
+-- Do this:
+CREATE UNIQUE INDEX idx_unique_column ON table_name (generated_column);
+```
+
+**For NOT NULL:**
+
+```go
+// Ensure source columns are NOT NULL instead
+type Person struct {
+    FirstName string `po:"first_name,notNull"`  // ✅ Source is NOT NULL
+    LastName  string `po:"last_name,notNull"`   // ✅ Source is NOT NULL
+    FullName  string `po:"full_name,generated:first_name || ' ' || last_name,stored"`
+}
+```
 
 ## Example Usage
 
