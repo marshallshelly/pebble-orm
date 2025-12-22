@@ -61,7 +61,7 @@ func main() {
 	fmt.Println("\nQuerying authors with their books (eager loading)...")
 	authors, err := builder.Select[models.Author](qb).
 		Preload("Books"). // ✅ Eagerly load the Books relationship
-		Where(builder.Eq("name", "J.K. Rowling")).
+		Where(builder.Eq(builder.Col[models.Author]("Name"), "J.K. Rowling")).
 		All(ctx)
 	if err != nil {
 		log.Fatalf("Failed to query authors: %v", err)
@@ -112,7 +112,7 @@ func main() {
 	fmt.Println("\nQuerying users with their profiles (eager loading)...")
 	users, err := builder.Select[models.User](qb).
 		Preload("Profile"). // ✅ Eagerly load the Profile relationship
-		Where(builder.Eq("email", "alice@example.com")).
+		Where(builder.Eq(builder.Col[models.User]("Email"), "alice@example.com")).
 		All(ctx)
 	if err != nil {
 		log.Fatalf("Failed to query users: %v", err)
@@ -134,8 +134,8 @@ func main() {
 	fmt.Println("\nQuerying books with their authors (eager loading)...")
 	booksResult, err := builder.Select[models.Book](qb).
 		Preload("Author"). // ✅ Eagerly load the Author relationship
-		Where(builder.Like("title", "%Harry Potter%")).
-		OrderByAsc("title").
+		Where(builder.Like(builder.Col[models.Book]("Title"), "%Harry Potter%")).
+		OrderByAsc(builder.Col[models.Book]("Title")).
 		All(ctx)
 	if err != nil {
 		log.Fatalf("Failed to query books: %v", err)
@@ -174,7 +174,7 @@ func main() {
 	fmt.Println("\nQuerying users with their roles (eager loading)...")
 	usersWithRoles, err := builder.Select[models.User](qb).
 		Preload("Roles"). // ✅ Eagerly load the Roles relationship (many-to-many)
-		Where(builder.Eq("email", "alice@example.com")).
+		Where(builder.Eq(builder.Col[models.User]("Email"), "alice@example.com")).
 		All(ctx)
 	if err != nil {
 		log.Fatalf("Failed to query users: %v", err)
@@ -195,7 +195,7 @@ func main() {
 	fmt.Println("\nQuerying with multiple relationships...")
 	authorsComplete, err := builder.Select[models.Author](qb).
 		Preload("Books"). // Load all books
-		Where(builder.Gt("id", 0)).
+		Where(builder.Gt(builder.Col[models.Author]("ID"), 0)).
 		All(ctx)
 	if err != nil {
 		log.Fatalf("Failed to query authors: %v", err)

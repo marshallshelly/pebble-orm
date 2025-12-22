@@ -110,7 +110,7 @@ func example2TransactionRollback(ctx context.Context, qb *builder.DB) error {
 	// Don't commit - defer will rollback
 	// Verify the account doesn't exist after rollback
 	count, _ := builder.Select[models.Account](qb).
-		Where(builder.Eq("user_id", 999)).
+		Where(builder.Eq(builder.Col[models.Account]("UserID"), 999)).
 		Count(ctx)
 
 	fmt.Printf("Accounts with user_id=999 after rollback: %d (should be 0)\n", count)
