@@ -33,7 +33,7 @@ example_name/
 docker run --name pebble-postgres \
   -e POSTGRES_PASSWORD=password \
   -p 5432:5432 \
-  -d postgres:16-alpine
+  -d postgres:alpine
 ```
 
 ## 📚 Examples
@@ -236,7 +236,6 @@ go run cmd/cascade_delete/main.go
 
 ---
 
-
 ## 🎯 Common Patterns
 
 ### Environment Configuration
@@ -390,7 +389,7 @@ After running the examples:
 ## 📝 Documentation
 
 - **Main README**: [`../README.md`](../README.md)
-- **Implementation Guide**: 
+- **Implementation Guide**:
 - **Migration Guide**: [`../PRODUCTION_STRUCTURE.md`](../PRODUCTION_STRUCTURE.md)
 
 ---

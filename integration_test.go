@@ -1,3 +1,4 @@
+//go:build integration
 // +build integration
 
 package pebbleorm_test
@@ -9,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/marshallshelly/pebble-orm/pkg/builder"
+	"github.com/marshallshelly/pebble-orm/pkg/migration"
 	"github.com/marshallshelly/pebble-orm/pkg/registry"
 	"github.com/marshallshelly/pebble-orm/pkg/runtime"
 	"github.com/marshallshelly/pebble-orm/pkg/schema"
@@ -16,15 +18,6 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
-
-// Helper function to convert []interface{} to typed slice
-func toTyped[T any](raw []interface{}) []T {
-	result := make([]T, len(raw))
-	for i, v := range raw {
-		result[i] = v.(T)
-	}
-	return result
-}
 
 // Test models
 type User struct {
@@ -37,10 +30,10 @@ type User struct {
 }
 
 type Post struct {
-	ID      int    `po:"id,primaryKey,serial"`
-	Title   string `po:"title,varchar(255),notNull"`
-	Content string `po:"content,text"`
-	UserID  int    `po:"user_id,integer,notNull"`
+	ID      int      `po:"id,primaryKey,serial"`
+	Title   string   `po:"title,varchar(255),notNull"`
+	Content string   `po:"content,text"`
+	UserID  int      `po:"user_id,integer,notNull"`
 	Tags    []string `po:"tags,text[]"`
 }
 
@@ -56,7 +49,7 @@ func setupTestDB(t *testing.T) (*postgres.PostgresContainer, string, func()) {
 	ctx := context.Background()
 
 	pgContainer, err := postgres.Run(ctx,
-		"postgres:16-alpine",
+		"postgres:alpine",
 		postgres.WithDatabase("testdb"),
 		postgres.WithUsername("testuser"),
 		postgres.WithPassword("testpass"),
@@ -83,38 +76,54 @@ func setupTestDB(t *testing.T) (*postgres.PostgresContainer, string, func()) {
 	return pgContainer, connStr, cleanup
 }
 
-// createTestSchema creates the test schema
+// createTestSchema creates the test schema using Pebble ORM's migration system
 func createTestSchema(t *testing.T, pool *pgxpool.Pool) {
 	ctx := context.Background()
 
-	queries := []string{
-		`CREATE TABLE IF NOT EXISTS users (
-			id SERIAL PRIMARY KEY,
-			name VARCHAR(100) NOT NULL,
-			email VARCHAR(255) UNIQUE NOT NULL,
-			age INTEGER,
-			active BOOLEAN DEFAULT true,
-			created_at TIMESTAMP DEFAULT NOW()
-		)`,
-		`CREATE TABLE IF NOT EXISTS posts (
-			id SERIAL PRIMARY KEY,
-			title VARCHAR(255) NOT NULL,
-			content TEXT,
-			user_id INTEGER NOT NULL,
-			tags TEXT[]
-		)`,
-		`CREATE TABLE IF NOT EXISTS user_profiles (
-			id SERIAL PRIMARY KEY,
-			user_id INTEGER NOT NULL UNIQUE,
-			bio TEXT,
-			metadata JSONB
-		)`,
+	// Register all test models
+	if err := registry.Register(User{}); err != nil {
+		t.Fatalf("Failed to register User: %v", err)
+	}
+	if err := registry.Register(Post{}); err != nil {
+		t.Fatalf("Failed to register Post: %v", err)
+	}
+	if err := registry.Register(UserProfile{}); err != nil {
+		t.Fatalf("Failed to register UserProfile: %v", err)
 	}
 
-	for _, query := range queries {
-		if _, err := pool.Exec(ctx, query); err != nil {
-			t.Fatalf("Failed to create schema: %v", err)
+	// Get code schema from registered models
+	codeSchema := registry.GetAllTables()
+
+	// Create migration executor
+	executor := migration.NewExecutor(pool, "./test_migrations")
+
+	// Initialize schema_migrations table
+	if err := executor.Initialize(ctx); err != nil {
+		t.Fatalf("Failed to initialize migrations: %v", err)
+	}
+
+	// Introspect current database (should be empty)
+	introspector := migration.NewIntrospector(pool)
+	dbSchema, err := introspector.IntrospectSchema(ctx)
+	if err != nil {
+		t.Fatalf("Failed to introspect schema: %v", err)
+	}
+
+	// Compare schemas to get diff
+	differ := migration.NewDiffer()
+	diff := differ.Compare(codeSchema, dbSchema)
+
+	if diff.HasChanges() {
+		// Generate migration SQL
+		planner := migration.NewPlanner()
+		upSQL, _ := planner.GenerateMigration(diff)
+
+		// Execute the up migration directly (no need for file generation in tests)
+		if _, err := pool.Exec(ctx, upSQL); err != nil {
+			t.Fatalf("Failed to execute migration: %v\n%s", err, upSQL)
 		}
+
+		t.Logf("Created test schema using Pebble ORM migrations ✅")
 	}
 }
 
@@ -131,14 +140,11 @@ func TestIntegration_BasicCRUD(t *testing.T) {
 	}
 	defer runtimeDB.Close()
 
-	// Create schema
+	// Create schema (this also registers models)
 	createTestSchema(t, runtimeDB.Pool())
 
-	// Register models
-	registry.Register(User{})
-
 	// Create DB instance
-	db := builder.New(runtimeDB)
+	qb := builder.New(runtimeDB)
 
 	// Test INSERT
 	t.Run("INSERT", func(t *testing.T) {
@@ -148,7 +154,7 @@ func TestIntegration_BasicCRUD(t *testing.T) {
 			Age:   30,
 		}
 
-		usersRaw, err := db.Insert(User{}).
+		insertedUsers, err := builder.Insert[User](qb).
 			Values(newUser).
 			Returning("*").
 			ExecReturning(ctx)
@@ -157,28 +163,24 @@ func TestIntegration_BasicCRUD(t *testing.T) {
 			t.Fatalf("Failed to insert user: %v", err)
 		}
 
-		users := toTyped[User](usersRaw)
-
-		if len(users) != 1 {
-			t.Fatalf("Expected 1 user, got %d", len(users))
+		if len(insertedUsers) != 1 {
+			t.Fatalf("Expected 1 user, got %d", len(insertedUsers))
 		}
 
-		if users[0].Name != "John Doe" {
-			t.Errorf("Expected name 'John Doe', got '%s'", users[0].Name)
+		if insertedUsers[0].Name != "John Doe" {
+			t.Errorf("Expected name 'John Doe', got '%s'", insertedUsers[0].Name)
 		}
 	})
 
 	// Test SELECT
 	t.Run("SELECT", func(t *testing.T) {
-		usersRaw, err := db.Select(User{}).
+		users, err := builder.Select[User](qb).
 			Where(builder.Eq("email", "john@example.com")).
 			All(ctx)
 
 		if err != nil {
 			t.Fatalf("Failed to select user: %v", err)
 		}
-
-		users := toTyped[User](usersRaw)
 
 		if len(users) != 1 {
 			t.Fatalf("Expected 1 user, got %d", len(users))
@@ -191,7 +193,7 @@ func TestIntegration_BasicCRUD(t *testing.T) {
 
 	// Test UPDATE
 	t.Run("UPDATE", func(t *testing.T) {
-		count, err := db.Update(User{}).
+		count, err := builder.Update[User](qb).
 			Set("age", 31).
 			Where(builder.Eq("email", "john@example.com")).
 			Exec(ctx)
@@ -205,20 +207,26 @@ func TestIntegration_BasicCRUD(t *testing.T) {
 		}
 
 		// Verify update
-		usersRaw, _ := db.Select(User{}).
+		updatedUsers, err := builder.Select[User](qb).
 			Where(builder.Eq("email", "john@example.com")).
 			All(ctx)
 
-		users := toTyped[User](usersRaw)
+		if err != nil {
+			t.Fatalf("Failed to select user after update: %v", err)
+		}
 
-		if users[0].Age != 31 {
-			t.Errorf("Expected age 31, got %d", users[0].Age)
+		if len(updatedUsers) != 1 {
+			t.Fatalf("Expected 1 user after update, got %d", len(updatedUsers))
+		}
+
+		if updatedUsers[0].Age != 31 {
+			t.Errorf("Expected age 31, got %d", updatedUsers[0].Age)
 		}
 	})
 
 	// Test DELETE
 	t.Run("DELETE", func(t *testing.T) {
-		count, err := db.Delete(User{}).
+		count, err := builder.Delete[User](qb).
 			Where(builder.Eq("email", "john@example.com")).
 			Exec(ctx)
 
@@ -231,11 +239,13 @@ func TestIntegration_BasicCRUD(t *testing.T) {
 		}
 
 		// Verify deletion
-		usersRaw, _ := db.Select(User{}).
+		users, err := builder.Select[User](qb).
 			Where(builder.Eq("email", "john@example.com")).
 			All(ctx)
 
-		users := toTyped[User](usersRaw)
+		if err != nil {
+			t.Fatalf("Failed to select user after delete: %v", err)
+		}
 
 		if len(users) != 0 {
 			t.Errorf("Expected 0 users, got %d", len(users))
@@ -259,7 +269,7 @@ func TestIntegration_PostgreSQLFeatures(t *testing.T) {
 	registry.Register(Post{})
 	registry.Register(UserProfile{})
 
-	db := builder.New(runtimeDB)
+	qb := builder.New(runtimeDB)
 
 	t.Run("Array operations", func(t *testing.T) {
 		// Insert post with tags
@@ -270,7 +280,7 @@ func TestIntegration_PostgreSQLFeatures(t *testing.T) {
 			Tags:    []string{"golang", "tutorial", "programming"},
 		}
 
-		postsRaw, err := db.Insert(Post{}).
+		posts, err := builder.Insert[Post](qb).
 			Values(post).
 			Returning("*").
 			ExecReturning(ctx)
@@ -279,18 +289,14 @@ func TestIntegration_PostgreSQLFeatures(t *testing.T) {
 			t.Fatalf("Failed to insert post: %v", err)
 		}
 
-		posts := toTyped[Post](postsRaw)
-
 		// Query with array contains
-		foundPostsRaw, err := db.Select(Post{}).
+		foundPosts, err := builder.Select[Post](qb).
 			Where(builder.ArrayContains("tags", []string{"golang"})).
 			All(ctx)
 
 		if err != nil {
 			t.Fatalf("Failed to query posts: %v", err)
 		}
-
-		foundPosts := toTyped[Post](foundPostsRaw)
 
 		if len(foundPosts) != 1 {
 			t.Errorf("Expected 1 post, got %d", len(foundPosts))
@@ -313,7 +319,7 @@ func TestIntegration_PostgreSQLFeatures(t *testing.T) {
 			},
 		}
 
-		profilesRaw, err := db.Insert(UserProfile{}).
+		profiles, err := builder.Insert[UserProfile](qb).
 			Values(profile).
 			Returning("*").
 			ExecReturning(ctx)
@@ -322,18 +328,14 @@ func TestIntegration_PostgreSQLFeatures(t *testing.T) {
 			t.Fatalf("Failed to insert profile: %v", err)
 		}
 
-		profiles := toTyped[UserProfile](profilesRaw)
-
 		// Query with JSONB contains
-		foundProfilesRaw, err := db.Select(UserProfile{}).
+		foundProfiles, err := builder.Select[UserProfile](qb).
 			Where(builder.JSONBContains("metadata", `{"premium": true}`)).
 			All(ctx)
 
 		if err != nil {
 			t.Fatalf("Failed to query profiles: %v", err)
 		}
-
-		foundProfiles := toTyped[UserProfile](foundProfilesRaw)
 
 		if len(foundProfiles) != 1 {
 			t.Errorf("Expected 1 profile, got %d", len(foundProfiles))
@@ -360,10 +362,10 @@ func TestIntegration_Transactions(t *testing.T) {
 	createTestSchema(t, runtimeDB.Pool())
 	registry.Register(User{})
 
-	db := builder.New(runtimeDB)
+	qb := builder.New(runtimeDB)
 
 	t.Run("Commit transaction", func(t *testing.T) {
-		tx, err := db.Begin(ctx)
+		tx, err := qb.Begin(ctx)
 		if err != nil {
 			t.Fatalf("Failed to begin transaction: %v", err)
 		}
@@ -389,11 +391,9 @@ func TestIntegration_Transactions(t *testing.T) {
 		}
 
 		// Verify user exists
-		usersRaw, _ := db.Select(User{}).
+		users, _ := builder.Select[User](qb).
 			Where(builder.Eq("email", "jane@example.com")).
 			All(ctx)
-
-		users := toTyped[User](usersRaw)
 
 		if len(users) != 1 {
 			t.Errorf("Expected 1 user after commit, got %d", len(users))
@@ -401,7 +401,7 @@ func TestIntegration_Transactions(t *testing.T) {
 	})
 
 	t.Run("Rollback transaction", func(t *testing.T) {
-		tx, err := db.Begin(ctx)
+		tx, err := qb.Begin(ctx)
 		if err != nil {
 			t.Fatalf("Failed to begin transaction: %v", err)
 		}
@@ -425,11 +425,9 @@ func TestIntegration_Transactions(t *testing.T) {
 		// Rollback (via defer)
 
 		// Verify user doesn't exist
-		usersRaw, _ := db.Select(User{}).
+		users, _ := builder.Select[User](qb).
 			Where(builder.Eq("email", "bob@example.com")).
 			All(ctx)
-
-		users := toTyped[User](usersRaw)
 
 		if len(users) != 0 {
 			t.Errorf("Expected 0 users after rollback, got %d", len(users))
@@ -452,7 +450,7 @@ func TestIntegration_ComplexQueries(t *testing.T) {
 	createTestSchema(t, runtimeDB.Pool())
 	registry.Register(User{})
 
-	db := builder.New(runtimeDB)
+	qb := builder.New(runtimeDB)
 
 	// Insert test data
 	users := []User{
@@ -463,11 +461,11 @@ func TestIntegration_ComplexQueries(t *testing.T) {
 	}
 
 	for _, user := range users {
-		_, _ = db.Insert(User{}).Values(user).Exec(ctx)
+		_, _ = builder.Insert[User](qb).Values(user).Exec(ctx)
 	}
 
 	t.Run("Complex WHERE conditions", func(t *testing.T) {
-		resultsRaw, err := db.Select(User{}).
+		results, err := builder.Select[User](qb).
 			Where(builder.Gt("age", 25)).
 			And(builder.Eq("active", true)).
 			OrderByAsc("age").
@@ -476,8 +474,6 @@ func TestIntegration_ComplexQueries(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to query: %v", err)
 		}
-
-		results := toTyped[User](resultsRaw)
 
 		if len(results) != 2 { // Bob and Diana
 			t.Errorf("Expected 2 users, got %d", len(results))
@@ -491,7 +487,7 @@ func TestIntegration_ComplexQueries(t *testing.T) {
 		}
 
 		// Get count by active status
-		_, err := db.Select(User{}).
+		_, err := builder.Select[User](qb).
 			Columns("active", "COUNT(*) as count").
 			GroupBy("active").
 			OrderByAsc("active").
@@ -503,7 +499,7 @@ func TestIntegration_ComplexQueries(t *testing.T) {
 	})
 
 	t.Run("Pagination", func(t *testing.T) {
-		resultsRaw, err := db.Select(User{}).
+		results, err := builder.Select[User](qb).
 			OrderByAsc("age").
 			Limit(2).
 			Offset(1).
@@ -512,8 +508,6 @@ func TestIntegration_ComplexQueries(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to paginate: %v", err)
 		}
-
-		results := toTyped[User](resultsRaw)
 
 		if len(results) != 2 {
 			t.Errorf("Expected 2 users, got %d", len(results))
