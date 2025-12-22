@@ -4,6 +4,41 @@ All notable changes to Pebble ORM will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.5.0] - 2025-12-23
+
+### Added
+
+- **PostgreSQL Generated Columns**: Full support for `GENERATED ALWAYS AS` columns
+  - `STORED` generated columns (computed on INSERT/UPDATE)
+  - `VIRTUAL` type reserved for future PostgreSQL support
+  - Tag syntax: `po:"column_name,generated:EXPRESSION,stored"`
+  - Automatic SQL generation: `GENERATED ALWAYS AS (expression) STORED`
+  - Comprehensive test coverage
+
+### Features
+
+- **Automatic Computation**: Database computes values from other columns
+- **Type-Safe**: Defined in Go structs with struct tags
+- **Migration Support**: Generates correct DDL automatically
+- **Read-Only**: Generated columns cannot be manually set
+- **Indexable**: Can create indexes on generated columns
+
+### Examples
+
+```go
+type Person struct {
+    FirstName string `po:"first_name"`
+    LastName  string `po:"last_name"`
+    FullName  string `po:"full_name,generated:first_name || ' ' || last_name,stored"`
+}
+```
+
+### Documentation
+
+- Added comprehensive generated columns example
+- Updated parser to support colon format (`key:value`)
+- Added tests for schema parsing and SQL generation
+
 ## [1.4.0] - 2025-12-23
 
 ### Added

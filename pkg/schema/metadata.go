@@ -18,17 +18,36 @@ type TableMetadata struct {
 
 // ColumnMetadata represents a single column in a table.
 type ColumnMetadata struct {
-	Name          string       // Column name in database
-	GoField       string       // Go struct field name
-	GoType        reflect.Type // Go field type
-	SQLType       string       // PostgreSQL type (e.g., "varchar(255)", "uuid")
-	Nullable      bool         // Can column be NULL
-	Default       *string      // Default value expression
-	Unique        bool         // UNIQUE constraint
-	AutoIncrement bool         // AUTO_INCREMENT / SERIAL
-	Comment       string       // Column comment
-	Position      int          // Column position in struct
+	Name          string           // Column name in database
+	GoField       string           // Go struct field name
+	GoType        reflect.Type     // Go field type
+	SQLType       string           // PostgreSQL type (e.g., "varchar(255)", "uuid")
+	Nullable      bool             // Can column be NULL
+	Default       *string          // Default value expression
+	Unique        bool             // UNIQUE constraint
+	AutoIncrement bool             // AUTO_INCREMENT / SERIAL
+	Comment       string           // Column comment
+	Position      int              // Column position in struct
+	Generated     *GeneratedColumn // Generated column definition (nil if not generated)
 }
+
+// GeneratedColumn represents a PostgreSQL generated column.
+type GeneratedColumn struct {
+	Expression string         // SQL expression for the generated value
+	Type       GenerationType // STORED or VIRTUAL
+}
+
+// GenerationType specifies how a generated column is computed.
+type GenerationType string
+
+const (
+	// GeneratedStored means the column is computed on INSERT/UPDATE and stored in the table.
+	GeneratedStored GenerationType = "STORED"
+
+	// GeneratedVirtual means the column is computed on read (PostgreSQL 12+).
+	// Note: PostgreSQL currently only supports STORED, but VIRTUAL is reserved for future use.
+	GeneratedVirtual GenerationType = "VIRTUAL"
+)
 
 // PrimaryKeyMetadata represents a primary key constraint.
 type PrimaryKeyMetadata struct {
@@ -38,12 +57,12 @@ type PrimaryKeyMetadata struct {
 
 // ForeignKeyMetadata represents a foreign key constraint.
 type ForeignKeyMetadata struct {
-	Name           string   // Constraint name
-	Columns        []string // Local column names
-	ReferencedTable string   // Referenced table name
-	ReferencedColumns []string // Referenced column names
-	OnDelete       ReferenceAction // ON DELETE action
-	OnUpdate       ReferenceAction // ON UPDATE action
+	Name              string          // Constraint name
+	Columns           []string        // Local column names
+	ReferencedTable   string          // Referenced table name
+	ReferencedColumns []string        // Referenced column names
+	OnDelete          ReferenceAction // ON DELETE action
+	OnUpdate          ReferenceAction // ON UPDATE action
 }
 
 // IndexMetadata represents a database index.
@@ -63,15 +82,15 @@ type ConstraintMetadata struct {
 
 // RelationshipMetadata represents relationships between tables.
 type RelationshipMetadata struct {
-	Type          RelationType // Relationship type
-	SourceTable   string       // Source table name
-	SourceField   string       // Source Go field name
-	TargetTable   string       // Target table name
-	TargetField   string       // Target Go field name
-	ForeignKey    string       // Foreign key column
-	References    string       // Referenced column
-	JoinTable     *string      // Junction table for many-to-many
-	InverseField  *string      // Inverse relationship field
+	Type         RelationType // Relationship type
+	SourceTable  string       // Source table name
+	SourceField  string       // Source Go field name
+	TargetTable  string       // Target table name
+	TargetField  string       // Target Go field name
+	ForeignKey   string       // Foreign key column
+	References   string       // Referenced column
+	JoinTable    *string      // Junction table for many-to-many
+	InverseField *string      // Inverse relationship field
 }
 
 // RelationType defines the type of relationship between tables.

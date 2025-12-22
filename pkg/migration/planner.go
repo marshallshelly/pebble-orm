@@ -120,6 +120,17 @@ func (p *Planner) generateCreateTable(table *schema.TableMetadata) string {
 func (p *Planner) generateColumnDefinition(col schema.ColumnMetadata) string {
 	parts := []string{col.Name, col.SQLType}
 
+	// Generated columns cannot have NOT NULL, DEFAULT, or UNIQUE constraints
+	// as they are computed from other columns
+	if col.Generated != nil {
+		// GENERATED ALWAYS AS (expression) STORED
+		genClause := fmt.Sprintf("GENERATED ALWAYS AS (%s) %s",
+			col.Generated.Expression,
+			col.Generated.Type)
+		parts = append(parts, genClause)
+		return strings.Join(parts, " ")
+	}
+
 	if !col.Nullable {
 		parts = append(parts, "NOT NULL")
 	}

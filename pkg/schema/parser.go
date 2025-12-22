@@ -257,6 +257,20 @@ func (p *Parser) createColumnMetadata(field reflect.StructField, opts *TagOption
 	column.Unique = opts.Has("unique")
 	// Set auto-increment
 	column.AutoIncrement = opts.Has("autoIncrement") || opts.Has("serial")
+
+	// Parse generated column
+	if generatedExpr := opts.Get("generated"); generatedExpr != "" {
+		genType := GeneratedStored // Default to STORED
+		if opts.Has("virtual") {
+			genType = GeneratedVirtual
+		}
+
+		column.Generated = &GeneratedColumn{
+			Expression: generatedExpr,
+			Type:       genType,
+		}
+	}
+
 	return column
 }
 
@@ -286,13 +300,18 @@ func (p *Parser) parseTag(tag string) (*TagOptions, error) {
 	// Parse remaining options
 	for i := 1; i < len(parts); i++ {
 		opt := parts[i]
-		// Check if option has a value: option(value)
+		// Check if option has a value: option(value) or option:value
 		if idx := strings.Index(opt, "("); idx != -1 {
 			if !strings.HasSuffix(opt, ")") {
 				return nil, fmt.Errorf("invalid option format: %s", opt)
 			}
 			key := opt[:idx]
 			value := opt[idx+1 : len(opt)-1]
+			opts.Options[key] = value
+		} else if idx := strings.Index(opt, ":"); idx != -1 {
+			// Support colon format: key:value
+			key := opt[:idx]
+			value := opt[idx+1:]
 			opts.Options[key] = value
 		} else {
 			// Boolean option
