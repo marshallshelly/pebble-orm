@@ -4,6 +4,34 @@ All notable changes to Pebble ORM will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.4.0] - 2025-12-23
+
+### Added
+
+- **Safe Auto-Migrations**: Migrations are now idempotent by default
+  - `CREATE TABLE IF NOT EXISTS` instead of `CREATE TABLE`
+  - `CREATE INDEX IF NOT EXISTS` for all indexes
+  - Safe to run migrations multiple times without errors
+  - Configurable via `PlannerOptions.IfNotExists` (default: `true`)
+  - New `NewPlannerWithOptions()` for custom migration behavior
+
+### Benefits
+
+- ✅ Applications can restart without migration errors
+- ✅ Deployments are more robust
+- ✅ No manual error handling needed
+- ✅ Aligns with database migration best practices
+
+### Changed
+
+- **Migration Planner**: Now uses `PlannerOptions` struct for configuration
+- **Default Behavior**: All migrations include `IF NOT EXISTS` (safe by default)
+
+### Documentation
+
+- Added comprehensive test coverage for `PlannerOptions`
+- Updated all migration tests to expect `IF NOT EXISTS`
+
 ## [1.3.1] - 2025-12-22
 
 ### Documentation

@@ -74,17 +74,35 @@ func main() {
 		}
 	}
 
-	// Example 4: Generate migration SQL
-	fmt.Println("\n--- Example 4: Migration SQL Generation ---")
+	// Example 4: Generate migration SQL (Safe by Default)
+	fmt.Println("\n--- Example 4: Safe Migration SQL Generation ---")
 	if diff.HasChanges() {
+		// Default: Safe migrations with IF NOT EXISTS
 		planner := migration.NewPlanner()
 		upSQL, downSQL := planner.GenerateMigration(diff)
 
-		fmt.Println("✅ Generated migration SQL:\n")
-		fmt.Println("UP Migration (apply changes):")
+		fmt.Println("✅ Generated SAFE migration SQL (idempotent):\n")
+		fmt.Println("UP Migration (apply changes - safe to run multiple times):")
 		fmt.Println(upSQL)
 		fmt.Println("\nDOWN Migration (revert changes):")
 		fmt.Println(downSQL)
+
+		fmt.Println("\n💡 Note: Migrations include 'IF NOT EXISTS' by default")
+		fmt.Println("   This makes them safe to run multiple times without errors!")
+	}
+
+	// Example 4b: Custom migration options (optional)
+	fmt.Println("\n--- Example 4b: Custom Migration Options ---")
+	if diff.HasChanges() {
+		// For strict migrations (fail if table exists)
+		strictPlanner := migration.NewPlannerWithOptions(migration.PlannerOptions{
+			IfNotExists: false, // Disable IF NOT EXISTS
+		})
+		strictSQL, _ := strictPlanner.GenerateMigration(diff)
+
+		fmt.Println("Strict mode (without IF NOT EXISTS):")
+		fmt.Println(strictSQL)
+		fmt.Println("\n⚠️  Strict mode will fail if tables already exist")
 	}
 
 	// Example 5: Migration file generation
@@ -123,6 +141,8 @@ func main() {
 	log.Println("  - Introspect database to get current schema")
 	log.Println("  - Compare DB schema with code schema to detect changes")
 	log.Println("  - Generate migration SQL automatically")
+	log.Println("  - Migrations are SAFE by default (IF NOT EXISTS)")
+	log.Println("  - Safe to run migrations multiple times without errors")
 	log.Println("  - Create timestamped migration files")
 	log.Println("  - Use 'pebble' CLI for production migrations")
 }

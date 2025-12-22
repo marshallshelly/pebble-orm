@@ -105,7 +105,7 @@ func TestGeneratorGenerate(t *testing.T) {
 	}
 
 	upSQL := string(upContent)
-	if !strings.Contains(upSQL, "CREATE TABLE users") {
+	if !strings.Contains(upSQL, "CREATE TABLE IF NOT EXISTS users") {
 		t.Errorf("Expected CREATE TABLE in up migration, got: %s", upSQL)
 	}
 

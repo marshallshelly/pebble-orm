@@ -26,8 +26,8 @@ func TestGenerateCreateTable(t *testing.T) {
 	sql := planner.generateCreateTable(table)
 
 	// Check for table name
-	if !strings.Contains(sql, "CREATE TABLE users") {
-		t.Errorf("Expected CREATE TABLE users, got: %s", sql)
+	if !strings.Contains(sql, "CREATE TABLE IF NOT EXISTS users") {
+		t.Errorf("Expected CREATE TABLE IF NOT EXISTS users, got: %s", sql)
 	}
 
 	// Check for columns
@@ -70,10 +70,10 @@ func TestGenerateCreateTableWithIndexes(t *testing.T) {
 	sql := planner.generateCreateTable(table)
 
 	// Check for indexes
-	if !strings.Contains(sql, "CREATE INDEX idx_posts_user_id ON posts (user_id)") {
+	if !strings.Contains(sql, "CREATE INDEX IF NOT EXISTS idx_posts_user_id ON posts (user_id)") {
 		t.Errorf("Expected index on user_id, got: %s", sql)
 	}
-	if !strings.Contains(sql, "CREATE UNIQUE INDEX idx_posts_title ON posts (title)") {
+	if !strings.Contains(sql, "CREATE UNIQUE INDEX IF NOT EXISTS idx_posts_title ON posts (title)") {
 		t.Errorf("Expected unique index on title, got: %s", sql)
 	}
 }
@@ -267,8 +267,8 @@ func TestGenerateAlterTableAddIndex(t *testing.T) {
 	if len(upSQL) != 1 {
 		t.Fatalf("Expected 1 up statement, got %d", len(upSQL))
 	}
-	if !strings.Contains(upSQL[0], "CREATE UNIQUE INDEX idx_users_email ON users (email)") {
-		t.Errorf("Expected CREATE INDEX statement, got: %s", upSQL[0])
+	if !strings.Contains(upSQL[0], "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users (email)") {
+		t.Errorf("Expected CREATE INDEX IF NOT EXISTS statement, got: %s", upSQL[0])
 	}
 
 	// Check down migration
@@ -311,7 +311,7 @@ func TestGenerateMigration(t *testing.T) {
 	upSQL, downSQL := planner.GenerateMigration(diff)
 
 	// Check up migration has all components
-	if !strings.Contains(upSQL, "CREATE TABLE users") {
+	if !strings.Contains(upSQL, "CREATE TABLE IF NOT EXISTS users") {
 		t.Errorf("Expected CREATE TABLE in up migration, got: %s", upSQL)
 	}
 	if !strings.Contains(upSQL, "DROP TABLE IF EXISTS old_table") {

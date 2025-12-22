@@ -35,12 +35,35 @@ if diff.HasChanges() {
 }
 ```
 
-### 4. Migration SQL Generation
+### 4. Safe Migration SQL Generation (⭐ NEW in v1.4.0)
+
+**Migrations are now idempotent by default!**
 
 ```go
+// Default: Safe migrations with IF NOT EXISTS
 planner := migration.NewPlanner()
 upSQL, downSQL := planner.GenerateMigration(diff)
-// Generates SQL to apply and revert changes
+
+// Generated SQL includes IF NOT EXISTS:
+// CREATE TABLE IF NOT EXISTS users (...);
+// CREATE INDEX IF NOT EXISTS idx_users_email ON users (email);
+```
+
+**Benefits:**
+
+- ✅ Safe to run multiple times without errors
+- ✅ Applications can restart without migration failures
+- ✅ Deployments are more robust
+- ✅ No manual error handling needed
+
+**Custom Options (Optional):**
+
+```go
+// For strict migrations (fail if table exists)
+strictPlanner := migration.NewPlannerWithOptions(migration.PlannerOptions{
+    IfNotExists: false, // Disable IF NOT EXISTS
+})
+upSQL, downSQL := strictPlanner.GenerateMigration(diff)
 ```
 
 ### 5. Migration File Generation
@@ -175,8 +198,20 @@ go run cmd/migrations/main.go
 **UP Migration** (`YYYYMMDDHHMMSS_name.up.sql`):
 
 ```sql
--- Add new column
-ALTER TABLE users ADD COLUMN age INTEGER;
+-- Safe migrations with IF NOT EXISTS (default)
+CREATE TABLE IF NOT EXISTS users (
+    id serial NOT NULL,
+    name varchar(255) NOT NULL,
+    email varchar(255) NOT NULL UNIQUE,
+    age integer,
+    created_at timestamp NOT NULL DEFAULT NOW(),
+    CONSTRAINT users_pkey PRIMARY KEY (id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users (email);
+
+-- Add new column (if modifying existing table)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS age INTEGER;
 ```
 
 **DOWN Migration** (`YYYYMMDDHHMMSS_name.down.sql`):
@@ -216,11 +251,13 @@ The differ detects:
 
 ### ✅ DO:
 
+- **Use safe migrations** (default IF NOT EXISTS behavior)
 - Use timestamped filenames (auto-generated)
 - Write reversible migrations (both up and down)
 - Test migrations on staging before production
 - Keep migrations small and focused
 - Version control your migration files
+- Run migrations idempotently (safe to re-run)
 
 ### ❌ DON'T:
 
@@ -228,6 +265,40 @@ The differ detects:
 - Delete migration files (breaks version tracking)
 - Skip migrations (apply them in order)
 - Mix schema and data changes in one migration
+- Disable IF NOT EXISTS unless you have a specific reason
+
+## Safe Migrations (v1.4.0+)
+
+### Why Safe by Default?
+
+Traditional migrations fail when re-run:
+
+```sql
+CREATE TABLE users (...);
+-- ERROR: relation "users" already exists ❌
+```
+
+Pebble ORM migrations are idempotent:
+
+```sql
+CREATE TABLE IF NOT EXISTS users (...);
+-- ✅ No error if table exists
+```
+
+### When to Use Strict Mode
+
+Disable IF NOT EXISTS only when:
+
+- You need to detect schema drift errors
+- You want migrations to fail loudly if tables exist
+- You're doing one-time setup in controlled environments
+
+```go
+// Strict mode
+planner := migration.NewPlannerWithOptions(migration.PlannerOptions{
+    IfNotExists: false,
+})
+```
 
 ## Common Scenarios
 
@@ -295,7 +366,8 @@ go run cmd/migrations/main.go
 1. **Automatic Detection** - Pebble compares DB vs code automatically
 2. **Type-Safe** - Schema derived from Go structs
 3. **Reversible** - Both up and down migrations generated
-4. **Production-Ready** - Use `pebble` CLI for deployment
-5. **Git-Friendly** - Track migrations in version control
+4. **Safe by Default** - IF NOT EXISTS makes migrations idempotent ⭐
+5. **Production-Ready** - Use `pebble` CLI for deployment
+6. **Git-Friendly** - Track migrations in version control
 
 **This example shows the foundation for production schema management!** 🎉

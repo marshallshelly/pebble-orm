@@ -7,12 +7,33 @@ import (
 	"github.com/marshallshelly/pebble-orm/pkg/schema"
 )
 
-// Planner generates SQL migration statements from schema diffs.
-type Planner struct{}
+// PlannerOptions configures migration generation behavior.
+type PlannerOptions struct {
+	// IfNotExists adds IF NOT EXISTS to CREATE TABLE statements.
+	// This makes migrations idempotent and safe to run multiple times.
+	// Default: true (safe by default)
+	IfNotExists bool
+}
 
-// NewPlanner creates a new migration planner.
+// Planner generates SQL migration statements from schema diffs.
+type Planner struct {
+	options PlannerOptions
+}
+
+// NewPlanner creates a new migration planner with default options.
 func NewPlanner() *Planner {
-	return &Planner{}
+	return &Planner{
+		options: PlannerOptions{
+			IfNotExists: true, // Safe by default
+		},
+	}
+}
+
+// NewPlannerWithOptions creates a new migration planner with custom options.
+func NewPlannerWithOptions(opts PlannerOptions) *Planner {
+	return &Planner{
+		options: opts,
+	}
 }
 
 // GenerateMigration generates up and down SQL from a schema diff.
@@ -75,7 +96,12 @@ func (p *Planner) generateCreateTable(table *schema.TableMetadata) string {
 		}
 	}
 
-	sql := fmt.Sprintf("CREATE TABLE %s (\n%s\n);", table.Name, strings.Join(parts, ",\n"))
+	// Build CREATE TABLE statement with optional IF NOT EXISTS
+	createClause := "CREATE TABLE"
+	if p.options.IfNotExists {
+		createClause = "CREATE TABLE IF NOT EXISTS"
+	}
+	sql := fmt.Sprintf("%s %s (\n%s\n);", createClause, table.Name, strings.Join(parts, ",\n"))
 
 	// Indexes (separate statements)
 	var indexStatements []string
@@ -142,8 +168,14 @@ func (p *Planner) generateCreateIndex(tableName string, idx schema.IndexMetadata
 		method = " USING " + idx.Type
 	}
 
+	// Add IF NOT EXISTS for idempotent index creation
+	ifNotExists := ""
+	if p.options.IfNotExists {
+		ifNotExists = "IF NOT EXISTS "
+	}
+
 	cols := strings.Join(idx.Columns, ", ")
-	return fmt.Sprintf("CREATE %sINDEX %s ON %s%s (%s);", unique, idx.Name, tableName, method, cols)
+	return fmt.Sprintf("CREATE %sINDEX %s%s ON %s%s (%s);", unique, ifNotExists, idx.Name, tableName, method, cols)
 }
 
 // generateDropTable generates a DROP TABLE statement.
