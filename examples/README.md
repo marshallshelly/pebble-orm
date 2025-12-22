@@ -304,6 +304,71 @@ func main() {
 
 ---
 
+## 🔒 Type-Safe Column Names
+
+All examples demonstrate **builder.Col** for type-safe column name resolution:
+
+### The Problem
+
+Hardcoded strings are error-prone and violate DRY:
+
+```go
+// ❌ Two sources of truth - struct tag AND hardcoded string
+type User struct {
+    Email string `po:"email,unique"`
+}
+
+users, _ := builder.Select[User](qb).
+    Where(builder.Eq("email", value)).  // ❌ Magic string
+    All(ctx)
+```
+
+### The Solution: `builder.Col`
+
+**Single source of truth** through struct tags:
+
+```go
+// ✅ Column name defined ONLY in struct tag
+type User struct {
+    Email string `po:"email,unique"`  // ← One source of truth
+}
+
+// ✅ Type-safe column reference
+users, _ := builder.Select[User](qb).
+    Where(builder.Eq(builder.Col[User]("Email"), value)).
+    All(ctx)
+```
+
+### Benefits
+
+| Feature              | Benefit                                            |
+| -------------------- | -------------------------------------------------- |
+| **Single Source**    | Column names only in struct tags                   |
+| **Type-Safe**        | `Col[User]("Email")` - wrong model = compile error |
+| **Refactoring Safe** | IDE finds all field references                     |
+| **Zero Overhead**    | Registry lookup at call time                       |
+| **Autocomplete**     | IDE suggests valid field names                     |
+
+### Example from `basic/`
+
+```go
+// Type-safe queries using builder.Col
+users, err := builder.Select[User](qb).
+    Where(builder.Gte(builder.Col[User]("Age"), 18)).
+    OrderByDesc(builder.Col[User]("CreatedAt")).
+    All(ctx)
+
+// Update with type-safe column names
+count, err := builder.Update[User](qb).
+    Set(builder.Col[User]("Age"), 29).
+    Where(builder.Eq(builder.Col[User]("Email"), "user@example.com")).
+    Exec(ctx)
+```
+
+**All examples use `builder.Col` throughout!**
+
+---
+
 ## 💡 Best Practices Demonstrated
 
 1. ✅ **Separation of Concerns**: Models, DB, and application logic are separate
