@@ -4,6 +4,15 @@ All notable changes to Pebble ORM will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.3.1] - 2025-12-22
+
+### Documentation
+
+- **Example Updates**: Updated `transactions` and `relationships` examples to use `builder.Col`
+  - Replaced hardcoded string literals with type-safe column references
+  - Ensures consistency with v1.3.0 features
+  - Fixed linting warnings in example code
+
 ## [1.3.0] - 2025-12-22
 
 ### ⚠️ BREAKING CHANGES

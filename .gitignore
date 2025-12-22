@@ -55,6 +55,8 @@ migrations/*.sql
 dist/
 
 # Misc
-!@(README|CHANGELOG).md
+# Misc
 *.md
+!README.md
+!CHANGELOG.md
 *.json
