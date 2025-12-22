@@ -8,6 +8,7 @@
 
 A production-ready ORM leveraging Go generics for type-safe queries, struct-tag schemas, and zero-overhead performance with native pgx integration.
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/marshallshelly/pebble-orm.svg)](https://pkg.go.dev/github.com/marshallshelly/pebble-orm)
 [![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go)](https://go.dev/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-14+-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
