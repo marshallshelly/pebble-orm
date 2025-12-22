@@ -26,18 +26,15 @@ builds:
 
 archives:
   - id: pebble-archive
-    format: tar.gz
     name_template: >-
       {{ .ProjectName }}_
       {{- .Version }}_
       {{- .Os }}_
       {{- .Arch }}
-    format_overrides:
-      - goos: windows
-        format: zip
     files:
       - README.md
-      - LICENSE*
+      - LICENSE
+      - CHANGELOG.md
 
 checksum:
   name_template: "checksums.txt"
@@ -78,14 +75,3 @@ release:
     name: pebble-orm
   draft: false
   prerelease: auto
-
-brews:
-  - name: pebble
-    repository:
-      owner: marshallshelly
-      name: homebrew-tap
-    homepage: https://github.com/marshallshelly/pebble-orm
-    description: Type-safe PostgreSQL ORM for Go. Compile-time safety, runtime speed.
-    license: MIT
-    install: |
-      bin.install "pebble"
