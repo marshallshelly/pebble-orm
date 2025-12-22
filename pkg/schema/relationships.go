@@ -183,5 +183,5 @@ func (t *TableMetadata) GetRelationshipsByType(relType RelationType) []Relations
 
 // HasRelationships checks if the table has any relationships.
 func (t *TableMetadata) HasRelationships() bool {
-	return t.Relationships != nil && len(t.Relationships) > 0
+	return len(t.Relationships) > 0
 }

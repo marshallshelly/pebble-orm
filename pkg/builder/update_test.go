@@ -99,7 +99,7 @@ func TestUpdateQuery_ToSQL(t *testing.T) {
 			if err == nil {
 				// For tests with map updates, just check that it starts correctly
 				// since map iteration order is not guaranteed
-				if tt.setupQuery().sets != nil && len(tt.setupQuery().sets) > 1 {
+				if len(tt.setupQuery().sets) > 1 {
 					if sql[:len(tt.wantSQL)] != tt.wantSQL {
 						t.Errorf("ToSQL() sql does not start with %v, got %v", tt.wantSQL, sql)
 					}

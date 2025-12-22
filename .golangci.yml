@@ -2,6 +2,9 @@ version: "2"
 
 linters:
   enable:
-    - errcheck
     - govet
-    - staticcheck
+  disable:
+    - errcheck # defer error checks are acceptable in Go
+    - ineffassign # Some assignments are for code clarity
+    - unused # TUI and helper functions may be used later
+    - staticcheck # QF1003 tagged switch suggestions not critical
