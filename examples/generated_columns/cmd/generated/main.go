@@ -122,7 +122,7 @@ func main() {
 			// Fetch updated person
 			updatedPerson, err := builder.Select[models.Person](qb).
 				Where(builder.Eq(builder.Col[models.Person]("ID"), personID)).
-				One(ctx)
+				First(ctx)
 			if err != nil {
 				log.Printf("Fetch failed: %v", err)
 			} else {
