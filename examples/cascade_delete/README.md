@@ -12,7 +12,7 @@ This example demonstrates **foreign key cascade actions** in Pebble ORM includin
 
 ```go
 type Post struct {
-    AuthorID int64 `db:"author_id,fk:users.id,ondelete:cascade"`
+    AuthorID int64 `db:"author_id,fk:users.id,onDelete:cascade"`
 }
 ```
 
@@ -22,7 +22,7 @@ When a user is deleted, all their posts are automatically deleted by the databas
 
 ```go
 type Comment struct {
-    AuthorID *int64 `db:"author_id,fk:users.id,ondelete:setnull"`
+    AuthorID *int64 `db:"author_id,fk:users.id,onDelete:setnull"`
 }
 ```
 
@@ -32,7 +32,7 @@ When a user is deleted, their comments remain but `author_id` is set to NULL.
 
 ```go
 type Product struct {
-    CategoryID int64 `db:"category_id,fk:categories.id,ondelete:restrict"`
+    CategoryID int64 `db:"category_id,fk:categories.id,onDelete:restrict"`
 }
 ```
 
@@ -90,7 +90,7 @@ type User struct {
 type Post struct {
     ID        int64     `db:"id,primary,autoIncrement"`
     Title     string    `db:"title"`
-    AuthorID  int64     `db:"author_id,fk:users.id,ondelete:cascade"`
+    AuthorID  int64     `db:"author_id,fk:users.id,onDelete:cascade"`
     CreatedAt time.Time `db:"created_at"`
 }
 ```
@@ -100,8 +100,8 @@ type Post struct {
 ```go
 type Comment struct {
     ID       int64  `db:"id,primary,autoIncrement"`
-    PostID   int64  `db:"post_id,fk:posts.id,ondelete:cascade"`
-    AuthorID *int64 `db:"author_id,fk:users.id,ondelete:setnull"`
+    PostID   int64  `db:"post_id,fk:posts.id,onDelete:cascade"`
+    AuthorID *int64 `db:"author_id,fk:users.id,onDelete:setnull"`
 }
 ```
 
@@ -109,7 +109,7 @@ type Comment struct {
 
 ```go
 type Product struct {
-    CategoryID int64 `db:"category_id,fk:categories.id,ondelete:restrict"`
+    CategoryID int64 `db:"category_id,fk:categories.id,onDelete:restrict"`
 }
 ```
 

@@ -213,17 +213,17 @@ go run cmd/custom_tables/main.go
 ```go
 // CASCADE - Delete posts when user is deleted
 type Post struct {
-    AuthorID int64 `db:"author_id,fk:users.id,ondelete:cascade"`
+    AuthorID int64 `db:"author_id,fk:users.id,onDelete:cascade"`
 }
 
 // SET NULL - Keep comments but set author_id to NULL
 type Comment struct {
-    AuthorID *int64 `db:"author_id,fk:users.id,ondelete:setnull"`
+    AuthorID *int64 `db:"author_id,fk:users.id,onDelete:setnull"`
 }
 
 // RESTRICT - Prevent category deletion if products exist
 type Product struct {
-    CategoryID int64 `db:"category_id,fk:categories.id,ondelete:restrict"`
+    CategoryID int64 `db:"category_id,fk:categories.id,onDelete:restrict"`
 }
 ```
 

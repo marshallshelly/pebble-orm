@@ -428,7 +428,7 @@ func (p *Parser) parseForeignKeys(modelType reflect.Type, table *TableMetadata) 
 
 		// Parse foreign key reference
 		var refTable, refColumn string
-		
+
 		// Support both "table.column" and "table(column)" formats
 		if strings.Contains(fkStr, ".") {
 			parts := strings.SplitN(fkStr, ".", 2)
@@ -458,8 +458,8 @@ func (p *Parser) parseForeignKeys(modelType reflect.Type, table *TableMetadata) 
 			Columns:           []string{columnName},
 			ReferencedTable:   refTable,
 			ReferencedColumns: []string{refColumn},
-			OnDelete:          parseReferenceAction(opts.Get("ondelete")),
-			OnUpdate:          parseReferenceAction(opts.Get("onupdate")),
+			OnDelete:          parseReferenceAction(opts.Get("onDelete")),
+			OnUpdate:          parseReferenceAction(opts.Get("onUpdate")),
 		}
 
 		table.ForeignKeys = append(table.ForeignKeys, fk)
@@ -473,7 +473,7 @@ func parseReferenceAction(action string) ReferenceAction {
 	if action == "" {
 		return NoAction
 	}
-	
+
 	switch strings.ToUpper(strings.TrimSpace(action)) {
 	case "CASCADE":
 		return Cascade

@@ -15,7 +15,7 @@ type Post struct {
 	ID        int64     `db:"id,primary,autoIncrement"`
 	Title     string    `db:"title"`
 	Content   string    `db:"content"`
-	AuthorID  int64     `db:"author_id,fk:users.id,ondelete:cascade"`
+	AuthorID  int64     `db:"author_id,fk:users.id,onDelete:cascade"`
 	CreatedAt time.Time `db:"created_at"`
 }
 
@@ -24,8 +24,8 @@ type Post struct {
 type Comment struct {
 	ID        int64     `db:"id,primary,autoIncrement"`
 	Content   string    `db:"content"`
-	PostID    int64     `db:"post_id,fk:posts.id,ondelete:cascade"`
-	AuthorID  *int64    `db:"author_id,fk:users.id,ondelete:setnull"`
+	PostID    int64     `db:"post_id,fk:posts.id,onDelete:cascade"`
+	AuthorID  *int64    `db:"author_id,fk:users.id,onDelete:setnull"`
 	CreatedAt time.Time `db:"created_at"`
 }
 
@@ -41,5 +41,5 @@ type Product struct {
 	ID         int64   `db:"id,primary,autoIncrement"`
 	Name       string  `db:"name"`
 	Price      float64 `db:"price"`
-	CategoryID int64   `db:"category_id,fk:categories.id,ondelete:restrict"`
+	CategoryID int64   `db:"category_id,fk:categories.id,onDelete:restrict"`
 }
