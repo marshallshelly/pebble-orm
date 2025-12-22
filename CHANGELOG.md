@@ -2,8 +2,52 @@
 
 All notable changes to Pebble ORM will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
+
+## [1.2.1] - 2025-12-22
+
+### Added
+
+- **Type-Safe Column Names**: New `builder.Col[T](fieldName)` helper for single source of truth
+  - Extracts database column names from struct tag metadata
+  - Eliminates hardcoded string literals in queries
+  - Provides compile-time type safety with Go generics
+  - Zero runtime overhead via registry lookup
+  - IDE-friendly with autocomplete support
+- **pkg.go.dev Badge**: Added official Go package documentation badge to README
+
+### Changed
+
+- **Integration Tests**: Now use Pebble ORM's migration system instead of raw SQL
+  - Tests schema introspection, diffing, and SQL generation
+  - Validates ORM's own migration capabilities
+  - Demonstrates real-world migration usage
+- **Builder API**: Updated all examples to use `builder.Select[T](qb)` pattern
+  - Consistent API across all operations
+  - Removed legacy `db.Insert(T{})` patterns
+- **Documentation**: Comprehensive updates across all files
+  - README.md: Quick start with `builder.Col`
+  - CLAUDE.md: All query examples use type-safe column names
+  - examples/README.md: New "Type-Safe Column Names" section
+  - examples/basic: Live demonstration of `builder.Col`
+
+### Fixed
+
+- GoReleaser configuration deprecation warnings
+- Removed non-existent Homebrew tap from release config
+- Integration test compilation with new builder API
+- Removed unused `toTyped` helper function
+
+### Documentation
+
+- Added MIT LICENSE file
+- Enhanced examples README with builder.Col best practices
+- Updated all code examples to demonstrate single source of truth
+- Added benefits table and problem/solution comparison
+
+## [1.1.0] - 2025-01-XX
+
+project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [1.0.0] - 2025-12-22
 
