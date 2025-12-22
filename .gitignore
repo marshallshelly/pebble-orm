@@ -53,3 +53,8 @@ migrations/*.sql
 
 # GoReleaser artifacts
 dist/
+
+# Misc
+!@(README|CHANGELOG).md
+*.md
+*.json
