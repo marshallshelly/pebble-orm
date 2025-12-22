@@ -12,29 +12,28 @@ import (
 func main() {
 	ctx := context.Background()
 
-	// Connect to database
-	db, err := database.Connect(ctx)
+	// Initialize database connection
+	qb, cleanup, err := database.Initialize(ctx)
 	if err != nil {
-		log.Fatalf("Failed to connect: %v", err)
+		log.Fatalf("Failed to initialize database: %v", err)
 	}
-	defer db.Close()
+	defer cleanup()
 
-	log.Println("✅ Connected to database successfully")
+	log.Println("=== Pebble ORM Basic Examples ===")
 
-	// Create query builder
-	qb := builder.New(db)
-
-	// Example 1: INSERT a new user
-	log.Println("\n--- Example 1: INSERT ---")
-	newUser := models.User{
-		Name:  "Alice Johnson",
-		Email: "alice@example.com",
-		Age:   28,
+	// Example 1: INSERT with RETURNING
+	log.Println("\n--- Example 1: INSERT with RETURNING ---")
+	newUsers := []models.User{
+		{Name: "Alice Smith", Email: "alice@example.com", Age: 28},
+		{Name: "Bob Johnson", Email: "bob@example.com", Age: 35},
 	}
-
 	insertedUsers, err := builder.Insert[models.User](qb).
-		Values(newUser).
-		Returning("*").
+		Values(newUsers...).
+		Returning(
+			builder.Col[models.User]("ID"),
+			builder.Col[models.User]("Name"),
+			builder.Col[models.User]("Email"),
+		).
 		ExecReturning(ctx)
 	if err != nil {
 		log.Printf("Insert failed: %v", err)
@@ -45,8 +44,8 @@ func main() {
 	// Example 2: SELECT with WHERE
 	log.Println("\n--- Example 2: SELECT with WHERE ---")
 	users, err := builder.Select[models.User](qb).
-		Where(builder.Gte("age", 18)).
-		OrderByDesc("created_at").
+		Where(builder.Gte(builder.Col[models.User]("Age"), 18)).
+		OrderByDesc(builder.Col[models.User]("CreatedAt")).
 		Limit(10).
 		All(ctx)
 	if err != nil {
@@ -61,8 +60,8 @@ func main() {
 	// Example 3: UPDATE
 	log.Println("\n--- Example 3: UPDATE ---")
 	count, err := builder.Update[models.User](qb).
-		Set("age", 29).
-		Where(builder.Eq("email", "alice@example.com")).
+		Set(builder.Col[models.User]("Age"), 29).
+		Where(builder.Eq(builder.Col[models.User]("Email"), "alice@example.com")).
 		Exec(ctx)
 	if err != nil {
 		log.Printf("Update failed: %v", err)
@@ -79,56 +78,53 @@ func main() {
 			AuthorID:  insertedUsers[0].ID,
 			Published: true,
 		}
-
 		insertedPosts, err := builder.Insert[models.Post](qb).
 			Values(newPost).
-			Returning("*").
+			Returning(
+				builder.Col[models.Post]("ID"),
+				builder.Col[models.Post]("Title"),
+			).
 			ExecReturning(ctx)
 		if err != nil {
 			log.Printf("Insert post failed: %v", err)
 		} else {
-			log.Printf("Inserted post: %s", insertedPosts[0].Title)
+			log.Printf("Inserted post: %+v", insertedPosts[0])
 		}
 	}
 
-	// Example 5: SELECT posts with author (relationship)
-	log.Println("\n--- Example 5: SELECT with Relationship ---")
-	posts, err := builder.Select[models.Post](qb).
-		Preload("Author"). // Eager load author
-		Where(builder.Eq("published", true)).
+	// Example 5: Complex WHERE with AND/OR
+	log.Println("\n--- Example 5: Complex WHERE ---")
+	complexUsers, err := builder.Select[models.User](qb).
+		Where(builder.Gte(builder.Col[models.User]("Age"), 25)).
+		And(builder.Like(builder.Col[models.User]("Email"), "%@example.com")).
 		All(ctx)
 	if err != nil {
-		log.Printf("Select posts failed: %v", err)
+		log.Printf("Complex query failed: %v", err)
 	} else {
-		log.Printf("Found %d published posts:", len(posts))
-		for _, post := range posts {
-			authorName := "Unknown"
-			if post.Author != nil {
-				authorName = post.Author.Name
-			}
-			log.Printf("  - %s by %s", post.Title, authorName)
-		}
+		log.Printf("Found %d users matching complex criteria", len(complexUsers))
 	}
 
 	// Example 6: COUNT
 	log.Println("\n--- Example 6: COUNT ---")
-	totalUsers, err := builder.Select[models.User](qb).Count(ctx)
+	userCount, err := builder.Select[models.User](qb).
+		Where(builder.Gte(builder.Col[models.User]("Age"), 18)).
+		Count(ctx)
 	if err != nil {
 		log.Printf("Count failed: %v", err)
 	} else {
-		log.Printf("Total users in database: %d", totalUsers)
+		log.Printf("Total users (18+): %d", userCount)
 	}
 
 	// Example 7: DELETE
 	log.Println("\n--- Example 7: DELETE ---")
-	deletedCount, err := builder.Delete[models.Post](qb).
-		Where(builder.Eq("published", false)).
+	deleteCount, err := builder.Delete[models.Post](qb).
+		Where(builder.Eq(builder.Col[models.Post]("Published"), false)).
 		Exec(ctx)
 	if err != nil {
 		log.Printf("Delete failed: %v", err)
 	} else {
-		log.Printf("Deleted %d unpublished posts", deletedCount)
+		log.Printf("Deleted %d unpublished posts", deleteCount)
 	}
 
-	log.Println("\n✅ All examples completed!")
+	log.Println("\n=== Examples Complete ===")
 }

@@ -155,9 +155,10 @@ func main() {
     qb := builder.New(db)
 
     // Type-safe queries with full inference!
+    // Query with type-safe column names
     users, err := builder.Select[models.User](qb).
-        Where(builder.Gt("age", 18)).
-        OrderByDesc("created_at").
+        Where(builder.Gte(builder.Col[models.User]("Age"), 18)).
+        OrderByDesc(builder.Col[models.User]("CreatedAt")).
         Limit(10).
         All(ctx)
     if err != nil {
