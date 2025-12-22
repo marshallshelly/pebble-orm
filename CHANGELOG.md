@@ -4,6 +4,36 @@ All notable changes to Pebble ORM will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [2.0.0] - 2025-12-22
+
+### ⚠️ BREAKING CHANGES
+
+- **Tag Naming**: Foreign key constraint tags now use camelCase for consistency
+  - Changed: `ondelete:` → `onDelete:`
+  - Changed: `onupdate:` → `onUpdate:`
+  - **Migration**: Run `sed -i 's/ondelete:/onDelete:/g' **/*.go` and `sed -i 's/onupdate:/onUpdate:/g' **/*.go`
+  - Reason: Matches existing camelCase convention (`notNull`, `primaryKey`, `autoIncrement`, etc.)
+
+### Added
+
+- **Type-Safe Column Names**: `builder.Col[T](fieldName)` helper (from v1.2.1)
+  - Single source of truth through struct tag metadata
+  - Compile-time type safety with Go generics
+  - IDE autocomplete support
+- **pkg.go.dev Badge**: Official documentation badge
+
+### Changed
+
+- **Tag Consistency**: All struct tag options now use camelCase
+- **Integration Tests**: Use ORM's migration system (validates ORM features)
+- **Builder API**: Consistent `builder.Select[T](qb)` pattern throughout
+
+### Fixed
+
+- Tag naming inconsistency across foreign key constraints
+- GoReleaser deprecation warnings
+- Integration test compilation
+
 ## [1.2.1] - 2025-12-22
 
 ### Added
