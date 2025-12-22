@@ -198,6 +198,46 @@ go run cmd/custom_tables/main.go
 
 ---
 
+### 8. **Generated Columns** (`generated_columns/`) ⭐ NEW
+
+**What it demonstrates:**
+
+- ✅ STORED generated columns (auto-computed values)
+- ✅ String concatenation (full names)
+- ✅ Unit conversions (cm to inches, kg to lbs)
+- ✅ Complex calculations (net price with tax/discount)
+- ✅ Querying generated columns
+- ✅ Auto-update when source columns change
+
+**Run it:**
+
+```bash
+cd generated_columns
+go run cmd/generated/main.go
+```
+
+**Example Models:**
+
+```go
+type Person struct {
+    FirstName string `po:"first_name"`
+    LastName  string `po:"last_name"`
+    // Auto-computed from first_name and last_name
+    FullName  string `po:"full_name,generated:first_name || ' ' || last_name,stored"`
+}
+
+type Product struct {
+    ListPrice float64 `po:"list_price"`
+    Tax       float64 `po:"tax"`
+    Discount  float64 `po:"discount"`
+    // Auto-calculated net price
+    NetPrice  float64 `po:"net_price,generated:(list_price + (list_price * tax / 100)) - (list_price * discount / 100),stored"`
+}
+```
+
+---
+
+
 ### 7. **CASCADE DELETE** (`cascade_delete/`)
 
 **What it demonstrates:**
