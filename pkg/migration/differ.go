@@ -271,6 +271,7 @@ func (d *Differ) isSameType(type1, type2 string) bool {
 }
 
 // normalizeType normalizes SQL type strings for comparison.
+// Maps PostgreSQL pseudotypes (serial) to their actual underlying types.
 func (d *Differ) normalizeType(sqlType string) string {
 	// Convert to lowercase
 	normalized := strings.ToLower(strings.TrimSpace(sqlType))
@@ -289,10 +290,16 @@ func (d *Differ) normalizeType(sqlType string) string {
 		return "double precision"
 	case "bool":
 		return "boolean"
-	case "serial4":
-		return "serial"
-	case "serial8":
-		return "bigserial"
+
+	// Serial types are PostgreSQL pseudotypes that expand to integer + sequence + default
+	// They ONLY work in CREATE TABLE, NOT in ALTER TABLE statements
+	// Map them to their underlying base types for comparison and ALTER statements
+	case "serial", "serial4":
+		return "integer" // serial = integer NOT NULL DEFAULT nextval('seq')
+	case "bigserial", "serial8":
+		return "bigint" // bigserial = bigint NOT NULL DEFAULT nextval('seq')
+	case "smallserial", "serial2":
+		return "smallint" // smallserial = smallint NOT NULL DEFAULT nextval('seq')
 	}
 
 	// Remove extra whitespace

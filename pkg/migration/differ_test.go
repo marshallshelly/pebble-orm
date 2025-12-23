@@ -229,8 +229,11 @@ func TestNormalizeType(t *testing.T) {
 		{"float4", "real"},
 		{"float8", "double precision"},
 		{"bool", "boolean"},
-		{"serial4", "serial"},
-		{"serial8", "bigserial"},
+		{"serial", "integer"},     // serial maps to integer
+		{"serial4", "integer"},    // serial4 maps to integer
+		{"bigserial", "bigint"},   // bigserial maps to bigint
+		{"serial8", "bigint"},     // serial8 maps to bigint
+		{"smallserial", "smallint"}, // smallserial maps to smallint
 		{"VARCHAR(255)", "varchar(255)"},
 		{"  varchar(100)  ", "varchar(100)"},
 	}

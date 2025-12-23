@@ -4,6 +4,51 @@ All notable changes to Pebble ORM will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.5.3] - 2025-12-23
+
+### Fixed
+
+- **Serial Type in Migrations**: Fixed critical bug where migration planner generated invalid `ALTER COLUMN TYPE serial` SQL
+  - **Problem**: `serial` is a PostgreSQL pseudotype that only works in `CREATE TABLE`, not `ALTER TABLE`
+  - **Root Cause**: Differ compared `serial` (from code) vs `integer` (from database introspection) as different types
+  - **Impact**: Migrations failed with `ERROR: type "serial" does not exist (SQLSTATE 42704)`
+  - **Solution**: Map `serial` types to their underlying base types in type normalization
+    - `serial` / `serial4` → `integer`
+    - `bigserial` / `serial8` → `bigint`
+    - `smallserial` / `serial2` → `smallint`
+  - Now correctly recognizes that `serial` in code equals `integer` in database (no type change)
+  - Never generates `ALTER COLUMN TYPE serial` (uses `integer` instead)
+
+### Technical Details
+
+PostgreSQL serial types are syntactic sugar:
+
+```sql
+-- What you write:
+CREATE TABLE users (id serial PRIMARY KEY);
+
+-- What PostgreSQL creates:
+CREATE SEQUENCE users_id_seq;
+CREATE TABLE users (
+    id integer NOT NULL DEFAULT nextval('users_id_seq'),
+    PRIMARY KEY (id)
+);
+```
+
+Since `serial` is not a real type, `ALTER TABLE ... TYPE serial` fails. The differ now treats:
+
+- Code: `serial` ≡ Database: `integer` (no diff)
+- This prevents invalid ALTER statements
+
+### Testing
+
+Added comprehensive test suite (`pkg/migration/serial_test.go`):
+
+- `TestSerialTypesMapToInteger` - Validates type equivalence
+- `TestSerialDoesNotTriggerTypeChange` - Ensures no false type diffs
+- `TestBigSerialMapping` - Tests bigserial ↔ bigint
+- All existing migration tests pass
+
 ## [1.5.2] - 2025-12-23
 
 ### Added
