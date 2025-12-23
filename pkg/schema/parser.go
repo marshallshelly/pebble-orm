@@ -31,6 +31,23 @@ func NewParser() *Parser {
 	}
 }
 
+// Global table name registry for compile-time table names.
+// Can be populated by generated code from `pebble generate metadata`.
+var customTableNames = make(map[string]string) // Struct name → table name
+
+// RegisterTableName registers a custom table name for a struct type.
+// This is called by generated code to provide table names from comments.
+//
+// Example generated code:
+//
+//	func init() {
+//	    schema.RegisterTableName("Tenant", "tenants")
+//	    schema.RegisterTableName("TenantUser", "tenant_users")
+//	}
+func RegisterTableName(structName, tableName string) {
+	customTableNames[structName] = tableName
+}
+
 // Parse extracts TableMetadata from a Go struct type.
 func (p *Parser) Parse(modelType reflect.Type) (*TableMetadata, error) {
 	// Dereference pointer types
@@ -114,14 +131,26 @@ func (p *Parser) Parse(modelType reflect.Type) (*TableMetadata, error) {
 	return table, nil
 }
 
-// extractTableName extracts the table name from struct type or comments.
+// extractTableName extracts the table name from struct type.
+// Priority order:
+// 1. Global registry (populated by generated code from `pebble generate metadata`)
+// 2. Comment directive (development only, when source files exist)
+// 3. snake_case conversion (default fallback)
 func (p *Parser) extractTableName(modelType reflect.Type) string {
-	// Try to extract table name from comment directive
+	structName := modelType.Name()
+
+	// Priority 1: Check global registry (from generated code)
+	if tableName, ok := customTableNames[structName]; ok {
+		return tableName
+	}
+
+	// Priority 2: Try to extract from source file comments (development only)
 	if customName := p.extractTableNameFromSource(modelType); customName != "" {
 		return customName
 	}
-	// Default to struct name converted to snake_case
-	return toSnakeCase(modelType.Name())
+
+	// Priority 3: Default to struct name converted to snake_case
+	return toSnakeCase(structName)
 }
 
 // extractTableNameFromSource attempts to extract table name from source file comments.

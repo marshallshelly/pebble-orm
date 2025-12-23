@@ -4,6 +4,60 @@ All notable changes to Pebble ORM will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.5.2] - 2025-12-23
+
+### Added
+
+- **CLI Metadata Generation**: Production-safe solution for custom table names via code generation
+  ```bash
+  pebble generate metadata --scan ./internal/models
+  ```
+  - Scans source files for `// table_name:` comment directives
+  - Generates `table_names.gen.go` with compile-time registrations
+  - Generated code is committed to version control
+  - Works in production Docker builds (no runtime source file dependency)
+
+### Fixed
+
+- **Production Build Support**: v1.5.1's comment parsing requires source files at runtime
+  - Problem: Multi-stage Docker builds only copy compiled binary, not `.go` files
+  - Impact: Custom table names fail in production, fall back to wrong snake_case names
+  - Solution: CLI generates code that registers table names at compile-time
+
+### Changed
+
+- **Table Name Resolution Priority**:
+  1. Global registry (populated by generated code from `pebble generate metadata`)
+  2. Comment directives (development only, when source files exist)
+  3. snake_case fallback (default)
+
+### Workflow
+
+```bash
+# 1. Write models with comments (as before)
+# // table_name: tenants
+# type Tenant struct { ... }
+
+# 2. Generate metadata before building
+pebble generate metadata --scan ./api/models
+
+# 3. Commit generated file
+git add ./api/models/table_names.gen.go
+
+# 4. Build Docker (generated code is included)
+docker build -t app:latest .
+
+# ✅ Custom table names work in production!
+```
+
+### Why This Approach
+
+- ✅ **Zero boilerplate** in model files
+- ✅ **Comments still work** - no API changes
+- ✅ **CLI-driven** - fits existing workflow
+- ✅ **Production-safe** - works in Docker
+- ✅ **One command** - `pebble generate metadata`
+
 ## [1.5.1] - 2025-12-23
 
 ### Fixed
