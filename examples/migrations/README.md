@@ -90,6 +90,20 @@ cd examples/migrations
 go run cmd/migrations/main.go
 ```
 
+### For Production Deployments
+
+This example uses custom table names (`// table_name: products`). For production Docker builds:
+
+```bash
+# Generate table name metadata before building
+pebble generate metadata --scan ./internal/models
+
+# This creates internal/models/table_names.gen.go
+# Commit this file so custom table names work in production!
+```
+
+See [`../custom_table_names/README.md`](../custom_table_names/README.md) for details.
+
 ## Project Structure
 
 ```
