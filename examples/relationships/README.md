@@ -14,9 +14,9 @@ This example demonstrates **relationship handling and eager loading** in Pebble 
 
 ```go
 type Author struct {
-    ID    int64  `db:"id,primary,autoIncrement"`
-    Name  string `db:"name"`
-    Books []Book `po:"-,hasMany,foreignKey(author_id)"`
+    ID    int    `po:"id,primaryKey,serial"`
+    Name  string `po:"name,varchar(100),notNull"`
+    Books []Book `po:"-,hasMany,foreignKey(author_id),references(id)"`
 }
 
 // Eager load books
@@ -36,10 +36,10 @@ for _, author := range authors {
 
 ```go
 type Book struct {
-    ID       int64   `db:"id,primary,autoIncrement"`
-    Title    string  `db:"title"`
-    AuthorID int64   `db:"author_id"`
-    Author   *Author `po:"-,belongsTo,foreignKey(author_id)"`
+    ID       int     `po:"id,primaryKey,serial"`
+    Title    string  `po:"title,varchar(255),notNull"`
+    AuthorID int     `po:"author_id,integer,notNull"`
+    Author   *Author `po:"-,belongsTo,foreignKey(author_id),references(id)"`
 }
 
 // Eager load author
@@ -56,15 +56,15 @@ for _, book := range books {
 
 ```go
 type User struct {
-    ID      int64    `db:"id,primary,autoIncrement"`
-    Name    string   `db:"name"`
-    Profile *Profile `po:"-,hasOne,foreignKey(user_id)"`
+    ID      int      `po:"id,primaryKey,serial"`
+    Name    string   `po:"name,varchar(100),notNull"`
+    Profile *Profile `po:"-,hasOne,foreignKey(user_id),references(id)"`
 }
 
 type Profile struct {
-    ID     int64  `db:"id,primary,autoIncrement"`
-    Bio    string `db:"bio"`
-    UserID int64  `db:"user_id"`
+    ID     int    `po:"id,primaryKey,serial"`
+    Bio    string `po:"bio,text"`
+    UserID int    `po:"user_id,integer,notNull,unique"`
 }
 
 // Eager load profile
@@ -77,12 +77,12 @@ users, _ := builder.Select[User](qb).
 
 ```go
 type User struct {
-    Roles []Role `po:"-,manyToMany,joinTable(user_roles)"`
+    Roles []Role `po:"-,manyToMany,joinTable(user_roles),foreignKey(user_id),references(id)"`
 }
 
 type Role struct {
-    ID   int64  `db:"id,primary,autoIncrement"`
-    Name string `db:"name"`
+    ID   int    `po:"id,primaryKey,serial"`
+    Name string `po:"name,varchar(50),notNull,unique"`
 }
 
 // Eager load roles (through user_roles junction table)
@@ -130,19 +130,17 @@ relationships/
 
 ```go
 type Author struct {
-    ID        int64     `db:"id,primary,autoIncrement"`
-    Name      string    `db:"name"`
-    CreatedAt time.Time `db:"created_at"`
-    Books     []Book    `po:"-,hasMany,foreignKey(author_id)"`
+    ID    int    `po:"id,primaryKey,serial"`
+    Name  string `po:"name,varchar(100),notNull"`
+    Books []Book `po:"-,hasMany,foreignKey(author_id),references(id)"`
 }
 
 type Book struct {
-    ID        int64     `db:"id,primary,autoIncrement"`
-    Title     string    `db:"title"`
-    ISBN      string    `db:"isbn"`
-    AuthorID  int64     `db:"author_id"`
-    CreatedAt time.Time `db:"created_at"`
-    Author    *Author   `po:"-,belongsTo,foreignKey(author_id)"`
+    ID       int     `po:"id,primaryKey,serial"`
+    Title    string  `po:"title,varchar(255),notNull"`
+    ISBN     string  `po:"isbn,varchar(20),unique"`
+    AuthorID int     `po:"author_id,integer,notNull"`
+    Author   *Author `po:"-,belongsTo,foreignKey(author_id),references(id)"`
 }
 ```
 
@@ -150,19 +148,17 @@ type Book struct {
 
 ```go
 type User struct {
-    ID        int64     `db:"id,primary,autoIncrement"`
-    Name      string    `db:"name"`
-    Email     string    `db:"email,unique"`
-    CreatedAt time.Time `db:"created_at"`
-    Profile   *Profile  `po:"-,hasOne,foreignKey(user_id)"`
+    ID      int      `po:"id,primaryKey,serial"`
+    Name    string   `po:"name,varchar(100),notNull"`
+    Email   string   `po:"email,varchar(255),unique,notNull"`
+    Profile *Profile `po:"-,hasOne,foreignKey(user_id),references(id)"`
 }
 
 type Profile struct {
-    ID        int64     `db:"id,primary,autoIncrement"`
-    Bio       string    `db:"bio"`
-    Avatar    string    `db:"avatar"`
-    UserID    int64     `db:"user_id"`
-    CreatedAt time.Time `db:"created_at"`
+    ID     int    `po:"id,primaryKey,serial"`
+    Bio    string `po:"bio,text"`
+    Avatar string `po:"avatar,varchar(255)"`
+    UserID int    `po:"user_id,integer,notNull,unique"`
 }
 ```
 
@@ -170,18 +166,18 @@ type Profile struct {
 
 ```go
 type User struct {
-    Roles []Role `po:"-,manyToMany,joinTable(user_roles)"`
+    Roles []Role `po:"-,manyToMany,joinTable(user_roles),foreignKey(user_id),references(id)"`
 }
 
 type Role struct {
-    ID   int64  `db:"id,primary,autoIncrement"`
-    Name string `db:"name"`
+    ID   int    `po:"id,primaryKey,serial"`
+    Name string `po:"name,varchar(50),notNull,unique"`
 }
 
 // Junction table (created separately)
 // CREATE TABLE user_roles (
-//     user_id BIGINT REFERENCES users(id),
-//     role_id BIGINT REFERENCES roles(id),
+//     user_id INTEGER REFERENCES users(id),
+//     role_id INTEGER REFERENCES roles(id),
 //     PRIMARY KEY (user_id, role_id)
 // );
 ```
@@ -265,7 +261,7 @@ authors, _ := builder.Select[Author](qb).All(ctx)  // 1 query
 // For each author, fetch books separately
 for _, author := range authors {
     books, _ := builder.Select[Book](qb).
-        Where(builder.Eq("author_id", author.ID)).
+        Where(builder.Eq(builder.Col[Book]("author_id"), author.ID)).
         All(ctx)  // N queries (one per author)
 }
 // Total: 1 + N queries
@@ -303,7 +299,7 @@ Examples:
 
 ```go
 type Parent struct {
-    Children []Child `po:"-,hasMany,foreignKey(parent_id)"`
+    Children []Child `po:"-,hasMany,foreignKey(parent_id),references(id)"`
 }
 ```
 
@@ -320,8 +316,8 @@ Examples:
 
 ```go
 type Child struct {
-    ParentID int64   `db:"parent_id"`
-    Parent   *Parent `po:"-,belongsTo,foreignKey(parent_id)"`
+    ParentID int     `po:"parent_id,integer,notNull"`
+    Parent   *Parent `po:"-,belongsTo,foreignKey(parent_id),references(id)"`
 }
 ```
 
@@ -338,7 +334,7 @@ Examples:
 
 ```go
 type Parent struct {
-    Child *Child `po:"-,hasOne,foreignKey(parent_id)"`
+    Child *Child `po:"-,hasOne,foreignKey(parent_id),references(id)"`
 }
 ```
 
@@ -355,7 +351,7 @@ Examples:
 
 ```go
 type User struct {
-    Roles []Role `po:"-,manyToMany,joinTable(user_roles)"`
+    Roles []Role `po:"-,manyToMany,joinTable(user_roles),foreignKey(user_id),references(id)"`
 }
 ```
 
