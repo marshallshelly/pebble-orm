@@ -170,6 +170,7 @@ go run cmd/postgresql/main.go
 **What it demonstrates:**
 
 - ✅ Custom table names via `// table_name:` directive
+- ✅ CLI metadata generation for production builds
 - ✅ Default snake_case fallback
 - ✅ Legacy database compatibility
 - ✅ Table name mapping
@@ -187,6 +188,16 @@ type Product struct {
     ID int `po:"id,primaryKey,serial"`
 }
 // Creates table: "product" (default snake_case)
+```
+
+**Production builds:**
+
+```bash
+# Generate metadata for Docker/production
+pebble generate metadata --scan ./internal/models
+
+# Generates table_names.gen.go with compile-time registrations
+# Commit this file to version control!
 ```
 
 **Run it:**
@@ -236,7 +247,6 @@ type Product struct {
 ```
 
 ---
-
 
 ### 7. **CASCADE DELETE** (`cascade_delete/`)
 
