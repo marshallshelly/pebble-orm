@@ -93,9 +93,9 @@ transactions/
 
 ```go
 type Account struct {
-    ID      int64   `db:"id,primary,autoIncrement"`
-    UserID  int64   `db:"user_id"`
-    Balance float64 `db:"balance"`
+    ID      int     `po:"id,primaryKey,serial"`
+    UserID  int     `po:"user_id,integer,notNull"`
+    Balance float64 `po:"balance,double precision,notNull,default(0)"`
 }
 ```
 

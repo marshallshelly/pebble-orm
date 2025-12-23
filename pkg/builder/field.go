@@ -12,8 +12,8 @@ import (
 // Usage:
 //
 //	type User struct {
-//	    Age   int64  `db:"age"`
-//	    Email string `db:"email,unique"`
+//	    Age   int    `po:"age,integer"`
+//	    Email string `po:"email,varchar(255),unique"`
 //	}
 //
 //	// Instead of hardcoded: Where(builder.Eq("email", value))

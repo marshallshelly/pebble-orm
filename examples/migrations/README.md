@@ -130,10 +130,10 @@ migrations/
 
 ```go
 type User struct {
-    ID        int64     `db:"id,primary,autoIncrement"`
-    Name      string    `db:"name"`
-    Email     string    `db:"email,unique"`
-    CreatedAt time.Time `db:"created_at"`
+    ID        int       `po:"id,primaryKey,serial"`
+    Name      string    `po:"name,varchar(255),notNull"`
+    Email     string    `po:"email,varchar(255),unique,notNull"`
+    CreatedAt time.Time `po:"created_at,timestamp,default(NOW()),notNull"`
 }
 ```
 
@@ -141,9 +141,9 @@ type User struct {
 
 ```go
 type Product struct {
-    ID    int64   `db:"id,primary,autoIncrement"`
-    Name  string  `db:"name"`
-    Price float64 `db:"price"`
+    ID    int    `po:"id,primaryKey,serial"`
+    Name  string `po:"name,varchar(255),notNull"`
+    Price int    `po:"price,integer,notNull"`
 }
 ```
 
@@ -197,7 +197,7 @@ Key Takeaways:
 # 1. Modify your models
 type User struct {
     // Add new field
-    Age int `db:"age"`
+    Age int `po:"age,integer"`
 }
 
 # 2. Run migration example to see diff

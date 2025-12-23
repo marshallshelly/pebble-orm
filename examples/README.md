@@ -263,17 +263,20 @@ type Product struct {
 ```go
 // CASCADE - Delete posts when user is deleted
 type Post struct {
-    AuthorID int64 `db:"author_id,fk:users.id,onDelete:cascade"`
+    AuthorID int `po:"author_id,integer,notNull"`
+    // Foreign key with CASCADE defined in migration
 }
 
 // SET NULL - Keep comments but set author_id to NULL
 type Comment struct {
-    AuthorID *int64 `db:"author_id,fk:users.id,onDelete:setnull"`
+    AuthorID *int `po:"author_id,integer"`
+    // Foreign key with SET NULL defined in migration
 }
 
 // RESTRICT - Prevent category deletion if products exist
 type Product struct {
-    CategoryID int64 `db:"category_id,fk:categories.id,onDelete:restrict"`
+    CategoryID int `po:"category_id,integer,notNull"`
+    // Foreign key with RESTRICT defined in migration
 }
 ```
 
@@ -365,11 +368,11 @@ Hardcoded strings are error-prone and violate DRY:
 ```go
 // ❌ Two sources of truth - struct tag AND hardcoded string
 type User struct {
-    Email string `po:"email,unique"`
+    Email string `po:"email,varchar(255),unique"`
 }
 
 users, _ := builder.Select[User](qb).
-    Where(builder.Eq("email", value)).  // ❌ Magic string
+    Where(builder.Eq("email", value)).  // ❌ Magic string - not type-safe!
     All(ctx)
 ```
 
