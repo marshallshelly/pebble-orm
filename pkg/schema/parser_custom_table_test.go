@@ -23,9 +23,9 @@ func TestExtractTableNameFromComment(t *testing.T) {
 		expected string
 	}{
 		{
-			name:     "Extracts table name (may fall back to snake_case if source not found)",
+			name:     "Extracts custom table name from comment",
 			model:    CustomTableTest{},
-			expected: "custom_table_test", // Falls back to snake_case
+			expected: "custom_test_table", // From comment: // table_name: custom_test_table
 		},
 		{
 			name:     "Default snake_case conversion",
@@ -100,11 +100,10 @@ func TestFullParseWithCustomTableName(t *testing.T) {
 		t.Fatalf("Failed to parse CustomTableTest: %v", err)
 	}
 
-	// Note: May fall back to snake_case if source file not found
-	// This is expected behavior - source parsing is best-effort
-	expectedName := "custom_table_test"
+	// Should use the custom table name from the comment directive
+	expectedName := "custom_test_table"
 	if table.Name != expectedName {
-		t.Logf("Note: Table name is %q, expected %q (source file may not be found in tests)", table.Name, expectedName)
+		t.Errorf("Expected table name %q, got %q", expectedName, table.Name)
 	}
 
 	// Verify struct fields are correctly parsed

@@ -149,20 +149,32 @@ func (p *Parser) extractTableNameFromSource(modelType reflect.Type) string {
 
 // findSourceFile attempts to locate the source file containing the struct definition.
 func findSourceFile(pkgPath, structName string) (string, error) {
-	// Get GOPATH and GOROOT
+	// Get GOPATH
 	gopath := os.Getenv("GOPATH")
 	if gopath == "" {
 		gopath = filepath.Join(os.Getenv("HOME"), "go")
 	}
-	// Try to find the package directory
+
+	// Get working directory
+	wd, err := os.Getwd()
+	if err != nil {
+		wd = "."
+	}
+
+	// Build list of possible paths to search
 	possiblePaths := []string{
-		filepath.Join(gopath, "src", pkgPath),
-		pkgPath, // Try as absolute path
+		wd, // First, try current working directory (handles main package and local packages)
 	}
-	// Also try working directory relative paths
-	if wd, err := os.Getwd(); err == nil {
-		possiblePaths = append(possiblePaths, filepath.Join(wd, pkgPath))
+
+	// For non-main packages, add traditional Go paths
+	if pkgPath != "" && pkgPath != "main" {
+		possiblePaths = append(possiblePaths,
+			filepath.Join(gopath, "src", pkgPath),
+			pkgPath,                    // Try as absolute path
+			filepath.Join(wd, pkgPath), // Try as relative to working directory
+		)
 	}
+
 	// Search for the struct in .go files
 	for _, pkgDir := range possiblePaths {
 		files, err := filepath.Glob(filepath.Join(pkgDir, "*.go"))

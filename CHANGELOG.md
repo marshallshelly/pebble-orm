@@ -4,6 +4,25 @@ All notable changes to Pebble ORM will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.5.1] - 2025-12-23
+
+### Fixed
+
+- **table_name Comment Directive**: Fixed critical bug where `// table_name: custom_name` comments were not being parsed
+  - Issue: Models registered with custom table names were falling back to default snake_case conversion
+  - Root Cause: `findSourceFile()` function couldn't locate source files for main package or models outside GOPATH
+  - Solution: Enhanced source file search to prioritize current working directory
+  - Impact: Custom table names now work correctly for migrations and queries
+  - Affected: Model registration, schema parsing, migration generation
+
+### Changes
+
+- Updated `pkg/schema/parser.go`:
+  - `findSourceFile()` now searches current working directory first
+  - Properly handles `main` package models
+  - Works with models defined anywhere in the filesystem
+- Updated tests to expect correct custom table names instead of fallback values
+
 ## [1.5.0] - 2025-12-23
 
 ### Added
