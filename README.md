@@ -350,8 +350,11 @@ executor.ApplyAll(ctx, migrations, false)
 ### CLI
 
 ```bash
-# Generate migration
-pebble generate --name add_users --db "postgres://..."
+# Generate migration from models (no database required!)
+pebble generate --name initial_schema --models ./internal/models
+
+# Generate migration by comparing with existing database
+pebble generate --name add_users --db "postgres://..." --models ./internal/models
 
 # Apply migrations
 pebble migrate up --all --db "postgres://..."

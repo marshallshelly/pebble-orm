@@ -2,14 +2,35 @@
 
 This example demonstrates **schema migration and management** in Pebble ORM including:
 
+- ✅ **CLI Migration Generation** - Generate SQL from Go structs without a database
 - ✅ **Schema Introspection** - Inspect current database schema
 - ✅ **Schema Diff** - Compare database vs code schemas
-- ✅ **Migration Generation** - Auto-generate SQL migration files
 - ✅ **Migration Management** - Track and apply migrations
 
 ## Features Demonstrated
 
-### 1. Schema Introspection
+### 1. CLI Migration Generation (NEW in v1.6.0)
+
+**Generate migrations directly from Go source files - no database required!**
+
+```bash
+# Generate initial migration from models
+pebble generate --name initial_schema --models ./internal/models
+
+# Generates timestamped SQL files:
+# migrations/20251227064205_initial_schema.up.sql
+# migrations/20251227064205_initial_schema.down.sql
+```
+
+**Benefits:**
+
+- ✅ No database connection needed
+- ✅ Works before database even exists
+- ✅ Extracts schema from struct tags
+- ✅ Respects custom table names from comments
+- ✅ Generates complete CREATE TABLE statements
+
+### 2. Schema Introspection (Programmatic)
 
 ```go
 introspector := migration.NewIntrospector(db.Pool())
@@ -17,27 +38,27 @@ dbSchema, err := introspector.IntrospectSchema(ctx)
 // Returns map of table metadata from database
 ```
 
-### 2. Code Schema from Models
+### 3. Code Schema from Models
 
 ```go
 codeSchema := registry.AllTables()
 // Returns map of table metadata from Go structs
 ```
 
-### 3. Schema Diff
+### 4. Schema Diff
 
 ```go
 differ := migration.NewDiffer()
-diff := differ.Compare(dbSchema, codeSchema)
+diff := differ.Compare(codeSchema, dbSchema)
 
 if diff.HasChanges() {
     // Tables added, dropped, or modified
 }
 ```
 
-### 4. Safe Migration SQL Generation (⭐ NEW in v1.4.0)
+### 5. Safe Migration SQL Generation (⭐ Default in v1.4.0+)
 
-**Migrations are now idempotent by default!**
+**Migrations are idempotent by default!**
 
 ```go
 // Default: Safe migrations with IF NOT EXISTS
@@ -56,53 +77,34 @@ upSQL, downSQL := planner.GenerateMigration(diff)
 - ✅ Deployments are more robust
 - ✅ No manual error handling needed
 
-**Custom Options (Optional):**
-
-```go
-// For strict migrations (fail if table exists)
-strictPlanner := migration.NewPlannerWithOptions(migration.PlannerOptions{
-    IfNotExists: false, // Disable IF NOT EXISTS
-})
-upSQL, downSQL := strictPlanner.GenerateMigration(diff)
-```
-
-### 5. Migration File Generation
-
-```go
-generator := migration.NewGenerator("./migrations")
-file, err := generator.GenerateEmpty("add_users_table")
-// Creates timestamped .up.sql and .down.sql files
-```
-
 ## Running the Example
 
-### Prerequisites
-
-- PostgreSQL running on `localhost:5432`
-- Database: `pebble_migrations_demo`
+### Quick Start (CLI Method - Recommended)
 
 ```bash
+cd examples/migrations
+
+# 1. Generate migration from models (no database required!)
+pebble generate --name initial_schema --models ./internal/models --verbose
+
+# 2. Create database
+createdb pebble_migrations_demo
+
+# 3. Apply migration
+pebble migrate up --all --db "postgres://localhost:5432/pebble_migrations_demo"
+```
+
+### Programmatic Method
+
+```bash
+cd examples/migrations
+
 # Create database
 createdb pebble_migrations_demo
 
 # Run the example
-cd examples/migrations
 go run cmd/migrations/main.go
 ```
-
-### For Production Deployments
-
-This example uses custom table names (`// table_name: products`). For production Docker builds:
-
-```bash
-# Generate table name metadata before building
-pebble generate metadata --scan ./internal/models
-
-# This creates internal/models/table_names.gen.go
-# Commit this file so custom table names work in production!
-```
-
-See [`../custom_table_names/README.md`](../custom_table_names/README.md) for details.
 
 ## Project Structure
 

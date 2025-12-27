@@ -6,8 +6,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/marshallshelly/pebble-orm/cmd/pebble/output"
+	"github.com/marshallshelly/pebble-orm/pkg/loader"
 	"github.com/marshallshelly/pebble-orm/pkg/migration"
 	"github.com/marshallshelly/pebble-orm/pkg/registry"
+	"github.com/marshallshelly/pebble-orm/pkg/schema"
 	"github.com/spf13/cobra"
 )
 
@@ -17,6 +19,13 @@ var (
 	empty         bool
 	modelsPath    string
 )
+
+// globalRegistryWrapper wraps the global registry to implement loader.ModelRegistrar
+type globalRegistryWrapper struct{}
+
+func (globalRegistryWrapper) RegisterMetadata(table *schema.TableMetadata) error {
+	return registry.RegisterMetadata(table)
+}
 
 // generateCmd generates migration files
 var generateCmd = &cobra.Command{
@@ -28,8 +37,14 @@ The command introspects the database, compares it with registered models,
 and generates timestamped up/down SQL migration files.
 
 Examples:
-  pebble generate --name add_users_table    # Generate from schema diff
-  pebble generate --name custom_sql --empty # Generate empty migration for manual editing`,
+  # Generate initial migration from models (no database required)
+  pebble generate --name initial_schema --models ./internal/models
+
+  # Generate migration by comparing with existing database
+  pebble generate --name add_users_table --db "postgres://..." --models ./internal/models
+  
+  # Generate empty migration for manual SQL
+  pebble generate --name custom_sql --empty`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runGenerate()
 	},
@@ -62,27 +77,27 @@ func runGenerate() error {
 		return nil
 	}
 
-	// Generate from schema diff
-	if dbURL == "" {
-		return fmt.Errorf("--db flag is required for schema diff")
-	}
-
+	// Require models path for schema-based generation
 	if modelsPath == "" {
 		return fmt.Errorf("--models flag is required to specify model definitions")
 	}
 
 	ctx := context.Background()
 
-	// Connect to database
-	pool, err := pgxpool.New(ctx, dbURL)
-	if err != nil {
-		return fmt.Errorf("failed to connect to database: %w", err)
+	// Load models from file or directory specified in --models flag
+	if verbose {
+		output.Info("Loading models from: %s", modelsPath)
 	}
-	defer pool.Close()
 
-	// TODO: Load models from file specified in --models flag
-	// For now, we'll use the global registry
-	// In a real implementation, you would parse the Go file and register models
+	modelsCount, err := loader.LoadModelsFromPath(modelsPath, globalRegistryWrapper{})
+	if err != nil {
+		return fmt.Errorf("failed to load models: %w", err)
+	}
+
+	if verbose {
+		output.Success("Loaded %d model(s)", modelsCount)
+	}
+
 	codeSchema := registry.AllTables()
 
 	if len(codeSchema) == 0 {
@@ -100,11 +115,36 @@ func runGenerate() error {
 		return nil
 	}
 
-	// Introspect database
-	introspector := migration.NewIntrospector(pool)
-	dbSchema, err := introspector.IntrospectSchema(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to introspect database: %w", err)
+	// Determine database schema (empty if no --db provided)
+	var dbSchema map[string]*schema.TableMetadata
+
+	if dbURL != "" {
+		// Connect to database and introspect
+		if verbose {
+			output.Info("Connecting to database to introspect schema...")
+		}
+
+		pool, err := pgxpool.New(ctx, dbURL)
+		if err != nil {
+			return fmt.Errorf("failed to connect to database: %w", err)
+		}
+		defer pool.Close()
+
+		introspector := migration.NewIntrospector(pool)
+		dbSchema, err = introspector.IntrospectSchema(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to introspect database: %w", err)
+		}
+
+		if verbose {
+			output.Success("Found %d table(s) in database", len(dbSchema))
+		}
+	} else {
+		// No database connection - treat as empty database
+		if verbose {
+			output.Info("No --db provided, generating initial migration from models")
+		}
+		dbSchema = make(map[string]*schema.TableMetadata)
 	}
 
 	// Compare schemas

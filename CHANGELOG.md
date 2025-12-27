@@ -4,6 +4,58 @@ All notable changes to Pebble ORM will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.6.0] - 2025-12-27
+
+### Added
+
+- **CLI Migration Generation from Source Files**: Generate migrations directly from Go source files without requiring a database connection
+
+  - `pebble generate --name migration_name --models ./path/to/models`
+  - No `--db` flag required for initial migrations
+  - Scans `.go` files and builds schema from struct tags
+  - Supports both single files and directories
+  - Respects custom table names from `// table_name:` comments
+  - Generates complete CREATE TABLE statements with all constraints
+
+- **AST-Based Schema Building**: New loader package that parses Go source files
+
+  - Direct `TableMetadata` construction from AST
+  - Extracts columns, types, constraints from struct tags
+  - Handles primary keys, unique indexes, defaults
+  - No reflection or runtime type information needed
+
+- **Registry.RegisterMetadata()**: New method for direct `TableMetadata` registration
+  - Allows CLI tools to register schemas without Go types
+  - Bypasses the need for actual struct instances
+  - Enables migration generation from source code alone
+
+### Changed
+
+- **`--db` Flag Now Optional**: Database connection only required when comparing with existing schema
+
+  - Without `--db`: Generates initial migration (treats DB as empty)
+  - With `--db`: Generates diff-based migration (compares code vs database)
+  - Makes initial project setup easier
+
+- **Migration Workflow Simplified**:
+
+  ```bash
+  # Step 1: Define models in Go
+  # Step 2: Generate migration (no database needed!)
+  pebble generate --name initial_schema --models ./internal/models
+
+  # Step 3: Apply migration
+  pebble migrate up --db "postgres://..."
+  ```
+
+### Benefits
+
+- ✅ **No Database Required**: Generate migrations before database even exists
+- ✅ **Source of Truth**: Go structs define schema, CLI generates SQL
+- ✅ **Faster Development**: No need to manually write CREATE TABLE statements
+- ✅ **Custom Table Names**: Automatically extracts from comments
+- ✅ **Type Safe**: Generates SQL from strongly-typed Go definitions
+
 ## [1.5.3] - 2025-12-23
 
 ### Fixed

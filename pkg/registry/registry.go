@@ -60,6 +60,26 @@ func (r *Registry) Register(model interface{}) error {
 	return nil
 }
 
+// RegisterMetadata registers table metadata directly without requiring a Go type.
+// This is useful for CLI tools that parse source files and build metadata from AST.
+func (r *Registry) RegisterMetadata(table *schema.TableMetadata) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Check if already registered by name
+	if _, ok := r.names[table.Name]; ok {
+		return nil // Already registered
+	}
+
+	// Store in registry (use nil for GoType since we don't have the actual type)
+	if table.GoType != nil {
+		r.tables[table.GoType] = table
+	}
+	r.names[table.Name] = table
+
+	return nil
+}
+
 // Get retrieves TableMetadata by Go type.
 func (r *Registry) Get(modelType reflect.Type) (*schema.TableMetadata, error) {
 	// Dereference pointer
@@ -182,6 +202,11 @@ var globalRegistry = NewRegistry()
 // Register registers a model in the global registry.
 func Register(model interface{}) error {
 	return globalRegistry.Register(model)
+}
+
+// RegisterMetadata registers table metadata directly in the global registry.
+func RegisterMetadata(table *schema.TableMetadata) error {
+	return globalRegistry.RegisterMetadata(table)
 }
 
 // Get retrieves TableMetadata from the global registry.
