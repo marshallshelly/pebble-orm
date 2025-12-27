@@ -136,8 +136,8 @@ func (d *Differ) compareColumn(codeCol, dbCol schema.ColumnMetadata) ColumnDiff 
 	// Compare nullability
 	diff.NullChanged = (codeCol.Nullable != dbCol.Nullable)
 
-	// Compare default value
-	diff.DefaultChanged = !d.isSameDefault(codeCol.Default, dbCol.Default)
+	// Compare default value with special handling for serial/autoincrement columns
+	diff.DefaultChanged = !d.isSameDefaultWithSerial(codeCol, dbCol)
 
 	return diff
 }
@@ -306,6 +306,52 @@ func (d *Differ) normalizeType(sqlType string) string {
 	normalized = strings.Join(strings.Fields(normalized), " ")
 
 	return normalized
+}
+
+// isSameDefaultWithSerial compares default values with special handling for serial/autoincrement columns.
+// This fixes the bug where serial columns incorrectly trigger DROP DEFAULT migrations.
+func (d *Differ) isSameDefaultWithSerial(codeCol, dbCol schema.ColumnMetadata) bool {
+	// Special case: serial/autoincrement columns in code are equivalent to sequence defaults in database
+	// serial in code = DEFAULT nextval('table_name_id_seq'::regclass) in database
+	if d.isAutoIncrementColumn(codeCol) && d.isSequenceDefault(dbCol.Default) {
+		return true // These are equivalent - no migration needed
+	}
+
+	// Regular default comparison
+	return d.isSameDefault(codeCol.Default, dbCol.Default)
+}
+
+// isAutoIncrementColumn checks if a column is defined as auto-increment/serial in code.
+func (d *Differ) isAutoIncrementColumn(col schema.ColumnMetadata) bool {
+	// Check if the SQL type is a serial type
+	normalizedType := strings.ToLower(strings.TrimSpace(col.SQLType))
+	if normalizedType == "serial" || normalizedType == "bigserial" || normalizedType == "smallserial" ||
+		normalizedType == "serial4" || normalizedType == "serial8" || normalizedType == "serial2" {
+		return true
+	}
+
+	// Check AutoIncrement flag (if set by parser)
+	if col.AutoIncrement {
+		return true
+	}
+
+	return false
+}
+
+// isSequenceDefault checks if a default value is a PostgreSQL sequence (nextval).
+func (d *Differ) isSequenceDefault(defaultVal *string) bool {
+	if defaultVal == nil || *defaultVal == "" {
+		return false
+	}
+
+	// Normalize and check for nextval
+	normalized := strings.ToLower(strings.TrimSpace(*defaultVal))
+
+	// Match patterns like:
+	// - nextval('table_name_id_seq'::regclass)
+	// - nextval('table_name_id_seq')
+	// - nextval('"table_name_id_seq"'::regclass)
+	return strings.Contains(normalized, "nextval") && strings.Contains(normalized, "_seq")
 }
 
 // isSameDefault compares default values.
