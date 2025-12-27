@@ -10,26 +10,28 @@ import (
 func ValidateDefaultValue(defaultVal string) error {
 	trimmed := strings.TrimSpace(defaultVal)
 
-	// Check for common mistakes with SQL functions
-	commonMistakes := map[string]string{
-		"CURRENT TIMESTAMP": "CURRENT_TIMESTAMP",
-		"CURRENT TIME":      "CURRENT_TIME",
-		"CURRENT DATE":      "CURRENT_DATE",
-		"NOW ()":            "NOW()",
-		"GEN RANDOM UUID":   "gen_random_uuid()",
-		"UUID GENERATE V4":  "uuid_generate_v4()",
-		"LOCALTIMESTAMP":    "LOCALTIMESTAMP", // Note: This is correct, but adding for completeness
-	}
-
 	// Convert to uppercase for case-insensitive comparison
 	upperVal := strings.ToUpper(trimmed)
 
-	for mistake, correct := range commonMistakes {
-		if strings.Contains(upperVal, mistake) {
+	// Check mistakes in order (longer patterns first to avoid false matches)
+	mistakes := []struct {
+		wrong   string
+		correct string
+	}{
+		{"CURRENT TIMESTAMP", "CURRENT_TIMESTAMP"}, // Must check before "CURRENT TIME"
+		{"CURRENT TIME", "CURRENT_TIME"},
+		{"CURRENT DATE", "CURRENT_DATE"},
+		{"NOW ()", "NOW()"},
+		{"GEN RANDOM UUID", "gen_random_uuid()"},
+		{"UUID GENERATE V4", "uuid_generate_v4()"},
+	}
+
+	for _, m := range mistakes {
+		if strings.Contains(upperVal, m.wrong) {
 			return fmt.Errorf(
 				"invalid DEFAULT value: '%s' contains '%s' which should be '%s'\n"+
 					"Fix: Change default(%s) to default(%s)",
-				defaultVal, mistake, correct, defaultVal, strings.Replace(defaultVal, strings.ToLower(mistake), strings.ToLower(correct), 1),
+				defaultVal, m.wrong, m.correct, defaultVal, strings.Replace(defaultVal, strings.ToLower(m.wrong), strings.ToLower(m.correct), 1),
 			)
 		}
 	}
