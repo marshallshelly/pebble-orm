@@ -4,6 +4,46 @@ All notable changes to Pebble ORM will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.6.1] - 2025-12-27
+
+### Fixed
+
+- **Critical: Serial Column DROP DEFAULT Bug** - Fixed auto-migration incorrectly generating `DROP DEFAULT` for serial columns
+  - **Problem**: When comparing code schema (serial) vs database schema (integer with nextval), differ saw these as different defaults
+  - **Impact**: Auto-increment functionality broken after migration, causing `NOT NULL` constraint violations on INSERT
+  - **Root Cause**: Differ didn't recognize that `serial` in code === `DEFAULT nextval('table_id_seq'::regclass)` in database
+  - **Solution**: Added special handling to detect and preserve sequence-based defaults for serial/autoincrement columns
+  - **Affects**: Runtime auto-migration (`initSchemaWithMigrations`), not file-based migrations
+
+### Technical Details
+
+The differ now recognizes these as equivalent (no migration generated):
+
+```go
+// Code schema
+type Model struct {
+    ID int `po:"id,primaryKey,serial"`
+}
+
+// Database schema
+CREATE TABLE model (
+    id INTEGER NOT NULL DEFAULT nextval('model_id_seq'::regclass)
+);
+```
+
+**New Helper Methods:**
+
+- `isSameDefaultWithSerial()` - Compares defaults with serial column awareness
+- `isAutoIncrementColumn()` - Detects serial/bigserial/smallserial types
+- `isSequenceDefault()` - Identifies PostgreSQL sequence defaults (nextval patterns)
+
+**Test Coverage:**
+
+- Serial, bigserial, smallserial variations
+- Different nextval() formats (with/without regclass, quoted names, uppercase)
+- Ensures legitimate default changes still detected
+- Comprehensive test suite: `pkg/migration/serial_default_test.go`
+
 ## [1.6.0] - 2025-12-27
 
 ### Added
