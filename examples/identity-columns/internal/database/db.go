@@ -50,10 +50,6 @@ func Connect(ctx context.Context) (*runtime.DB, error) {
 		db.Close()
 		return nil, fmt.Errorf("failed to register models: %w", err)
 	}
-	if err := registry.Register(models.Customer{}); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("failed to register models: %w", err)
-	}
 
 	return db, nil
 }

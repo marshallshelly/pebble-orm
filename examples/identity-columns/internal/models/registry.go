@@ -7,7 +7,6 @@ func RegisterAll() error {
 	models := []interface{}{
 		Product{},
 		Order{},
-		Customer{},
 	}
 
 	for _, model := range models {
