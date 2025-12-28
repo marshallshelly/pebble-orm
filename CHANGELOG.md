@@ -4,6 +4,153 @@ All notable changes to Pebble ORM will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.8.0] - 2025-12-29
+
+### Added - Smart Default Value Detection
+
+**Major Developer Experience Improvement**: Automatic zero-value omission for fields with database defaults.
+
+#### Problem Solved
+
+Previously, using non-pointer types with database-generated values caused errors:
+
+```go
+// ❌ Before - Required pointers or caused errors
+type User struct {
+    ID    string `po:"id,uuid,default(gen_random_uuid())"`
+    Email string `po:"email,text,notNull"`
+}
+
+user := User{Email: "test@test.com"}
+// ID is "" (empty string)
+// INSERT INTO users (id, email) VALUES ('', 'test@test.com')
+// ERROR: invalid input syntax for type uuid: ""
+```
+
+**Workaround was verbose**: Required pointers for all auto-generated fields:
+
+```go
+type User struct {
+    ID    *string `po:"id,uuid,default(gen_random_uuid())"`  // Pointer!
+    Email string  `po:"email,text,notNull"`
+}
+```
+
+#### Smart Solution
+
+Pebble ORM now **automatically omits zero-valued fields** that have database defaults:
+
+```go
+// ✅ After - Natural, intuitive syntax
+type User struct {
+    ID        string    `po:"id,uuid,default(gen_random_uuid())"`
+    Email     string    `po:"email,text,notNull"`
+    CreatedAt time.Time `po:"created_at,timestamptz,default(NOW())"`
+}
+
+user := User{Email: "test@test.com"}
+// ID is ""          → has default() → OMITTED ✅
+// CreatedAt is zero → has default() → OMITTED ✅
+// INSERT INTO users (email) VALUES ('test@test.com')
+// RETURNING id, created_at; -- Database generates these
+```
+
+#### How It Works
+
+The INSERT builder intelligently omits fields when **ALL** of these are true:
+
+1. Field has a `default()` tag OR is an `identity` column
+2. Field value is Go's zero value (`""`, `0`, `time.Time{}`, `nil`, etc.)
+
+#### Explicit Values Still Work
+
+Non-zero values are always included:
+
+```go
+user := User{
+    ID:    "custom-uuid-1234",  // Explicit value
+    Email: "test@test.com",
+}
+// INSERT INTO users (id, email) VALUES ('custom-uuid-1234', 'test@test.com')
+```
+
+#### Edge Cases Handled
+
+**Pointers still work** (backward compatible):
+
+```go
+type User struct {
+    ID *string `po:"id,uuid,default(gen_random_uuid())"`
+}
+user := User{ID: nil}  // nil is zero → omitted ✅
+```
+
+**Fields without defaults are always included**:
+
+```go
+type User struct {
+    Email string `po:"email,text,notNull"`  // No default
+    Age   int    `po:"age,integer"`         // No default
+}
+user := User{Email: "", Age: 0}
+// Both included even though zero (no defaults)
+// INSERT INTO users (email, age) VALUES ('', 0)
+```
+
+**Identity columns also omitted when zero**:
+
+```go
+type Product struct {
+    ID   int64  `po:"id,bigint,identity"`
+    Name string `po:"name,text,notNull"`
+}
+product := Product{Name: "Widget"}  // ID is 0
+// INSERT INTO products (name) VALUES ('Widget')
+// RETURNING id; -- Database generates
+```
+
+### Benefits
+
+- ✅ **Intuitive**: Works how developers expect
+- ✅ **Less boilerplate**: No pointers for generated fields
+- ✅ **Fewer errors**: Prevents "invalid UUID" mistakes
+- ✅ **Better DX**: New users don't hit this immediately
+- ✅ **Backward compatible**: Pointers still work
+- ✅ **Clearer models**: Field nullability matches database reality
+
+### Technical Details
+
+- Updated `pkg/builder/scanner.go`: Added smart default detection to `structToValues()`
+- Uses Go's `reflect.Value.IsZero()` for accurate zero detection
+- Checks `col.Default != nil` and `col.Identity != nil`
+- Added comprehensive test suite: `pkg/builder/smart_defaults_test.go`
+
+### Migration Guide
+
+**No breaking changes!** Both patterns work:
+
+```go
+// Old pattern (still works)
+type User struct {
+    ID *string `po:"id,uuid,default(gen_random_uuid())"`
+}
+
+// New pattern (cleaner)
+type User struct {
+    ID string `po:"id,uuid,default(gen_random_uuid())"`
+}
+```
+
+Gradually migrate by removing pointers as you update models.
+
+### Comparison with Other ORMs
+
+Pebble ORM now matches the intuitive behavior of:
+
+- **GORM**: Auto-omits zero primary keys
+- **Ent**: Handles defaults intelligently
+- **SQLBoiler**: Smart null handling
+
 ## [1.7.2] - 2025-12-29
 
 ### Fixed - Critical Production Issues
@@ -90,6 +237,8 @@ None. All changes are backward-compatible and improve existing functionality.
 
 - Auto-migration still runs on first request (Issue #3). See PRODUCTION_SAFETY.md for workarounds.
 - Manual intervention required for complex type conversions (e.g., `integer` → `jsonb`)
+
+## [1.7.1] - 2025-12-28
 
 ### Fixed
 

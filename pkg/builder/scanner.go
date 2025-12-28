@@ -66,6 +66,9 @@ func scanIntoStruct(rows pgx.Rows, dest interface{}, table *schema.TableMetadata
 }
 
 // structToValues converts a struct to column names and values.
+// It intelligently omits fields from INSERT when:
+// 1. Field has AutoIncrement (existing behavior)
+// 2. Field has a database Default and the Go value is zero (new smart behavior)
 func structToValues(model interface{}, table *schema.TableMetadata, skipPrimaryKey bool) ([]string, []interface{}, error) {
 	modelValue := reflect.ValueOf(model)
 	if modelValue.Kind() == reflect.Ptr {
@@ -80,13 +83,27 @@ func structToValues(model interface{}, table *schema.TableMetadata, skipPrimaryK
 	var values []interface{}
 
 	for _, col := range table.Columns {
-		// Skip primary key if requested (for INSERT without explicit ID)
+		// Skip primary key with auto-increment (existing behavior)
 		if skipPrimaryKey && table.IsPrimaryKey(col.Name) && col.AutoIncrement {
 			continue
 		}
 
 		field := modelValue.FieldByName(col.GoField)
 		if !field.IsValid() {
+			continue
+		}
+
+		// Smart default detection: Skip zero-valued fields that have database defaults
+		// This allows natural non-pointer types like:
+		//   ID string `po:"id,uuid,default(gen_random_uuid())"`
+		// Instead of requiring:
+		//   ID *string `po:"id,uuid,default(gen_random_uuid())"`
+		if col.Default != nil && field.IsZero() {
+			continue
+		}
+
+		// Skip identity columns when zero (they're auto-generated)
+		if col.Identity != nil && field.IsZero() {
 			continue
 		}
 
