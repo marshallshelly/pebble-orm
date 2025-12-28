@@ -273,6 +273,9 @@ func (i *Introspector) getForeignKeys(ctx context.Context, tableName string) ([]
 }
 
 // getIndexes retrieves index information.
+// NOTE: This only returns standalone indexes. Indexes that back constraints
+// (UNIQUE, PRIMARY KEY) are managed through the constraints themselves and
+// should not be dropped with DROP INDEX.
 func (i *Introspector) getIndexes(ctx context.Context, tableName string) ([]schema.IndexMetadata, error) {
 	query := `
 		SELECT
@@ -286,9 +289,11 @@ func (i *Introspector) getIndexes(ctx context.Context, tableName string) ([]sche
 		JOIN pg_am am ON i.relam = am.oid
 		CROSS JOIN LATERAL unnest(ix.indkey) WITH ORDINALITY AS x(attnum, ordinality)
 		JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = x.attnum
+		LEFT JOIN pg_constraint c ON c.conindid = ix.indexrelid
 		WHERE t.relname = $1
 			AND t.relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'public')
 			AND NOT ix.indisprimary
+			AND c.conindid IS NULL  -- Exclude constraint-backed indexes
 		GROUP BY i.relname, ix.indisunique, am.amname
 		ORDER BY i.relname
 	`

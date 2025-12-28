@@ -4,7 +4,92 @@ All notable changes to Pebble ORM will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [1.7.1] - 2025-12-28
+## [1.7.2] - 2025-12-29
+
+### Fixed - Critical Production Issues
+
+- **🔴 P0: Constraint-backed index detection**  
+  Fixed migration planner generating `DROP INDEX` statements for indexes that back UNIQUE/PRIMARY KEY constraints, which caused production failures:
+
+  ```
+  ERROR: cannot drop index users_email_key because constraint users_email_key
+  on table users requires it (SQLSTATE 2BP01)
+  ```
+
+  **Root Cause**: Introspector didn't distinguish between standalone indexes and constraint-backed indexes.
+
+  **Fix**: Added `LEFT JOIN pg_constraint` to exclude constraint-backed indexes from standalone index operations.
+
+  **Impact**: ✅ Migrations no longer attempt to drop constraint-backed indexes
+
+- **🔴 P0: Missing USING clauses for type conversions**  
+  Fixed type conversions that require explicit casting logic, which blocked schema evolution:
+
+  ```
+  ERROR: column "languages_spoken" cannot be cast automatically to type text[]
+  (SQLSTATE 42804)
+  ```
+
+  **Root Cause**: Migration planner generated simple `ALTER TABLE ... TYPE` without USING clauses for incompatible conversions.
+
+  **Fix**: Added automatic USING clause generation for common conversions:
+
+  - `text/varchar` → `text[]`: Null-safe array wrapping
+  - `text/varchar` → `jsonb`: Null-safe JSON parsing
+  - `text/varchar` → `json`: Null-safe JSON parsing
+  - `text/varchar` → `integer`: Regex-validated conversion
+
+  For unsupported conversions, generates commented-out statements with manual intervention instructions.
+
+  **Impact**: ✅ Type conversions now work automatically for common cases, with safety guidance for complex cases
+
+### Added
+
+- **Production Safety Guide**: New `PRODUCTION_SAFETY.md` documenting best practices for using migrations in production
+- **Type Conversion Detection**: `requiresUsingClause()` function to detect incompatible PostgreSQL type conversions
+- **Smart USING Generation**: `generateUsingClause()` provides safe default conversions for common type changes
+
+### Technical Details
+
+- Updated `introspector.go`: Added constraint detection to `getIndexes()` query
+- Updated `planner.go`: Added type conversion logic with USING clause generation
+- Added comprehensive tests: `constraint_index_test.go` and `type_conversion_test.go`
+- Updated `.gitignore`: Whitelisted PRODUCTION_SAFETY.md
+
+### Migration Example
+
+**Before v1.7.2 (Fails):**
+
+```sql
+ALTER TABLE teams ALTER COLUMN languages_spoken TYPE text[];
+-- ERROR: cannot be cast automatically
+```
+
+**After v1.7.2 (Works):**
+
+```sql
+ALTER TABLE teams ALTER COLUMN languages_spoken TYPE text[]
+USING CASE
+  WHEN languages_spoken IS NULL THEN NULL
+  WHEN languages_spoken = '' THEN ARRAY[]::text[]
+  ELSE ARRAY[languages_spoken]::text[]
+END;
+```
+
+### Breaking Changes
+
+None. All changes are backward-compatible and improve existing functionality.
+
+### Upgrade Path
+
+1. Update to v1.7.2: `go get github.com/marshallshelly/pebble-orm@v1.7.2`
+2. Regenerate any pending migrations
+3. Review auto-generated USING clauses before applying
+
+### Known Limitations
+
+- Auto-migration still runs on first request (Issue #3). See PRODUCTION_SAFETY.md for workarounds.
+- Manual intervention required for complex type conversions (e.g., `integer` → `jsonb`)
 
 ### Fixed
 

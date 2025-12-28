@@ -300,10 +300,41 @@ func (p *Planner) generateColumnModification(tableName string, colDiff ColumnDif
 
 	// Type change
 	if colDiff.TypeChanged {
-		upSQL = append(upSQL, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s TYPE %s;",
-			tableName, colName, colDiff.NewColumn.SQLType))
-		downSQL = append(downSQL, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s TYPE %s;",
-			tableName, colName, colDiff.OldColumn.SQLType))
+		// Check if this type conversion requires explicit USING clause
+		if requiresUsingClause(colDiff.OldColumn.SQLType, colDiff.NewColumn.SQLType) {
+			// Try to generate automatic USING clause
+			usingClause := generateUsingClause(colName, colDiff.OldColumn.SQLType, colDiff.NewColumn.SQLType)
+
+			if usingClause != "" {
+				// We have a safe conversion
+				upSQL = append(upSQL, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s TYPE %s %s;",
+					tableName, colName, colDiff.NewColumn.SQLType, usingClause))
+			} else {
+				// No safe automatic conversion - require manual intervention
+				upSQL = append(upSQL, fmt.Sprintf("-- MANUAL MIGRATION REQUIRED: Cannot auto-convert %s from %s to %s",
+					colName, colDiff.OldColumn.SQLType, colDiff.NewColumn.SQLType))
+				upSQL = append(upSQL, fmt.Sprintf("-- Please review and uncomment/modify the following statement:"))
+				upSQL = append(upSQL, fmt.Sprintf("-- ALTER TABLE %s ALTER COLUMN %s TYPE %s USING <expression>;",
+					tableName, colName, colDiff.NewColumn.SQLType))
+			}
+
+			// Down migration (reverse)
+			usingClauseDown := generateUsingClause(colName, colDiff.NewColumn.SQLType, colDiff.OldColumn.SQLType)
+			if usingClauseDown != "" {
+				downSQL = append(downSQL, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s TYPE %s %s;",
+					tableName, colName, colDiff.OldColumn.SQLType, usingClauseDown))
+			} else {
+				downSQL = append(downSQL, fmt.Sprintf("-- MANUAL MIGRATION REQUIRED: Reverse type conversion for %s", colName))
+				downSQL = append(downSQL, fmt.Sprintf("-- ALTER TABLE %s ALTER COLUMN %s TYPE %s USING <expression>;",
+					tableName, colName, colDiff.OldColumn.SQLType))
+			}
+		} else {
+			// Simple type conversion (implicit cast available)
+			upSQL = append(upSQL, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s TYPE %s;",
+				tableName, colName, colDiff.NewColumn.SQLType))
+			downSQL = append(downSQL, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s TYPE %s;",
+				tableName, colName, colDiff.OldColumn.SQLType))
+		}
 	}
 
 	// Nullability change
@@ -371,4 +402,98 @@ func (p *Planner) generatePrimaryKeyChange(tableName string, pkChange *PrimaryKe
 	}
 
 	return upSQL, downSQL
+}
+
+// requiresUsingClause determines if a type conversion requires an explicit USING clause.
+// PostgreSQL can implicitly cast some types but not others.
+func requiresUsingClause(fromType, toType string) bool {
+	// Normalize types for comparison
+	from := strings.ToLower(strings.TrimSpace(fromType))
+	to := strings.ToLower(strings.TrimSpace(toType))
+
+	// Same type - no USING needed
+	if from == to {
+		return false
+	}
+
+	// Common conversions that require USING
+	incompatibleConversions := map[string]map[string]bool{
+		"text": {
+			"text[]":  true,
+			"jsonb":   true,
+			"json":    true,
+			"integer": true,
+			"bigint":  true,
+			"numeric": true,
+		},
+		"varchar": {
+			"text[]":  true,
+			"jsonb":   true,
+			"json":    true,
+			"integer": true,
+			"bigint":  true,
+			"numeric": true,
+		},
+		"integer": {
+			"text[]": true,
+			"jsonb":  true,
+		},
+		"bigint": {
+			"text[]": true,
+			"jsonb":  true,
+		},
+	}
+
+	// Check if conversion is in the incompatible list
+	if toTypes, exists := incompatibleConversions[from]; exists {
+		if toTypes[to] {
+			return true
+		}
+	}
+
+	// Check for array conversions (e.g., text → text[])
+	if strings.HasSuffix(to, "[]") && !strings.HasSuffix(from, "[]") {
+		return true
+	}
+
+	// Check for jsonb/json conversions from non-json types
+	if (to == "jsonb" || to == "json") && from != "jsonb" && from != "json" {
+		return true
+	}
+
+	return false
+}
+
+// generateUsingClause generates an appropriate USING clause for common type conversions.
+// Returns empty string if no safe automatic conversion is available.
+func generateUsingClause(columnName, fromType, toType string) string {
+	from := strings.ToLower(strings.TrimSpace(fromType))
+	to := strings.ToLower(strings.TrimSpace(toType))
+
+	// text/varchar → text[]
+	if (from == "text" || strings.HasPrefix(from, "varchar")) && to == "text[]" {
+		return fmt.Sprintf("USING CASE WHEN %s IS NULL THEN NULL WHEN %s = '' THEN ARRAY[]::text[] ELSE ARRAY[%s]::text[] END",
+			columnName, columnName, columnName)
+	}
+
+	// text/varchar → jsonb
+	if (from == "text" || strings.HasPrefix(from, "varchar")) && to == "jsonb" {
+		return fmt.Sprintf("USING CASE WHEN %s IS NULL THEN NULL WHEN %s = '' THEN '{}'::jsonb ELSE %s::jsonb END",
+			columnName, columnName, columnName)
+	}
+
+	// text/varchar → json
+	if (from == "text" || strings.HasPrefix(from, "varchar")) && to == "json" {
+		return fmt.Sprintf("USING CASE WHEN %s IS NULL THEN NULL WHEN %s = '' THEN '{}'::json ELSE %s::json END",
+			columnName, columnName, columnName)
+	}
+
+	// text/varchar → integer/bigint
+	if (from == "text" || strings.HasPrefix(from, "varchar")) && (to == "integer" || to == "bigint") {
+		return fmt.Sprintf("USING CASE WHEN %s ~ '^[0-9]+$' THEN %s::%s ELSE NULL END",
+			columnName, columnName, to)
+	}
+
+	// No safe automatic conversion available
+	return ""
 }
