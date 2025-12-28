@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/marshallshelly/pebble-orm/pkg/registry"
 	"github.com/marshallshelly/pebble-orm/pkg/schema"
 )
@@ -559,10 +558,4 @@ func isZeroValue(v interface{}) bool {
 	default:
 		return val.IsZero()
 	}
-}
-
-// scanIntoStructFromRows is a wrapper that works with pgx.Rows for scanning.
-// This is needed because the existing scanIntoStruct expects the row to be positioned.
-func scanIntoStructFromRows(rows pgx.Rows, dest interface{}, table *schema.TableMetadata) error {
-	return scanIntoStruct(rows, dest, table)
 }

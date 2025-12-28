@@ -4,7 +4,28 @@ All notable changes to Pebble ORM will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [1.7.0] - 2025-12-28
+## [1.7.1] - 2025-12-28
+
+### Fixed
+
+- **Critical: Migration Generation fixes**
+  - **Phantom ALTER commands**: Fixed type normalization bug where `timestamp` vs `timestamp without time zone` and `NOW()` vs `now()` caused unnecessary migration statements
+  - **Duplicate UNIQUE indexes**: Removed redundant `CREATE UNIQUE INDEX` statements for `UNIQUE` columns (PostgreSQL creates them implicitly)
+  - **Identity Columns in CLI**: Fixed `pebble generate` command not parsing `identity` tags when running from source (loader bug)
+  - **Identity SQL Generation**: Fixed syntax error in `CREATE TABLE` for identity columns with other constraints
+
+### Improved
+
+- **Cleaner SQL Generation**: `CREATE TABLE` now uses inline `PRIMARY KEY` for single-column PKs instead of verbose `CONSTRAINT` syntax
+- **Modern Go API**: Replaced deprecated `reflect.PtrTo` with `reflect.PointerTo` (Go 1.18+)
+- **Code Cleanup**: Removed dead code (`extractPackagePath`)
+
+### Technical Details
+
+- Updated `loader` to correctly parse `identity`, `identityAlways`, and `identityByDefault` tags from AST
+- Enhanced `differ` to normalize PostgreSQL types and default values for accurate schema comparison
+- Updated `planner` to generate concise SQL for primary keys
+- Fixed critical regression where identity columns were ignored during CLI generation
 
 ### Added
 

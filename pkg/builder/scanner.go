@@ -65,28 +65,6 @@ func scanIntoStruct(rows pgx.Rows, dest interface{}, table *schema.TableMetadata
 	return nil
 }
 
-// scanIntoMap scans a database row into a map.
-func scanIntoMap(rows pgx.Rows) (map[string]interface{}, error) {
-	fieldDescriptions := rows.FieldDescriptions()
-	values := make([]interface{}, len(fieldDescriptions))
-	valuePtrs := make([]interface{}, len(fieldDescriptions))
-
-	for i := range values {
-		valuePtrs[i] = &values[i]
-	}
-
-	if err := rows.Scan(valuePtrs...); err != nil {
-		return nil, fmt.Errorf("failed to scan row: %w", err)
-	}
-
-	result := make(map[string]interface{})
-	for i, fd := range fieldDescriptions {
-		result[fd.Name] = values[i]
-	}
-
-	return result, nil
-}
-
 // structToValues converts a struct to column names and values.
 func structToValues(model interface{}, table *schema.TableMetadata, skipPrimaryKey bool) ([]string, []interface{}, error) {
 	modelValue := reflect.ValueOf(model)
@@ -117,17 +95,4 @@ func structToValues(model interface{}, table *schema.TableMetadata, skipPrimaryK
 	}
 
 	return columns, values, nil
-}
-
-// mapToValues converts a map to column names and values.
-func mapToValues(data map[string]interface{}) ([]string, []interface{}) {
-	columns := make([]string, 0, len(data))
-	values := make([]interface{}, 0, len(data))
-
-	for col, val := range data {
-		columns = append(columns, col)
-		values = append(values, val)
-	}
-
-	return columns, values
 }

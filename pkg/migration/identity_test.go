@@ -94,14 +94,9 @@ func TestIdentityColumnInCreateTable(t *testing.T) {
 
 	sql := planner.generateCreateTable(table)
 
-	// Check that it contains the identity column definition
-	if !contains(sql, "id bigint GENERATED ALWAYS AS IDENTITY") {
-		t.Errorf("Expected CREATE TABLE to contain identity column definition\nGot: %s", sql)
-	}
-
-	// Check that it contains primary key
-	if !contains(sql, "CONSTRAINT users_pkey PRIMARY KEY (id)") {
-		t.Errorf("Expected CREATE TABLE to contain primary key\nGot: %s", sql)
+	// Check that it contains the identity column definition with inline PRIMARY KEY
+	if !contains(sql, "id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY") {
+		t.Errorf("Expected CREATE TABLE to contain identity column with inline PRIMARY KEY\nGot: %s", sql)
 	}
 
 	t.Logf("Generated SQL:\n%s", sql)

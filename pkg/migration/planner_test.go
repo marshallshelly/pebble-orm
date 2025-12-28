@@ -31,19 +31,14 @@ func TestGenerateCreateTable(t *testing.T) {
 	}
 
 	// Check for columns
-	if !strings.Contains(sql, "id serial NOT NULL") {
-		t.Errorf("Expected id column definition, got: %s", sql)
+	if !strings.Contains(sql, "id serial NOT NULL PRIMARY KEY") {
+		t.Errorf("Expected inline PRIMARY KEY after id column, got: %s", sql)
 	}
 	if !strings.Contains(sql, "email varchar(255) NOT NULL UNIQUE") {
 		t.Errorf("Expected email column definition, got: %s", sql)
 	}
 	if !strings.Contains(sql, "name varchar(100)") {
 		t.Errorf("Expected name column definition, got: %s", sql)
-	}
-
-	// Check for primary key
-	if !strings.Contains(sql, "CONSTRAINT users_pkey PRIMARY KEY (id)") {
-		t.Errorf("Expected primary key constraint, got: %s", sql)
 	}
 }
 

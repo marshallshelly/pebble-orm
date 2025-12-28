@@ -114,26 +114,28 @@ func TestParser_Parse(t *testing.T) {
 		}
 	})
 
-	t.Run("unique index creation", func(t *testing.T) {
+	t.Run("unique column without separate index", func(t *testing.T) {
 		table, err := parser.Parse(reflect.TypeOf(TestUser{}))
 		if err != nil {
 			t.Fatalf("Parse failed: %v", err)
 		}
 
-		if len(table.Indexes) == 0 {
-			t.Fatal("expected at least one index for unique column")
-		}
-
-		foundEmailIndex := false
+		// UNIQUE columns should NOT create separate indexes
+		// PostgreSQL creates them implicitly when the table is created
+		// So parser should not add them to table.Indexes
 		for _, idx := range table.Indexes {
 			if len(idx.Columns) == 1 && idx.Columns[0] == "email" && idx.Unique {
-				foundEmailIndex = true
-				break
+				t.Error("Parser should not create separate indexes for UNIQUE columns - PostgreSQL creates them implicitly")
 			}
 		}
 
-		if !foundEmailIndex {
-			t.Error("expected unique index on email column")
+		// Verify the email column is still marked as unique
+		emailCol := findColumn(table.Columns, "email")
+		if emailCol == nil {
+			t.Fatal("email column not found")
+		}
+		if !emailCol.Unique {
+			t.Error("email column should be marked as unique")
 		}
 	})
 

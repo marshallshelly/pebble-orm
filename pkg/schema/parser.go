@@ -105,15 +105,8 @@ func (p *Parser) Parse(modelType reflect.Type) (*TableMetadata, error) {
 				table.PrimaryKey.Columns = append(table.PrimaryKey.Columns, column.Name)
 			}
 		}
-		// Handle unique indexes
-		if column.Unique {
-			table.Indexes = append(table.Indexes, IndexMetadata{
-				Name:    fmt.Sprintf("%s_%s_key", table.Name, column.Name),
-				Columns: []string{column.Name},
-				Unique:  true,
-				Type:    "btree",
-			})
-		}
+		// Note: UNIQUE columns automatically create indexes in PostgreSQL
+		// No need to explicitly create separate UNIQUE indexes - they're implicit
 		table.Columns = append(table.Columns, column)
 	}
 

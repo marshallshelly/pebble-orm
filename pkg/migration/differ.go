@@ -291,6 +291,12 @@ func (d *Differ) normalizeType(sqlType string) string {
 	case "bool":
 		return "boolean"
 
+	// Timestamp variants - normalize to base type
+	case "timestamp without time zone":
+		return "timestamp"
+	case "timestamp with time zone":
+		return "timestamptz"
+
 	// Serial types are PostgreSQL pseudotypes that expand to integer + sequence + default
 	// They ONLY work in CREATE TABLE, NOT in ALTER TABLE statements
 	// Map them to their underlying base types for comparison and ALTER statements
@@ -377,6 +383,9 @@ func (d *Differ) isSameDefault(default1, default2 *string) bool {
 func (d *Differ) normalizeDefault(defaultVal string) string {
 	// Remove quotes and extra whitespace
 	normalized := strings.TrimSpace(defaultVal)
+
+	// Convert to lowercase for case-insensitive comparison
+	normalized = strings.ToLower(normalized)
 
 	// Remove surrounding parentheses if both are present
 	if strings.HasPrefix(normalized, "(") && strings.HasSuffix(normalized, ")") {

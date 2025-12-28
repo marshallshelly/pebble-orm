@@ -229,10 +229,10 @@ func TestNormalizeType(t *testing.T) {
 		{"float4", "real"},
 		{"float8", "double precision"},
 		{"bool", "boolean"},
-		{"serial", "integer"},     // serial maps to integer
-		{"serial4", "integer"},    // serial4 maps to integer
-		{"bigserial", "bigint"},   // bigserial maps to bigint
-		{"serial8", "bigint"},     // serial8 maps to bigint
+		{"serial", "integer"},       // serial maps to integer
+		{"serial4", "integer"},      // serial4 maps to integer
+		{"bigserial", "bigint"},     // bigserial maps to bigint
+		{"serial8", "bigint"},       // serial8 maps to bigint
 		{"smallserial", "smallint"}, // smallserial maps to smallint
 		{"VARCHAR(255)", "varchar(255)"},
 		{"  varchar(100)  ", "varchar(100)"},
@@ -306,11 +306,11 @@ func TestNormalizeDefault(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{"NOW()", "NOW()"},
-		{"(NOW())", "NOW()"},
-		{"  NOW()  ", "NOW()"},
-		{"'default'::text", "'default'"},
-		{"true::boolean", "true"},
+		{"NOW()", "now()"},               // Lowercase for case-insensitive comparison
+		{"(NOW())", "now()"},             // Remove parens and lowercase
+		{"  NOW()  ", "now()"},           // Trim whitespace and lowercase
+		{"'default'::text", "'default'"}, // Remove type cast
+		{"true::boolean", "true"},        // Remove type cast
 	}
 
 	for _, test := range tests {

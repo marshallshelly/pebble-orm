@@ -73,13 +73,26 @@ func (p *Planner) GenerateMigration(diff *SchemaDiff) (upSQL, downSQL string) {
 func (p *Planner) generateCreateTable(table *schema.TableMetadata) string {
 	var parts []string
 
-	// Columns
-	for _, col := range table.Columns {
-		parts = append(parts, "    "+p.generateColumnDefinition(col))
+	// Determine if we have a single-column primary key for inline declaration
+	var singlePKColumn string
+	if table.PrimaryKey != nil && len(table.PrimaryKey.Columns) == 1 {
+		singlePKColumn = table.PrimaryKey.Columns[0]
 	}
 
-	// Primary key
-	if table.PrimaryKey != nil && len(table.PrimaryKey.Columns) > 0 {
+	// Columns
+	for _, col := range table.Columns {
+		colDef := p.generateColumnDefinition(col)
+
+		// Add inline PRIMARY KEY for single-column PKs
+		if singlePKColumn != "" && col.Name == singlePKColumn {
+			colDef += " PRIMARY KEY"
+		}
+
+		parts = append(parts, "    "+colDef)
+	}
+
+	// Primary key (composite only - single column handled inline)
+	if table.PrimaryKey != nil && len(table.PrimaryKey.Columns) > 1 {
 		pkCols := strings.Join(table.PrimaryKey.Columns, ", ")
 		parts = append(parts, fmt.Sprintf("    CONSTRAINT %s PRIMARY KEY (%s)", table.PrimaryKey.Name, pkCols))
 	}

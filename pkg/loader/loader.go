@@ -199,6 +199,19 @@ func buildTableMetadataFromAST(tableName, structName string, structType *ast.Str
 			column.Unique = hasOption(opts, "unique")
 			column.AutoIncrement = hasOption(opts, "serial") || hasOption(opts, "bigserial") || hasOption(opts, "autoIncrement")
 
+			// Handle identity columns
+			if hasOption(opts, "identity") || hasOption(opts, "identityAlways") {
+				column.Identity = &schema.IdentityColumn{
+					Generation: schema.IdentityAlways,
+				}
+				column.Nullable = false // Identity columns are implicitly NOT NULL
+			} else if hasOption(opts, "identityByDefault") {
+				column.Identity = &schema.IdentityColumn{
+					Generation: schema.IdentityByDefault,
+				}
+				column.Nullable = false
+			}
+
 			if defaultVal := getOptionValue(opts, "default"); defaultVal != "" {
 				column.Default = &defaultVal
 			}
@@ -215,15 +228,8 @@ func buildTableMetadataFromAST(tableName, structName string, structType *ast.Str
 				}
 			}
 
-			// Handle unique indexes
-			if column.Unique {
-				table.Indexes = append(table.Indexes, schema.IndexMetadata{
-					Name:    tableName + "_" + column.Name + "_key",
-					Columns: []string{column.Name},
-					Unique:  true,
-					Type:    "btree",
-				})
-			}
+			// Note: UNIQUE columns automatically create indexes in PostgreSQL
+			// No need to explicitly create separate UNIQUE indexes - they're implicit
 
 			table.Columns = append(table.Columns, column)
 			position++
@@ -241,7 +247,33 @@ type tagOptions struct {
 
 // parseTag parses a po tag value
 func parseTag(tag string) *tagOptions {
-	parts := strings.Split(tag, ",")
+	var parts []string
+	var buffer strings.Builder
+	inParens := 0
+
+	for _, r := range tag {
+		switch r {
+		case '(':
+			inParens++
+			buffer.WriteRune(r)
+		case ')':
+			inParens--
+			buffer.WriteRune(r)
+		case ',':
+			if inParens == 0 {
+				parts = append(parts, buffer.String())
+				buffer.Reset()
+			} else {
+				buffer.WriteRune(r)
+			}
+		default:
+			buffer.WriteRune(r)
+		}
+	}
+	if buffer.Len() > 0 {
+		parts = append(parts, buffer.String())
+	}
+
 	if len(parts) == 0 {
 		return nil
 	}
@@ -287,7 +319,10 @@ func (t *structTag) Get(key string) string {
 // hasOption checks if an option exists
 func hasOption(opts *tagOptions, option string) bool {
 	for _, opt := range opts.options {
-		if strings.HasPrefix(opt, option) {
+		if opt == option {
+			return true
+		}
+		if strings.HasPrefix(opt, option+"(") {
 			return true
 		}
 	}
@@ -455,35 +490,9 @@ func extractFieldType(expr ast.Expr) reflect.Type {
 	case *ast.StarExpr:
 		// Pointer type
 		elemType := extractFieldType(t.X)
-		return reflect.PtrTo(elemType)
+		return reflect.PointerTo(elemType)
 	default:
 		// Unknown, default to string
 		return reflect.TypeOf("")
 	}
-}
-
-// extractPackagePath tries to determine the package path from the file location
-func extractPackagePath(filename string) string {
-	absPath, err := filepath.Abs(filename)
-	if err != nil {
-		return ""
-	}
-
-	// Try to find go.mod
-	dir := filepath.Dir(absPath)
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			// Found go.mod
-			relPath, _ := filepath.Rel(dir, filepath.Dir(absPath))
-			return relPath
-		}
-
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
-	}
-
-	return ""
 }
