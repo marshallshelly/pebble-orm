@@ -1,6 +1,7 @@
 package migration
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/marshallshelly/pebble-orm/pkg/schema"
@@ -60,7 +61,7 @@ func TestTimestampDefaultSQLSyntax(t *testing.T) {
 				t.Errorf("Expected SQL:\n  %s\nGot:\n  %s", tt.expectedSQL, sql)
 			}
 
-			if tt.shouldNotMatch != "" && contains(sql, tt.shouldNotMatch) {
+			if tt.shouldNotMatch != "" && strings.Contains(sql, tt.shouldNotMatch) {
 				t.Errorf("SQL should NOT contain '%s', but got: %s", tt.shouldNotMatch, sql)
 			}
 		})
@@ -69,18 +70,4 @@ func TestTimestampDefaultSQLSyntax(t *testing.T) {
 
 func strPtr(s string) *string {
 	return &s
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && s[:len(substr)] == substr ||
-		len(s) > len(substr) && indexOfSubstring(s, substr) != -1
-}
-
-func indexOfSubstring(s, substr string) int {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return i
-		}
-	}
-	return -1
 }

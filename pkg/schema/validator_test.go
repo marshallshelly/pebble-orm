@@ -1,6 +1,7 @@
 package schema
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -80,23 +81,10 @@ func TestValidateDefaultValue(t *testing.T) {
 			}
 
 			if tt.wantError && err != nil && tt.errorMsg != "" {
-				if !contains(err.Error(), tt.errorMsg) {
+				if !strings.Contains(err.Error(), tt.errorMsg) {
 					t.Errorf("Expected error to mention '%s', got: %v", tt.errorMsg, err)
 				}
 			}
 		})
 	}
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && findInString(s, substr)
-}
-
-func findInString(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
