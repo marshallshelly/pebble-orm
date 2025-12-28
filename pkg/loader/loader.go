@@ -9,7 +9,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 
 	"github.com/marshallshelly/pebble-orm/pkg/schema"
@@ -121,7 +120,7 @@ func loadModelsFromFile(filename string, registrar ModelRegistrar) (int, error) 
 			}
 
 			// Build TableMetadata directly from AST
-			table := buildTableMetadataFromAST(tableName, structName, structType)
+			table := buildTableMetadataFromAST(tableName, structType)
 
 			if err := registrar.RegisterMetadata(table); err != nil {
 				return modelsRegistered, fmt.Errorf("failed to register %s: %w", structName, err)
@@ -135,7 +134,7 @@ func loadModelsFromFile(filename string, registrar ModelRegistrar) (int, error) 
 }
 
 // buildTableMetadataFromAST creates TableMetadata by parsing the AST struct definition
-func buildTableMetadataFromAST(tableName, structName string, structType *ast.StructType) *schema.TableMetadata {
+func buildTableMetadataFromAST(tableName string, structType *ast.StructType) *schema.TableMetadata {
 	table := &schema.TableMetadata{
 		Name:        tableName,
 		GoType:      nil, // No actual Go type available from AST
@@ -414,85 +413,4 @@ func hasPebbleTags(structType *ast.StructType) bool {
 	}
 
 	return false
-}
-
-// createDynamicStructType creates a reflect.Type for a struct definition
-func createDynamicStructType(pkgPath, structName string, structType *ast.StructType) interface{} {
-	// Create struct fields for reflection
-	var fields []reflect.StructField
-
-	if structType.Fields != nil {
-		for _, field := range structType.Fields.List {
-			if len(field.Names) == 0 {
-				continue // Embedded field, skip for now
-			}
-
-			for _, name := range field.Names {
-				// Extract field type
-				fieldType := extractFieldType(field.Type)
-
-				// Extract tag
-				tag := ""
-				if field.Tag != nil {
-					tag = strings.Trim(field.Tag.Value, "`")
-				}
-
-				fields = append(fields, reflect.StructField{
-					Name: name.Name,
-					Type: fieldType,
-					Tag:  reflect.StructTag(tag),
-				})
-			}
-		}
-	}
-
-	// Create the struct type
-	structType2 := reflect.StructOf(fields)
-
-	// Create an instance
-	instance := reflect.New(structType2).Elem().Interface()
-
-	return instance
-}
-
-// extractFieldType converts an ast.Expr to a reflect.Type
-func extractFieldType(expr ast.Expr) reflect.Type {
-	switch t := expr.(type) {
-	case *ast.Ident:
-		// Basic types
-		switch t.Name {
-		case "string":
-			return reflect.TypeOf("")
-		case "int":
-			return reflect.TypeOf(int(0))
-		case "int64":
-			return reflect.TypeOf(int64(0))
-		case "int32":
-			return reflect.TypeOf(int32(0))
-		case "bool":
-			return reflect.TypeOf(false)
-		case "float32":
-			return reflect.TypeOf(float32(0))
-		case "float64":
-			return reflect.TypeOf(float64(0))
-		default:
-			// Unknown type, default to string
-			return reflect.TypeOf("")
-		}
-	case *ast.SelectorExpr:
-		// Qualified type (e.g., schema.JSONB, time.Time)
-		// For now, default to string - the parser will handle the actual type from tags
-		return reflect.TypeOf("")
-	case *ast.ArrayType:
-		// Array or slice
-		elemType := extractFieldType(t.Elt)
-		return reflect.SliceOf(elemType)
-	case *ast.StarExpr:
-		// Pointer type
-		elemType := extractFieldType(t.X)
-		return reflect.PointerTo(elemType)
-	default:
-		// Unknown, default to string
-		return reflect.TypeOf("")
-	}
 }
