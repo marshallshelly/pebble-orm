@@ -131,6 +131,15 @@ func (p *Planner) generateColumnDefinition(col schema.ColumnMetadata) string {
 		return strings.Join(parts, " ")
 	}
 
+	// Identity columns (PostgreSQL 10+, SQL Standard)
+	// GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY
+	if col.Identity != nil {
+		identityClause := fmt.Sprintf("GENERATED %s AS IDENTITY", col.Identity.Generation)
+		parts = append(parts, identityClause)
+		// Identity columns are automatically NOT NULL, no need to add it explicitly
+		return strings.Join(parts, " ")
+	}
+
 	if !col.Nullable {
 		parts = append(parts, "NOT NULL")
 	}
