@@ -81,15 +81,6 @@ func TestBugReport_TableNameCommentDirective(t *testing.T) {
 	})
 }
 
-// Helper function to get table names for debugging
-func getTableNames(tables map[string]interface{}) []string {
-	names := make([]string, 0, len(tables))
-	for name := range tables {
-		names = append(names, name)
-	}
-	return names
-}
-
 // TestTableNameCommentParsing validates the comment parsing regex
 func TestTableNameCommentParsing(t *testing.T) {
 	tests := []struct {
