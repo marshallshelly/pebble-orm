@@ -289,6 +289,77 @@ go run cmd/cascade_delete/main.go
 
 ---
 
+### 9. **Multi-Tenancy** (`multi-tenancy/`) 🏢 NEW
+
+**What it demonstrates:**
+
+- ✅ **Shared Database Pattern**: Single database with automatic tenant filtering
+- ✅ **Database-per-Tenant Pattern**: Separate database for each tenant
+- ✅ **TenantDB Wrapper**: Auto-injection of tenant_id filters
+- ✅ **TenantManager**: Connection pooling per tenant
+- ✅ **Security**: Tenant data isolation patterns
+- ✅ **Models with tenant_id**: Multi-tenant data models
+
+**Patterns Comparison:**
+
+| Pattern               | Isolation    | Complexity | Scalability | Use Case                |
+| --------------------- | ------------ | ---------- | ----------- | ----------------------- |
+| **Shared Database**   | Row-level    | Low        | High        | 100s-1000s tenants      |
+| **Database-per-Tenant** | Database-level | Medium   | Medium      | <100 tenants            |
+
+**Shared Database Example:**
+
+```go
+// Models include tenant_id
+type User struct {
+    ID       string `po:"id,primaryKey,uuid"`
+    TenantID string `po:"tenant_id,uuid,notNull,index"`
+    Name     string `po:"name,varchar(255)"`
+}
+
+// Create tenant-aware wrapper
+acmeDB := database.NewTenantDB(qb, "tenant-acme-id")
+
+// All queries automatically filtered by tenant_id
+users, err := database.Select[models.User](acmeDB).
+    Where(builder.Gte("age", 18)).
+    All(ctx)
+// SQL: SELECT * FROM users WHERE tenant_id = 'tenant-acme-id' AND age >= 18
+```
+
+**Database-per-Tenant Example:**
+
+```go
+// Each tenant gets their own database
+tm := database.NewTenantManager()
+defer tm.CloseAll()
+
+// Connect to tenant-specific database
+acmeDB, err := tm.GetConnection(ctx, "acme")  // Database: tenant_acme
+widgetDB, err := tm.GetConnection(ctx, "widget")  // Database: tenant_widget
+
+// Standard queries (no tenant_id needed)
+qb := builder.New(acmeDB)
+users, err := builder.Select[models.User](qb).All(ctx)
+```
+
+**Run it:**
+
+```bash
+cd multi-tenancy
+go run cmd/multi-tenancy/main.go
+```
+
+**Key Features:**
+
+- 🔒 **Automatic Tenant Filtering**: TenantDB wrapper prevents data leaks
+- 🏢 **Multiple Strategies**: Choose pattern based on your requirements
+- 🔐 **Security First**: Comprehensive isolation examples
+- 📊 **Tenant Management**: Built-in tenant metadata model
+- 🎯 **Production Ready**: Thread-safe connection management
+
+---
+
 ## 🎯 Common Patterns
 
 ### Environment Configuration
@@ -439,7 +510,7 @@ count, err := builder.Update[User](qb).
 
 ```bash
 # Run all examples in sequence
-for dir in basic relationships transactions migrations postgresql custom_table_names cascade_delete; do
+for dir in basic relationships transactions migrations postgresql custom_table_names cascade_delete generated_columns multi-tenancy; do
     echo "Running $dir example..."
     cd $dir
     go mod tidy
@@ -461,6 +532,8 @@ Recommended order for learning:
 5. **postgresql/** - Explore advanced PostgreSQL features
 6. **migrations/** - Learn schema management
 7. **cascade_delete/** - Master foreign key constraints and cascade actions
+8. **generated_columns/** - Learn auto-computed column values
+9. **multi-tenancy/** - Master multi-tenant architecture patterns
 
 ---
 
@@ -523,6 +596,7 @@ pg_isready
 # Create missing databases
 createdb pebble_basic
 createdb pebble_relationships
+createdb pebble_multitenancy
 # ...etc
 ```
 
