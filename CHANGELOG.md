@@ -4,6 +4,73 @@ All notable changes to Pebble ORM will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.8.1] - 2025-12-30
+
+### Fixed - Critical Preload Bug with Custom Table Names
+
+**🔴 P0: Preload failing with "table not registered" error**
+
+Fixed a critical bug where `Preload()` would fail when relationship target models use custom table names that differ from their Go struct names.
+
+#### Problem
+
+When using relationships with models that have custom table names (e.g., `Asset` struct with `table_name: assets`), Preload would fail with:
+
+```
+ERROR: target table asset not registered
+```
+
+**Example that failed:**
+
+```go
+// Model definition
+// table_name: assets
+type Asset struct {
+    ID string `po:"id,primaryKey,uuid"`
+}
+
+type Team struct {
+    ProfileImage *Asset `po:"-,belongsTo,foreignKey(profile_image_id),references(id)"`
+}
+
+// This would fail:
+team, _ := builder.Select[Team](db).
+    Preload("ProfileImage").  // ERROR: target table "asset" not registered
+    First(ctx)
+```
+
+**Root Cause:**
+
+The relationship parser assumed table names matched Go struct names in snake_case (`Asset` → `asset`), but ignored custom table names defined in model comments. When `Preload()` tried to look up `"asset"` in the registry, it failed because the model was registered as `"assets"`.
+
+#### Solution
+
+Added `TargetType reflect.Type` field to `RelationshipMetadata`:
+
+- Stores the actual Go type during relationship parsing
+- Preload now uses `registry.Get(rel.TargetType)` for accurate table lookup
+- Falls back to `registry.GetByName(rel.TargetTable)` for backward compatibility
+
+**Changes:**
+
+- `pkg/schema/metadata.go`: Added `TargetType` field to `RelationshipMetadata`
+- `pkg/schema/relationships.go`: Store target type in `parseRelationship()`
+- `pkg/builder/relationships.go`: Updated all load functions to use `TargetType` for registry lookup
+
+**After fix:**
+
+```go
+team, _ := builder.Select[Team](db).
+    Preload("ProfileImage").  // ✅ Works! Uses TargetType for accurate lookup
+    First(ctx)
+```
+
+#### Impact
+
+- **High Impact**: Preload is a core feature; this affected any multi-tenant or custom-table-name scenarios
+- **Backward Compatible**: Falls back to old behavior if `TargetType` is nil
+- **Fixed in**: All relationship types (belongsTo, hasOne, hasMany, manyToMany)
+
 ## [1.8.0] - 2025-12-29
 
 ### Added - Smart Default Value Detection

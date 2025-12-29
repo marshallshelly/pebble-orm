@@ -63,8 +63,16 @@ func (q *SelectQuery[T]) loadRelationship(ctx context.Context, results reflect.V
 // loadBelongsTo loads belongsTo relationships.
 // Example: Post belongsTo User (post.user_id -> users.id)
 func (q *SelectQuery[T]) loadBelongsTo(ctx context.Context, results reflect.Value, rel *schema.RelationshipMetadata) error {
-	// Get target table metadata
-	targetTable, err := registry.GetByName(rel.TargetTable)
+	// Get target table metadata using TargetType (accurate) or fallback to TargetTable (legacy)
+	var targetTable *schema.TableMetadata
+	var err error
+
+	if rel.TargetType != nil {
+		targetTable, err = registry.Get(rel.TargetType)
+	} else {
+		targetTable, err = registry.GetByName(rel.TargetTable)
+	}
+
 	if err != nil {
 		return fmt.Errorf("target table %s not registered: %w", rel.TargetTable, err)
 	}
@@ -154,8 +162,16 @@ func (q *SelectQuery[T]) loadBelongsTo(ctx context.Context, results reflect.Valu
 // loadHasOne loads hasOne relationships.
 // Example: User hasOne Profile (profiles.user_id -> users.id)
 func (q *SelectQuery[T]) loadHasOne(ctx context.Context, results reflect.Value, rel *schema.RelationshipMetadata) error {
-	// Get target table metadata
-	targetTable, err := registry.GetByName(rel.TargetTable)
+	// Get target table metadata using TargetType (accurate) or fallback to TargetTable (legacy)
+	var targetTable *schema.TableMetadata
+	var err error
+
+	if rel.TargetType != nil {
+		targetTable, err = registry.Get(rel.TargetType)
+	} else {
+		targetTable, err = registry.GetByName(rel.TargetTable)
+	}
+
 	if err != nil {
 		return fmt.Errorf("target table %s not registered: %w", rel.TargetTable, err)
 	}
@@ -238,8 +254,16 @@ func (q *SelectQuery[T]) loadHasOne(ctx context.Context, results reflect.Value, 
 // loadHasMany loads hasMany relationships.
 // Example: User hasMany Posts (posts.user_id -> users.id)
 func (q *SelectQuery[T]) loadHasMany(ctx context.Context, results reflect.Value, rel *schema.RelationshipMetadata) error {
-	// Get target table metadata
-	targetTable, err := registry.GetByName(rel.TargetTable)
+	// Get target table metadata using TargetType (accurate) or fallback to TargetTable (legacy)
+	var targetTable *schema.TableMetadata
+	var err error
+
+	if rel.TargetType != nil {
+		targetTable, err = registry.Get(rel.TargetType)
+	} else {
+		targetTable, err = registry.GetByName(rel.TargetTable)
+	}
+
 	if err != nil {
 		return fmt.Errorf("target table %s not registered: %w", rel.TargetTable, err)
 	}
@@ -338,8 +362,16 @@ func (q *SelectQuery[T]) loadManyToMany(ctx context.Context, results reflect.Val
 		return fmt.Errorf("manyToMany relationship requires a junction table")
 	}
 
-	// Get target table metadata
-	targetTable, err := registry.GetByName(rel.TargetTable)
+	// Get target table metadata using TargetType (accurate) or fallback to TargetTable (legacy)
+	var targetTable *schema.TableMetadata
+	var err error
+
+	if rel.TargetType != nil {
+		targetTable, err = registry.Get(rel.TargetType)
+	} else {
+		targetTable, err = registry.GetByName(rel.TargetTable)
+	}
+
 	if err != nil {
 		return fmt.Errorf("target table %s not registered: %w", rel.TargetTable, err)
 	}

@@ -347,3 +347,38 @@ func TestJunctionTableNameGeneration(t *testing.T) {
 		t.Errorf("Expected junction table 'user_roles', got %s", *rel.JoinTable)
 	}
 }
+
+func TestRelationshipTargetType(t *testing.T) {
+	// Clear registry to start fresh
+	registry.Clear()
+
+	// Register the Book model
+	table, err := registry.GetOrRegister(Book{})
+	if err != nil {
+		t.Fatalf("Failed to register model: %v", err)
+	}
+
+	// Get the Author relationship
+	rel := table.GetRelationship("Author")
+	if rel == nil {
+		t.Fatal("Expected Author relationship to exist")
+	}
+
+	// Verify TargetType is set correctly
+	if rel.TargetType == nil {
+		t.Fatal("Expected TargetType to be set")
+	}
+
+	// Verify it's the Author type (check type name to avoid reflect.Type comparison issues)
+	if rel.TargetType.Name() != "Author" {
+		t.Errorf("Expected TargetType name to be 'Author', got %s", rel.TargetType.Name())
+	}
+
+	// Verify TargetTable is still set (backward compatibility)
+	if rel.TargetTable != "author" {
+		t.Errorf("Expected TargetTable 'author', got %s", rel.TargetTable)
+	}
+
+	// Clean up
+	registry.Clear()
+}
