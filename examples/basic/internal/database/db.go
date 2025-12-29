@@ -7,7 +7,6 @@ import (
 
 	"github.com/marshallshelly/pebble-orm/examples/basic/internal/models"
 	"github.com/marshallshelly/pebble-orm/pkg/builder"
-	"github.com/marshallshelly/pebble-orm/pkg/registry"
 	"github.com/marshallshelly/pebble-orm/pkg/runtime"
 )
 
@@ -42,11 +41,7 @@ func Connect(ctx context.Context) (*runtime.DB, error) {
 	}
 
 	// Register all models
-	if err := registry.Register(models.User{}); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("failed to register models: %w", err)
-	}
-	if err := registry.Register(models.Post{}); err != nil {
+	if err := models.RegisterAll(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("failed to register models: %w", err)
 	}
