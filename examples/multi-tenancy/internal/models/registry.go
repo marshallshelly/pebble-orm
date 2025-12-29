@@ -8,6 +8,9 @@ func RegisterAll() error {
 		Tenant{},
 		User{},
 		Document{},
+		AuditLog{},
+		DataExportRequest{},
+		DeletionRequest{},
 	}
 
 	for _, model := range models {

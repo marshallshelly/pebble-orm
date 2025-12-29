@@ -2,19 +2,31 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/logger"
+	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/marshallshelly/pebble-orm/examples/multi-tenancy/internal/database"
+	"github.com/marshallshelly/pebble-orm/examples/multi-tenancy/internal/gdpr"
 	"github.com/marshallshelly/pebble-orm/examples/multi-tenancy/internal/models"
 	"github.com/marshallshelly/pebble-orm/pkg/builder"
 )
 
+type App struct {
+	db          *builder.DB
+	gdprService *gdpr.Service
+}
+
 func main() {
 	ctx := context.Background()
 
-	log.Println("=== Pebble ORM Multi-Tenancy Examples ===\n")
-
-	// Connect to shared database
+	// Connect to database
 	db, err := database.Connect(ctx)
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
@@ -23,266 +35,594 @@ func main() {
 
 	qb := builder.New(db)
 
-	// Run both examples
-	log.Println(">>> Pattern 1: Shared Database with tenant_id Column <<<\n")
-	sharedDatabaseExample(ctx, qb)
+	// Initialize app
+	app := &App{
+		db:          qb,
+		gdprService: gdpr.NewService(qb),
+	}
 
-	log.Println("\n>>> Pattern 2: Database-per-Tenant (Conceptual) <<<\n")
-	databasePerTenantExample(ctx)
+	// Create Fiber app
+	fiberApp := fiber.New(fiber.Config{
+		ErrorHandler: customErrorHandler,
+	})
 
-	log.Println("\n=== All Examples Complete ===")
+	// Middleware
+	fiberApp.Use(logger.New())
+	fiberApp.Use(recover.New())
+
+	// Health check
+	fiberApp.Get("/health", func(c *fiber.Ctx) error {
+		return c.JSON(fiber.Map{"status": "healthy"})
+	})
+
+	// API routes
+	api := fiberApp.Group("/api/v1")
+
+	// Tenant routes
+	api.Post("/tenants", app.createTenant)
+	api.Get("/tenants/:id", app.getTenant)
+
+	// User routes (GDPR-compliant)
+	api.Post("/tenants/:tenantId/users", app.createUser)
+	api.Get("/tenants/:tenantId/users", app.listUsers)
+	api.Get("/tenants/:tenantId/users/:userId", app.getUser)
+	api.Put("/tenants/:tenantId/users/:userId", app.updateUser)
+
+	// GDPR: Consent management (Article 7)
+	api.Put("/tenants/:tenantId/users/:userId/consent", app.updateConsent)
+
+	// GDPR: Right to Access (Article 15)
+	api.Get("/tenants/:tenantId/users/:userId/audit-logs", app.getUserAuditLogs)
+
+	// GDPR: Right to Data Portability (Article 20)
+	api.Post("/tenants/:tenantId/users/:userId/export", app.requestDataExport)
+	api.Get("/tenants/:tenantId/export-requests/:requestId", app.getExportRequest)
+
+	// GDPR: Right to Erasure (Article 17)
+	api.Post("/tenants/:tenantId/users/:userId/delete", app.requestDeletion)
+	api.Delete("/tenants/:tenantId/users/:userId/soft", app.softDeleteUser)
+	api.Delete("/tenants/:tenantId/users/:userId/anonymize", app.anonymizeUser)
+
+	// Document routes (tenant-scoped)
+	api.Post("/tenants/:tenantId/documents", app.createDocument)
+	api.Get("/tenants/:tenantId/documents", app.listDocuments)
+	api.Get("/tenants/:tenantId/documents/:documentId", app.getDocument)
+
+	// Start server
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "3000"
+	}
+
+	// Graceful shutdown
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		<-c
+		log.Println("Gracefully shutting down...")
+		_ = fiberApp.Shutdown()
+	}()
+
+	log.Printf("🚀 GDPR-Compliant Multi-Tenant API Server starting on port %s", port)
+	log.Printf("📋 API Documentation: http://localhost:%s/api/v1", port)
+	log.Println("\n=== GDPR Features ===")
+	log.Println("✅ Soft Delete (Article 17)")
+	log.Println("✅ Audit Logging (Article 5)")
+	log.Println("✅ Data Portability (Article 20)")
+	log.Println("✅ Consent Management (Article 7)")
+	log.Println("✅ Right to Erasure (Article 17)")
+	log.Println("✅ Tenant Isolation")
+	log.Println("")
+
+	if err := fiberApp.Listen(fmt.Sprintf(":%s", port)); err != nil {
+		log.Fatalf("Server failed to start: %v", err)
+	}
 }
 
-// sharedDatabaseExample demonstrates multi-tenancy using a shared database
-// with tenant_id column and automatic filtering
-func sharedDatabaseExample(ctx context.Context, qb *builder.DB) {
-	// Create some tenants first
-	log.Println("--- Setup: Creating Tenants ---")
-	tenant1 := models.Tenant{
-		Name:      "Acme Corp",
-		Subdomain: "acme",
-	}
-	tenant2 := models.Tenant{
-		Name:      "Widget Inc",
-		Subdomain: "widget",
+// Tenant handlers
+
+func (app *App) createTenant(c *fiber.Ctx) error {
+	var req struct {
+		Name              string  `json:"name"`
+		Subdomain         string  `json:"subdomain"`
+		DataRegion        string  `json:"data_region"`
+		DataRetentionDays int     `json:"data_retention_days"`
+		DPOEmail          *string `json:"dpo_email"`
 	}
 
-	tenants, err := builder.Insert[models.Tenant](qb).
-		Values(tenant1, tenant2).
-		Returning("id", "name", "subdomain").
-		ExecReturning(ctx)
+	if err := c.BodyParser(&req); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
+	}
+
+	tenant := models.Tenant{
+		Name:              req.Name,
+		Subdomain:         req.Subdomain,
+		DataRegion:        req.DataRegion,
+		DataRetentionDays: req.DataRetentionDays,
+		DPOEmail:          req.DPOEmail,
+	}
+
+	if tenant.DataRegion == "" {
+		tenant.DataRegion = "EU"
+	}
+	if tenant.DataRetentionDays == 0 {
+		tenant.DataRetentionDays = 365
+	}
+
+	tenants, err := builder.Insert[models.Tenant](app.db).
+		Values(tenant).
+		Returning("*").
+		ExecReturning(c.Context())
+
 	if err != nil {
-		log.Printf("Failed to create tenants: %v", err)
-		return
+		return fiber.NewError(fiber.StatusInternalServerError, fmt.Sprintf("Failed to create tenant: %v", err))
 	}
 
-	log.Printf("Created tenant: %s (ID: %s)", tenants[0].Name, tenants[0].ID)
-	log.Printf("Created tenant: %s (ID: %s)", tenants[1].Name, tenants[1].ID)
-
-	tenant1ID := tenants[0].ID
-	tenant2ID := tenants[1].ID
-
-	// Create tenant-specific database wrappers
-	acmeDB := database.NewTenantDB(qb, tenant1ID)
-	widgetDB := database.NewTenantDB(qb, tenant2ID)
-
-	// Example 1: Insert users for each tenant
-	log.Println("\n--- Example 1: INSERT Users (Tenant-Scoped) ---")
-
-	// Insert user for Acme Corp
-	acmeUser := models.User{
-		TenantID: acmeDB.GetTenantID(),
-		Name:     "Alice Johnson",
-		Email:    "alice@acme.com",
-		Role:     "admin",
-	}
-	insertedAcmeUsers, err := builder.Insert[models.User](qb).
-		Values(acmeUser).
-		Returning("id", "name", "email").
-		ExecReturning(ctx)
-	if err != nil {
-		log.Printf("Failed to insert Acme user: %v", err)
-	} else {
-		log.Printf("[Acme] Created user: %s (%s)", insertedAcmeUsers[0].Name, insertedAcmeUsers[0].Email)
-	}
-
-	// Insert user for Widget Inc
-	widgetUser := models.User{
-		TenantID: widgetDB.GetTenantID(),
-		Name:     "Bob Smith",
-		Email:    "bob@widget.com",
-		Role:     "user",
-	}
-	insertedWidgetUsers, err := builder.Insert[models.User](qb).
-		Values(widgetUser).
-		Returning("id", "name", "email").
-		ExecReturning(ctx)
-	if err != nil {
-		log.Printf("Failed to insert Widget user: %v", err)
-	} else {
-		log.Printf("[Widget] Created user: %s (%s)", insertedWidgetUsers[0].Name, insertedWidgetUsers[0].Email)
-	}
-
-	// Example 2: Query with automatic tenant filtering
-	log.Println("\n--- Example 2: SELECT with Auto Tenant Filtering ---")
-
-	// Query Acme users (only returns Acme's data)
-	acmeUsers, err := database.Select[models.User](acmeDB).
-		OrderByAsc(builder.Col[models.User]("CreatedAt")).
-		All(ctx)
-	if err != nil {
-		log.Printf("Failed to query Acme users: %v", err)
-	} else {
-		log.Printf("[Acme] Found %d users:", len(acmeUsers))
-		for _, user := range acmeUsers {
-			log.Printf("  - %s (%s)", user.Name, user.Email)
-		}
-	}
-
-	// Query Widget users (only returns Widget's data)
-	widgetUsers, err := database.Select[models.User](widgetDB).
-		OrderByAsc(builder.Col[models.User]("CreatedAt")).
-		All(ctx)
-	if err != nil {
-		log.Printf("Failed to query Widget users: %v", err)
-	} else {
-		log.Printf("[Widget] Found %d users:", len(widgetUsers))
-		for _, user := range widgetUsers {
-			log.Printf("  - %s (%s)", user.Name, user.Email)
-		}
-	}
-
-	// Example 3: Create documents for tenants
-	log.Println("\n--- Example 3: INSERT Documents (Tenant-Scoped) ---")
-
-	if len(insertedAcmeUsers) > 0 {
-		acmeDoc := models.Document{
-			TenantID: acmeDB.GetTenantID(),
-			OwnerID:  insertedAcmeUsers[0].ID,
-			Title:    "Acme Q1 Report",
-			Content:  "Quarterly financial report for Acme Corp...",
-			IsPublic: false,
-		}
-		insertedAcmeDocs, err := builder.Insert[models.Document](qb).
-			Values(acmeDoc).
-			Returning("id", "title").
-			ExecReturning(ctx)
-		if err != nil {
-			log.Printf("Failed to insert Acme document: %v", err)
-		} else {
-			log.Printf("[Acme] Created document: %s", insertedAcmeDocs[0].Title)
-		}
-	}
-
-	if len(insertedWidgetUsers) > 0 {
-		widgetDoc := models.Document{
-			TenantID: widgetDB.GetTenantID(),
-			OwnerID:  insertedWidgetUsers[0].ID,
-			Title:    "Widget Product Roadmap",
-			Content:  "2024 product development roadmap...",
-			IsPublic: true,
-		}
-		insertedWidgetDocs, err := builder.Insert[models.Document](qb).
-			Values(widgetDoc).
-			Returning("id", "title").
-			ExecReturning(ctx)
-		if err != nil {
-			log.Printf("Failed to insert Widget document: %v", err)
-		} else {
-			log.Printf("[Widget] Created document: %s", insertedWidgetDocs[0].Title)
-		}
-	}
-
-	// Example 4: Query documents with tenant filtering
-	log.Println("\n--- Example 4: SELECT Documents (Tenant Isolated) ---")
-
-	// Acme can only see their documents
-	acmeDocs, err := database.Select[models.Document](acmeDB).
-		OrderByAsc(builder.Col[models.Document]("CreatedAt")).
-		All(ctx)
-	if err != nil {
-		log.Printf("Failed to query Acme documents: %v", err)
-	} else {
-		log.Printf("[Acme] Found %d documents:", len(acmeDocs))
-		for _, doc := range acmeDocs {
-			log.Printf("  - %s", doc.Title)
-		}
-	}
-
-	// Widget can only see their documents
-	widgetDocs, err := database.Select[models.Document](widgetDB).
-		OrderByAsc(builder.Col[models.Document]("CreatedAt")).
-		All(ctx)
-	if err != nil {
-		log.Printf("Failed to query Widget documents: %v", err)
-	} else {
-		log.Printf("[Widget] Found %d documents:", len(widgetDocs))
-		for _, doc := range widgetDocs {
-			log.Printf("  - %s", doc.Title)
-		}
-	}
-
-	// Example 5: Update with tenant filtering
-	log.Println("\n--- Example 5: UPDATE with Tenant Filtering ---")
-
-	// Update only affects the current tenant's data
-	count, err := database.Update[models.User](acmeDB).
-		Set(builder.Col[models.User]("Role"), "super_admin").
-		Where(builder.Eq(builder.Col[models.User]("Email"), "alice@acme.com")).
-		Exec(ctx)
-	if err != nil {
-		log.Printf("Failed to update Acme user: %v", err)
-	} else {
-		log.Printf("[Acme] Updated %d user(s) to super_admin", count)
-	}
-
-	// Example 6: COUNT with tenant filtering
-	log.Println("\n--- Example 6: COUNT (Tenant-Scoped) ---")
-
-	acmeUserCount, err := database.Select[models.User](acmeDB).Count(ctx)
-	if err != nil {
-		log.Printf("Failed to count Acme users: %v", err)
-	} else {
-		log.Printf("[Acme] Total users: %d", acmeUserCount)
-	}
-
-	widgetUserCount, err := database.Select[models.User](widgetDB).Count(ctx)
-	if err != nil {
-		log.Printf("Failed to count Widget users: %v", err)
-	} else {
-		log.Printf("[Widget] Total users: %d", widgetUserCount)
-	}
-
-	// Example 7: Verify tenant isolation
-	log.Println("\n--- Example 7: Verify Tenant Isolation ---")
-	log.Println("✓ Each tenant wrapper automatically filters by tenant_id")
-	log.Println("✓ Acme cannot see Widget's data and vice versa")
-	log.Println("✓ All SELECT, UPDATE, DELETE queries are tenant-scoped")
-	log.Println("✓ INSERT requires manually setting tenant_id on the model")
+	return c.Status(fiber.StatusCreated).JSON(tenants[0])
 }
 
-// databasePerTenantExample demonstrates the database-per-tenant pattern
-func databasePerTenantExample(ctx context.Context) {
-	log.Println("This example shows the database-per-tenant architecture pattern.")
-	log.Println("")
-	log.Println("Key Concepts:")
-	log.Println("  1. Each tenant has their own PostgreSQL database")
-	log.Println("  2. Complete data isolation at the database level")
-	log.Println("  3. Independent backups and migrations per tenant")
-	log.Println("  4. Connection pooling per tenant")
-	log.Println("")
+func (app *App) getTenant(c *fiber.Ctx) error {
+	tenantID := c.Params("id")
 
-	// Create tenant manager
-	tm := database.NewTenantManager()
-	defer tm.CloseAll()
+	tenants, err := builder.Select[models.Tenant](app.db).
+		Where(builder.Eq("id", tenantID)).
+		And(builder.IsNull("deleted_at")).
+		All(c.Context())
 
-	log.Println("--- Example: TenantManager Usage ---")
-	log.Println("")
-	log.Println("// Create tenant manager")
-	log.Println("tm := database.NewTenantManager()")
-	log.Println("")
-	log.Println("// Get connection for tenant 'acme'")
-	log.Println("// Creates database 'tenant_acme' if needed")
-	log.Println("acmeDB, err := tm.GetConnection(ctx, \"acme\")")
-	log.Println("")
-	log.Println("// Get connection for tenant 'widget'")
-	log.Println("// Creates database 'tenant_widget' if needed")
-	log.Println("widgetDB, err := tm.GetConnection(ctx, \"widget\")")
-	log.Println("")
-	log.Println("// Use standard query builders")
-	log.Println("users, err := builder.Select[models.User](builder.New(acmeDB)).All(ctx)")
-	log.Println("")
-	log.Println("Benefits:")
-	log.Println("  ✓ Perfect data isolation (separate databases)")
-	log.Println("  ✓ No need for tenant_id columns")
-	log.Println("  ✓ Easy per-tenant backups and migrations")
-	log.Println("  ✓ Scales well with moderate number of tenants")
-	log.Println("")
-	log.Println("Trade-offs:")
-	log.Println("  - Requires creating databases dynamically")
-	log.Println("  - More database connections (one pool per tenant)")
-	log.Println("  - May not scale to thousands of tenants")
-	log.Println("")
-	log.Println("Note: Actual database creation requires PostgreSQL superuser")
-	log.Println("      privileges or pre-provisioned tenant databases.")
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, fmt.Sprintf("Failed to get tenant: %v", err))
+	}
+
+	if len(tenants) == 0 {
+		return fiber.NewError(fiber.StatusNotFound, "Tenant not found")
+	}
+
+	return c.JSON(tenants[0])
+}
+
+// User handlers (GDPR-compliant)
+
+func (app *App) createUser(c *fiber.Ctx) error {
+	tenantID := c.Params("tenantId")
+	createdBy := c.Get("X-User-ID", "system") // In production, extract from auth token
+
+	var req struct {
+		Name             string  `json:"name"`
+		Email            string  `json:"email"`
+		Phone            *string `json:"phone"`
+		Role             string  `json:"role"`
+		MarketingConsent bool    `json:"marketing_consent"`
+		AnalyticsConsent bool    `json:"analytics_consent"`
+		ProcessingBasis  string  `json:"processing_basis"`
+	}
+
+	if err := c.BodyParser(&req); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
+	}
+
+	now := time.Now()
+	user := models.User{
+		TenantID:         tenantID,
+		Name:             req.Name,
+		Email:            req.Email,
+		Phone:            req.Phone,
+		Role:             req.Role,
+		MarketingConsent: req.MarketingConsent,
+		AnalyticsConsent: req.AnalyticsConsent,
+		ProcessingBasis:  req.ProcessingBasis,
+		GDPRMetadata: models.GDPRMetadata{
+			CreatedBy: &createdBy,
+		},
+	}
+
+	if user.Role == "" {
+		user.Role = "user"
+	}
+	if user.ProcessingBasis == "" {
+		user.ProcessingBasis = "consent"
+	}
+
+	// Set consent timestamps if granted
+	if user.MarketingConsent {
+		user.MarketingConsentAt = &now
+	}
+	if user.AnalyticsConsent {
+		user.AnalyticsConsentAt = &now
+	}
+
+	users, err := builder.Insert[models.User](app.db).
+		Values(user).
+		Returning("*").
+		ExecReturning(c.Context())
+
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, fmt.Sprintf("Failed to create user: %v", err))
+	}
+
+	// Log creation for GDPR audit trail
+	_ = app.gdprService.LogAudit(c.Context(), tenantID, createdBy, "CREATE", "users", users[0].ID, c.IP(), c.Get("User-Agent"), nil)
+
+	return c.Status(fiber.StatusCreated).JSON(users[0])
+}
+
+func (app *App) listUsers(c *fiber.Ctx) error {
+	tenantID := c.Params("tenantId")
+	userID := c.Get("X-User-ID", "system")
+
+	tenantDB := database.NewTenantDB(app.db, tenantID, userID)
+
+	users, err := database.SelectActive[models.User](tenantDB).
+		OrderByAsc("created_at").
+		All(c.Context())
+
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, fmt.Sprintf("Failed to list users: %v", err))
+	}
+
+	return c.JSON(users)
+}
+
+func (app *App) getUser(c *fiber.Ctx) error {
+	tenantID := c.Params("tenantId")
+	userID := c.Params("userId")
+	requestedBy := c.Get("X-User-ID", "system")
+
+	users, err := builder.Select[models.User](app.db).
+		Where(builder.Eq("id", userID)).
+		And(builder.Eq("tenant_id", tenantID)).
+		And(builder.IsNull("deleted_at")).
+		All(c.Context())
+
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, fmt.Sprintf("Failed to get user: %v", err))
+	}
+
+	if len(users) == 0 {
+		return fiber.NewError(fiber.StatusNotFound, "User not found")
+	}
+
+	// Log access for GDPR compliance (Article 15)
+	_ = app.gdprService.LogAudit(c.Context(), tenantID, requestedBy, "READ", "users", userID, c.IP(), c.Get("User-Agent"), nil)
+
+	return c.JSON(users[0])
+}
+
+func (app *App) updateUser(c *fiber.Ctx) error {
+	tenantID := c.Params("tenantId")
+	userID := c.Params("userId")
+	updatedBy := c.Get("X-User-ID", "system")
+
+	var req struct {
+		Name  *string `json:"name"`
+		Email *string `json:"email"`
+		Phone *string `json:"phone"`
+		Role  *string `json:"role"`
+	}
+
+	if err := c.BodyParser(&req); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
+	}
+
+	// Get existing user for audit log
+	existingUsers, err := builder.Select[models.User](app.db).
+		Where(builder.Eq("id", userID)).
+		And(builder.Eq("tenant_id", tenantID)).
+		All(c.Context())
+
+	if err != nil || len(existingUsers) == 0 {
+		return fiber.NewError(fiber.StatusNotFound, "User not found")
+	}
+
+	// Build update query
+	query := builder.Update[models.User](app.db).
+		Set("updated_by", updatedBy).
+		Where(builder.Eq("id", userID)).
+		And(builder.Eq("tenant_id", tenantID)).
+		And(builder.IsNull("deleted_at"))
+
+	changes := make(map[string]interface{})
+
+	if req.Name != nil {
+		query = query.Set("name", *req.Name)
+		changes["name"] = map[string]string{"old": existingUsers[0].Name, "new": *req.Name}
+	}
+	if req.Email != nil {
+		query = query.Set("email", *req.Email)
+		changes["email"] = map[string]string{"old": existingUsers[0].Email, "new": *req.Email}
+	}
+	if req.Phone != nil {
+		query = query.Set("phone", *req.Phone)
+	}
+	if req.Role != nil {
+		query = query.Set("role", *req.Role)
+		changes["role"] = map[string]string{"old": existingUsers[0].Role, "new": *req.Role}
+	}
+
+	_, err = query.Exec(c.Context())
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, fmt.Sprintf("Failed to update user: %v", err))
+	}
+
+	// Log update for GDPR audit trail
+	_ = app.gdprService.LogAudit(c.Context(), tenantID, updatedBy, "UPDATE", "users", userID, c.IP(), c.Get("User-Agent"), changes)
+
+	// Get updated user
+	users, _ := builder.Select[models.User](app.db).
+		Where(builder.Eq("id", userID)).
+		And(builder.Eq("tenant_id", tenantID)).
+		All(c.Context())
+
+	return c.JSON(users[0])
+}
+
+// GDPR: Consent Management (Article 7)
+
+func (app *App) updateConsent(c *fiber.Ctx) error {
+	tenantID := c.Params("tenantId")
+	userID := c.Params("userId")
+	updatedBy := c.Get("X-User-ID", userID) // User can update their own consent
+
+	var req struct {
+		ConsentType string `json:"consent_type"` // "marketing" or "analytics"
+		Granted     bool   `json:"granted"`
+	}
+
+	if err := c.BodyParser(&req); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
+	}
+
+	err := app.gdprService.UpdateConsent(c.Context(), tenantID, userID, req.ConsentType, updatedBy, c.IP(), c.Get("User-Agent"), req.Granted)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, fmt.Sprintf("Failed to update consent: %v", err))
+	}
+
+	return c.JSON(fiber.Map{
+		"message":      "Consent updated successfully",
+		"consent_type": req.ConsentType,
+		"granted":      req.Granted,
+		"updated_at":   time.Now(),
+	})
+}
+
+// GDPR: Right to Access (Article 15)
+
+func (app *App) getUserAuditLogs(c *fiber.Ctx) error {
+	tenantID := c.Params("tenantId")
+	userID := c.Params("userId")
+
+	logs, err := builder.Select[models.AuditLog](app.db).
+		Where(builder.Eq("user_id", userID)).
+		And(builder.Eq("tenant_id", tenantID)).
+		OrderByDesc("created_at").
+		Limit(100).
+		All(c.Context())
+
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, fmt.Sprintf("Failed to get audit logs: %v", err))
+	}
+
+	return c.JSON(fiber.Map{
+		"user_id":    userID,
+		"tenant_id":  tenantID,
+		"audit_logs": logs,
+		"count":      len(logs),
+	})
+}
+
+// GDPR: Right to Data Portability (Article 20)
+
+func (app *App) requestDataExport(c *fiber.Ctx) error {
+	tenantID := c.Params("tenantId")
+	userID := c.Params("userId")
+	requestedBy := c.Get("X-User-ID", userID)
+
+	// Create export request
+	request, err := app.gdprService.CreateDataExportRequest(c.Context(), tenantID, userID, requestedBy)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, fmt.Sprintf("Failed to create export request: %v", err))
+	}
+
+	// In production, this would trigger a background job to generate the export
+	// For demo, we'll export immediately
+	exportData, err := app.gdprService.ExportUserData(c.Context(), tenantID, userID)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, fmt.Sprintf("Failed to export data: %v", err))
+	}
+
+	// Update request status
+	now := time.Now()
+	_, _ = builder.Update[models.DataExportRequest](app.db).
+		Set("status", "completed").
+		Set("completed_at", now).
+		Where(builder.Eq("id", request.ID)).
+		Exec(c.Context())
+
+	// Log export for GDPR audit trail
+	_ = app.gdprService.LogAudit(c.Context(), tenantID, requestedBy, "EXPORT", "users", userID, c.IP(), c.Get("User-Agent"), nil)
+
+	return c.JSON(fiber.Map{
+		"request_id":   request.ID,
+		"status":       "completed",
+		"data":         exportData,
+		"expires_at":   request.ExpiresAt,
+		"completed_at": now,
+	})
+}
+
+func (app *App) getExportRequest(c *fiber.Ctx) error {
+	tenantID := c.Params("tenantId")
+	requestID := c.Params("requestId")
+
+	requests, err := builder.Select[models.DataExportRequest](app.db).
+		Where(builder.Eq("id", requestID)).
+		And(builder.Eq("tenant_id", tenantID)).
+		All(c.Context())
+
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, fmt.Sprintf("Failed to get export request: %v", err))
+	}
+
+	if len(requests) == 0 {
+		return fiber.NewError(fiber.StatusNotFound, "Export request not found")
+	}
+
+	return c.JSON(requests[0])
+}
+
+// GDPR: Right to Erasure (Article 17)
+
+func (app *App) requestDeletion(c *fiber.Ctx) error {
+	tenantID := c.Params("tenantId")
+	userID := c.Params("userId")
+	requestedBy := c.Get("X-User-ID", userID)
+
+	request, err := app.gdprService.CreateDeletionRequest(c.Context(), tenantID, userID, requestedBy)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, fmt.Sprintf("Failed to create deletion request: %v", err))
+	}
+
+	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
+		"request_id":  request.ID,
+		"status":      request.Status,
+		"message":     "Deletion request created. Pending approval.",
+		"created_at":  request.CreatedAt,
+	})
+}
+
+func (app *App) softDeleteUser(c *fiber.Ctx) error {
+	tenantID := c.Params("tenantId")
+	userID := c.Params("userId")
+	deletedBy := c.Get("X-User-ID", "system")
+
+	err := app.gdprService.SoftDeleteUser(c.Context(), tenantID, userID, deletedBy, c.IP(), c.Get("User-Agent"))
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, fmt.Sprintf("Failed to soft delete user: %v", err))
+	}
+
+	return c.JSON(fiber.Map{
+		"message":    "User soft deleted successfully",
+		"user_id":    userID,
+		"deleted_at": time.Now(),
+		"note":       "Data retained for audit trail. Will be anonymized after retention period.",
+	})
+}
+
+func (app *App) anonymizeUser(c *fiber.Ctx) error {
+	tenantID := c.Params("tenantId")
+	userID := c.Params("userId")
+	anonymizedBy := c.Get("X-User-ID", "system")
+
+	err := app.gdprService.AnonymizeUser(c.Context(), tenantID, userID, anonymizedBy, c.IP(), c.Get("User-Agent"))
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, fmt.Sprintf("Failed to anonymize user: %v", err))
+	}
+
+	return c.JSON(fiber.Map{
+		"message":       "User anonymized successfully",
+		"user_id":       userID,
+		"anonymized_at": time.Now(),
+		"note":          "Personal data removed. Record retained for legal compliance.",
+	})
+}
+
+// Document handlers
+
+func (app *App) createDocument(c *fiber.Ctx) error {
+	tenantID := c.Params("tenantId")
+	createdBy := c.Get("X-User-ID", "system")
+
+	var req struct {
+		Title    string `json:"title"`
+		Content  string `json:"content"`
+		OwnerID  string `json:"owner_id"`
+		IsPublic bool   `json:"is_public"`
+	}
+
+	if err := c.BodyParser(&req); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
+	}
+
+	document := models.Document{
+		TenantID: tenantID,
+		Title:    req.Title,
+		Content:  req.Content,
+		OwnerID:  req.OwnerID,
+		IsPublic: req.IsPublic,
+		GDPRMetadata: models.GDPRMetadata{
+			CreatedBy: &createdBy,
+		},
+	}
+
+	documents, err := builder.Insert[models.Document](app.db).
+		Values(document).
+		Returning("*").
+		ExecReturning(c.Context())
+
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, fmt.Sprintf("Failed to create document: %v", err))
+	}
+
+	// Log creation
+	_ = app.gdprService.LogAudit(c.Context(), tenantID, createdBy, "CREATE", "documents", documents[0].ID, c.IP(), c.Get("User-Agent"), nil)
+
+	return c.Status(fiber.StatusCreated).JSON(documents[0])
+}
+
+func (app *App) listDocuments(c *fiber.Ctx) error {
+	tenantID := c.Params("tenantId")
+	userID := c.Get("X-User-ID", "system")
+
+	tenantDB := database.NewTenantDB(app.db, tenantID, userID)
+
+	documents, err := database.SelectActive[models.Document](tenantDB).
+		OrderByDesc("created_at").
+		All(c.Context())
+
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, fmt.Sprintf("Failed to list documents: %v", err))
+	}
+
+	return c.JSON(documents)
+}
+
+func (app *App) getDocument(c *fiber.Ctx) error {
+	tenantID := c.Params("tenantId")
+	documentID := c.Params("documentId")
+	requestedBy := c.Get("X-User-ID", "system")
+
+	documents, err := builder.Select[models.Document](app.db).
+		Where(builder.Eq("id", documentID)).
+		And(builder.Eq("tenant_id", tenantID)).
+		And(builder.IsNull("deleted_at")).
+		All(c.Context())
+
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, fmt.Sprintf("Failed to get document: %v", err))
+	}
+
+	if len(documents) == 0 {
+		return fiber.NewError(fiber.StatusNotFound, "Document not found")
+	}
+
+	// Log access
+	_ = app.gdprService.LogAudit(c.Context(), tenantID, requestedBy, "READ", "documents", documentID, c.IP(), c.Get("User-Agent"), nil)
+
+	return c.JSON(documents[0])
+}
+
+// Custom error handler
+func customErrorHandler(c *fiber.Ctx, err error) error {
+	code := fiber.StatusInternalServerError
+
+	if e, ok := err.(*fiber.Error); ok {
+		code = e.Code
+	}
+
+	return c.Status(code).JSON(fiber.Map{
+		"error":   err.Error(),
+		"status":  code,
+		"path":    c.Path(),
+		"method":  c.Method(),
+	})
 }

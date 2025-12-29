@@ -289,74 +289,141 @@ go run cmd/cascade_delete/main.go
 
 ---
 
-### 9. **Multi-Tenancy** (`multi-tenancy/`) 🏢 NEW
+### 9. **GDPR-Compliant Multi-Tenancy** (`multi-tenancy/`) 🔒 PRODUCTION-READY
 
 **What it demonstrates:**
 
-- ✅ **Shared Database Pattern**: Single database with automatic tenant filtering
-- ✅ **Database-per-Tenant Pattern**: Separate database for each tenant
-- ✅ **TenantDB Wrapper**: Auto-injection of tenant_id filters
-- ✅ **TenantManager**: Connection pooling per tenant
-- ✅ **Security**: Tenant data isolation patterns
-- ✅ **Models with tenant_id**: Multi-tenant data models
+- ✅ **GDPR Compliance**: Full implementation of GDPR requirements (Articles 5, 6, 7, 15, 17, 20, 32, 44-50)
+- ✅ **REST API**: Production-ready API built with Go Fiber
+- ✅ **Soft Delete**: Records marked as deleted, never removed (audit trail)
+- ✅ **Audit Logging**: All actions logged with who, what, when, where
+- ✅ **Consent Management**: Track user consent with timestamps
+- ✅ **Data Portability**: Export user data in JSON format (Article 20)
+- ✅ **Right to Erasure**: Soft delete, anonymization, deletion workflows (Article 17)
+- ✅ **Tenant Isolation**: Automatic tenant_id filtering, prevents data leaks
+- ✅ **Data Retention**: Configurable retention policies per tenant
+- ✅ **Data Residency**: Track geographic data location
 
-**Patterns Comparison:**
+**GDPR Articles Implemented:**
 
-| Pattern               | Isolation    | Complexity | Scalability | Use Case                |
-| --------------------- | ------------ | ---------- | ----------- | ----------------------- |
-| **Shared Database**   | Row-level    | Low        | High        | 100s-1000s tenants      |
-| **Database-per-Tenant** | Database-level | Medium   | Medium      | <100 tenants            |
+| GDPR Article | Feature | Endpoint |
+|--------------|---------|----------|
+| **Article 5** | Accountability & Storage | Audit logs, retention policies |
+| **Article 7** | Consent Management | `PUT /users/:id/consent` |
+| **Article 15** | Right to Access | `GET /users/:id/audit-logs` |
+| **Article 17** | Right to Erasure | `DELETE /users/:id/soft` |
+| **Article 20** | Data Portability | `POST /users/:id/export` |
+| **Article 32** | Security | Tenant isolation, audit logging |
 
-**Shared Database Example:**
+**Models with GDPR Compliance:**
 
 ```go
-// Models include tenant_id
+// All models include GDPR metadata
+type GDPRMetadata struct {
+    CreatedAt   time.Time  `po:"created_at,timestamptz,default(NOW()),notNull"`
+    CreatedBy   *string    `po:"created_by,uuid"`
+    UpdatedAt   time.Time  `po:"updated_at,timestamptz,default(NOW()),notNull"`
+    UpdatedBy   *string    `po:"updated_by,uuid"`
+    DeletedAt   *time.Time `po:"deleted_at,timestamptz"`      // Soft delete
+    DeletedBy   *string    `po:"deleted_by,uuid"`
+    RetainUntil *time.Time `po:"retain_until,timestamptz"`    // Data retention
+    Anonymized  bool       `po:"anonymized,boolean,default(false),notNull"`
+}
+
+// User with consent tracking
 type User struct {
     ID       string `po:"id,primaryKey,uuid"`
     TenantID string `po:"tenant_id,uuid,notNull,index"`
-    Name     string `po:"name,varchar(255)"`
+    Name     string `po:"name,varchar(255),notNull"`
+    Email    string `po:"email,varchar(320),notNull"`
+
+    // Consent tracking (GDPR Article 7)
+    MarketingConsent   bool       `po:"marketing_consent,boolean,default(false),notNull"`
+    MarketingConsentAt *time.Time `po:"marketing_consent_at,timestamptz"`
+
+    // Legal basis (GDPR Article 6)
+    ProcessingBasis string `po:"processing_basis,varchar(50),default('consent'),notNull"`
+
+    GDPRMetadata
+}
+```
+
+**REST API Endpoints:**
+
+```bash
+# Create tenant with GDPR config
+POST /api/v1/tenants
+{
+  "name": "Acme Corp",
+  "data_region": "EU",
+  "data_retention_days": 365
 }
 
-// Create tenant-aware wrapper
-acmeDB := database.NewTenantDB(qb, "tenant-acme-id")
+# Create user with consent
+POST /api/v1/tenants/:tenantId/users
+{
+  "name": "Alice",
+  "email": "alice@acme.com",
+  "marketing_consent": true,
+  "processing_basis": "consent"
+}
 
-// All queries automatically filtered by tenant_id
-users, err := database.Select[models.User](acmeDB).
-    Where(builder.Gte("age", 18)).
-    All(ctx)
-// SQL: SELECT * FROM users WHERE tenant_id = 'tenant-acme-id' AND age >= 18
+# Update consent (GDPR Article 7)
+PUT /api/v1/tenants/:tenantId/users/:userId/consent
+{"consent_type": "marketing", "granted": false}
+
+# Export user data (GDPR Article 20)
+POST /api/v1/tenants/:tenantId/users/:userId/export
+
+# Soft delete (GDPR Article 17)
+DELETE /api/v1/tenants/:tenantId/users/:userId/soft
+
+# Anonymize user
+DELETE /api/v1/tenants/:tenantId/users/:userId/anonymize
 ```
 
-**Database-per-Tenant Example:**
+**Automatic Tenant Filtering:**
 
 ```go
-// Each tenant gets their own database
-tm := database.NewTenantManager()
-defer tm.CloseAll()
+// TenantDB wrapper auto-filters all queries
+tenantDB := database.NewTenantDB(qb, tenantID, userID)
 
-// Connect to tenant-specific database
-acmeDB, err := tm.GetConnection(ctx, "acme")  // Database: tenant_acme
-widgetDB, err := tm.GetConnection(ctx, "widget")  // Database: tenant_widget
+// Excludes soft-deleted records automatically
+users, err := database.SelectActive[models.User](tenantDB).All(ctx)
+// SQL: SELECT * FROM users WHERE tenant_id = ? AND deleted_at IS NULL
 
-// Standard queries (no tenant_id needed)
-qb := builder.New(acmeDB)
-users, err := builder.Select[models.User](qb).All(ctx)
+// For admin/audit: includes deleted records
+allUsers, err := database.SelectAll[models.User](tenantDB).All(ctx)
 ```
 
-**Run it:**
+**Run the API Server:**
 
 ```bash
 cd multi-tenancy
 go run cmd/multi-tenancy/main.go
+
+# Output:
+🚀 GDPR-Compliant Multi-Tenant API Server starting on port 3000
+📋 API Documentation: http://localhost:3000/api/v1
+
+=== GDPR Features ===
+✅ Soft Delete (Article 17)
+✅ Audit Logging (Article 5)
+✅ Data Portability (Article 20)
+✅ Consent Management (Article 7)
+✅ Right to Erasure (Article 17)
+✅ Tenant Isolation
 ```
 
 **Key Features:**
 
-- 🔒 **Automatic Tenant Filtering**: TenantDB wrapper prevents data leaks
-- 🏢 **Multiple Strategies**: Choose pattern based on your requirements
-- 🔐 **Security First**: Comprehensive isolation examples
-- 📊 **Tenant Management**: Built-in tenant metadata model
-- 🎯 **Production Ready**: Thread-safe connection management
+- 🔒 **GDPR-First Design**: Every feature built for compliance
+- 🏢 **Multi-Tenant SaaS**: Production-ready architecture
+- 📝 **Audit Trail**: Complete transparency, who accessed what
+- 🔐 **Security**: Automatic tenant isolation, no data leaks
+- ⚖️ **Legal Compliance**: Implements all major GDPR articles
+- 🌍 **Data Residency**: Track where data is stored (EU/US/UK)
+- 🎯 **Production Ready**: REST API, soft delete, retention policies
 
 ---
 
