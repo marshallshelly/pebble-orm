@@ -5,6 +5,17 @@ All notable changes to Pebble ORM will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.4] - 2025-12-30
+
+### Fixed
+
+- **Critical**: Preload failing with pgx encode error `cannot find encode plan` for `ANY($1)` queries
+  - Error: `unable to encode []interface{}{"uuid-string"} into text format for unknown type (OID 0)`
+  - Root cause: Passing `[]interface{}` to pgx which requires typed slices for PostgreSQL array parameters
+  - Added `convertToTypedSlice()` helper to convert `[]interface{}` to properly typed slices (`[]string`, `[]int`, etc.)
+  - Applied fix to all 4 relationship load functions (belongsTo, hasOne, hasMany, manyToMany)
+  - Impact: Preload now works correctly with pgx driver
+
 ## [1.8.3] - 2025-12-30
 
 ### Fixed

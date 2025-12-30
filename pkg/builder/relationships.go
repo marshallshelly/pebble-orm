@@ -117,9 +117,13 @@ func (q *SelectQuery[T]) loadBelongsTo(ctx context.Context, results reflect.Valu
 		return nil // No foreign keys to load
 	}
 
+	// Convert []interface{} to typed slice for pgx encoding
+	// pgx needs a properly typed slice, not []interface{}
+	typedKeys := convertToTypedSlice(foreignKeys)
+
 	// Query related records using IN clause
 	sql := fmt.Sprintf("SELECT * FROM %s WHERE %s = ANY($1)", targetTable.Name, rel.References)
-	rows, err := q.db.db.Query(ctx, sql, foreignKeys)
+	rows, err := q.db.db.Query(ctx, sql, typedKeys)
 	if err != nil {
 		return fmt.Errorf("failed to query related records: %w", err)
 	}
@@ -212,9 +216,12 @@ func (q *SelectQuery[T]) loadHasOne(ctx context.Context, results reflect.Value, 
 		return nil
 	}
 
+	// Convert []interface{} to typed slice for pgx encoding
+	typedKeys := convertToTypedSlice(primaryKeys)
+
 	// Query related records using IN clause
 	sql := fmt.Sprintf("SELECT * FROM %s WHERE %s = ANY($1)", targetTable.Name, rel.ForeignKey)
-	rows, err := q.db.db.Query(ctx, sql, primaryKeys)
+	rows, err := q.db.db.Query(ctx, sql, typedKeys)
 	if err != nil {
 		return fmt.Errorf("failed to query related records: %w", err)
 	}
@@ -318,9 +325,12 @@ func (q *SelectQuery[T]) loadHasMany(ctx context.Context, results reflect.Value,
 		return nil
 	}
 
+	// Convert []interface{} to typed slice for pgx encoding
+	typedKeys := convertToTypedSlice(primaryKeys)
+
 	// Query related records using IN clause
 	sql := fmt.Sprintf("SELECT * FROM %s WHERE %s = ANY($1)", targetTable.Name, rel.ForeignKey)
-	rows, err := q.db.db.Query(ctx, sql, primaryKeys)
+	rows, err := q.db.db.Query(ctx, sql, typedKeys)
 	if err != nil {
 		return fmt.Errorf("failed to query related records: %w", err)
 	}
@@ -437,6 +447,9 @@ func (q *SelectQuery[T]) loadManyToMany(ctx context.Context, results reflect.Val
 	sourceFKCol := toSnakeCase(q.table.GoType.Name()) + "_id"
 	targetFKCol := toSnakeCase(targetTable.GoType.Name()) + "_id"
 
+	// Convert []interface{} to typed slice for pgx encoding
+	typedKeys := convertToTypedSlice(primaryKeys)
+
 	// Query through junction table with JOIN
 	sql := fmt.Sprintf(
 		"SELECT t.* FROM %s t INNER JOIN %s j ON t.%s = j.%s WHERE j.%s = ANY($1)",
@@ -447,7 +460,7 @@ func (q *SelectQuery[T]) loadManyToMany(ctx context.Context, results reflect.Val
 		sourceFKCol,
 	)
 
-	rows, err := q.db.db.Query(ctx, sql, primaryKeys)
+	rows, err := q.db.db.Query(ctx, sql, typedKeys)
 	if err != nil {
 		return fmt.Errorf("failed to query related records: %w", err)
 	}
@@ -462,7 +475,7 @@ func (q *SelectQuery[T]) loadManyToMany(ctx context.Context, results reflect.Val
 		sourceFKCol,
 	)
 
-	junctionRows, err := q.db.db.Query(ctx, junctionSQL, primaryKeys)
+	junctionRows, err := q.db.db.Query(ctx, junctionSQL, typedKeys)
 	if err != nil {
 		return fmt.Errorf("failed to query junction table: %w", err)
 	}
@@ -686,4 +699,26 @@ func isZeroValue(v interface{}) bool {
 	default:
 		return val.IsZero()
 	}
+}
+
+// convertToTypedSlice converts []interface{} to a properly typed slice for pgx encoding.
+// pgx cannot encode []interface{} for ANY($1) queries - it needs a typed slice like []string, []int, etc.
+func convertToTypedSlice(values []interface{}) interface{} {
+	if len(values) == 0 {
+		return values
+	}
+
+	// Determine type from first element
+	firstVal := reflect.ValueOf(values[0])
+	elemType := firstVal.Type()
+
+	// Create a slice of the proper type
+	result := reflect.MakeSlice(reflect.SliceOf(elemType), len(values), len(values))
+
+	// Copy all values
+	for i, v := range values {
+		result.Index(i).Set(reflect.ValueOf(v))
+	}
+
+	return result.Interface()
 }
