@@ -354,7 +354,7 @@ func (i *Introspector) getConstraints(ctx context.Context, tableName string) ([]
 	var constraints []schema.ConstraintMetadata
 	for rows.Next() {
 		var c schema.ConstraintMetadata
-		var contype string
+		var contype byte
 		var columnNames []string
 
 		err := rows.Scan(&c.Name, &contype, &c.Expression, &columnNames)
@@ -364,9 +364,9 @@ func (i *Introspector) getConstraints(ctx context.Context, tableName string) ([]
 
 		// Set constraint type
 		switch contype {
-		case "c":
+		case 'c':
 			c.Type = schema.CheckConstraint
-		case "u":
+		case 'u':
 			c.Type = schema.UniqueConstraint
 			c.Columns = columnNames
 		}

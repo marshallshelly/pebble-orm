@@ -5,6 +5,18 @@ All notable changes to Pebble ORM will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.6] - 2025-12-31
+
+### Fixed
+
+- **Critical**: Fixed pgx binary format scan error in constraint introspection
+  - Error: `can't scan into dest[1] (col: constraint_type): cannot scan char (OID 18) in binary format into *string`
+  - Root cause: PostgreSQL's `pg_constraint.contype` is of type `char` (single-byte), not `text`
+  - pgx's `QCharCodec` supports scanning into `*byte` or `*rune`, but not `*string`
+  - Fixed by scanning `con.contype` into `byte` variable instead of `string`
+  - Changed switch cases from string literals (`"c"`, `"u"`) to byte literals (`'c'`, `'u'`)
+  - Impact: UNIQUE constraint auto-migration now works without crashing during schema introspection
+
 ## [1.8.5] - 2025-12-31
 
 ### Added
