@@ -374,9 +374,9 @@ func (s *Service) CleanupExpiredData(ctx context.Context, tenantID string) error
 
 	// Log cleanup action
 	changes := map[string]interface{}{
-		"cutoff_date":         cutoffDate.Format(time.RFC3339),
-		"retention_days":      tenant.DataRetentionDays,
-		"cleanup_timestamp":   time.Now().Format(time.RFC3339),
+		"cutoff_date":       cutoffDate.Format(time.RFC3339),
+		"retention_days":    tenant.DataRetentionDays,
+		"cleanup_timestamp": time.Now().Format(time.RFC3339),
 	}
 
 	return s.LogAudit(ctx, tenantID, "system", "CLEANUP", "users", "batch", "system", "gdpr-cleanup", changes)

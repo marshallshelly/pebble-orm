@@ -23,11 +23,11 @@ func TestSelectQuery_ToSQL(t *testing.T) {
 	db := New(nil) // Nil runtime DB for SQL generation tests
 
 	tests := []struct {
-		name        string
-		setupQuery  func() *SelectQuery[TestUser]
-		wantSQL     string
-		wantArgLen  int
-		wantErr     bool
+		name       string
+		setupQuery func() *SelectQuery[TestUser]
+		wantSQL    string
+		wantArgLen int
+		wantErr    bool
 	}{
 		{
 			name: "simple select all",

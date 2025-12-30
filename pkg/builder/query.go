@@ -22,27 +22,27 @@ type Executable interface {
 
 // SelectQuery represents a SELECT query with type safety.
 type SelectQuery[T any] struct {
-	db         *DB
-	table      *schema.TableMetadata
-	columns    []string
-	where      []Condition
-	joins      []Join
-	groupBy    []string
-	having     []Condition
-	orderBy    []OrderBy
-	limit      *int
-	offset     *int
-	distinct   bool
-	forUpdate  bool
-	preloads   []string // Relationship fields to eagerly load
+	db        *DB
+	table     *schema.TableMetadata
+	columns   []string
+	where     []Condition
+	joins     []Join
+	groupBy   []string
+	having    []Condition
+	orderBy   []OrderBy
+	limit     *int
+	offset    *int
+	distinct  bool
+	forUpdate bool
+	preloads  []string // Relationship fields to eagerly load
 }
 
 // InsertQuery represents an INSERT query.
 type InsertQuery[T any] struct {
-	db        *DB
-	table     *schema.TableMetadata
-	values    []T
-	returning []string
+	db         *DB
+	table      *schema.TableMetadata
+	values     []T
+	returning  []string
 	onConflict *OnConflict
 }
 

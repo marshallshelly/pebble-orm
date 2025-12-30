@@ -103,16 +103,16 @@ type ConstraintMetadata struct {
 
 // RelationshipMetadata represents relationships between tables.
 type RelationshipMetadata struct {
-	Type         RelationType  // Relationship type
-	SourceTable  string        // Source table name
-	SourceField  string        // Source Go field name
-	TargetTable  string        // Target table name (derived, may be incorrect if custom table name)
-	TargetType   reflect.Type  // Target Go type (used for accurate table name lookup)
-	TargetField  string        // Target Go field name
-	ForeignKey   string        // Foreign key column
-	References   string        // Referenced column
-	JoinTable    *string       // Junction table for many-to-many
-	InverseField *string       // Inverse relationship field
+	Type         RelationType // Relationship type
+	SourceTable  string       // Source table name
+	SourceField  string       // Source Go field name
+	TargetTable  string       // Target table name (derived, may be incorrect if custom table name)
+	TargetType   reflect.Type // Target Go type (used for accurate table name lookup)
+	TargetField  string       // Target Go field name
+	ForeignKey   string       // Foreign key column
+	References   string       // Referenced column
+	JoinTable    *string      // Junction table for many-to-many
+	InverseField *string      // Inverse relationship field
 }
 
 // RelationType defines the type of relationship between tables.

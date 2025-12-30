@@ -29,7 +29,7 @@ type Config struct {
 // NewDB creates a new DB instance from a connection pool.
 func NewDB(pool *pgxpool.Pool) *DB {
 	return &DB{
-		pool: pool,
+		pool:   pool,
 		config: &Config{},
 	}
 }

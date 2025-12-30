@@ -6,8 +6,8 @@ import (
 
 // Subquery represents a subquery that can be used in various parts of a SQL statement
 type Subquery struct {
-	SQL  string
-	Args []interface{}
+	SQL   string
+	Args  []interface{}
 	Alias string
 }
 

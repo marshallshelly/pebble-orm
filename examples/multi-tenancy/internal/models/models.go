@@ -10,10 +10,10 @@ import (
 // Implements audit trails, soft delete, and data retention
 type GDPRMetadata struct {
 	// Audit trail - who and when created/updated (GDPR Article 5 - Accountability)
-	CreatedAt time.Time  `po:"created_at,timestamptz,default(NOW()),notNull"`
-	CreatedBy *string    `po:"created_by,uuid"`
-	UpdatedAt time.Time  `po:"updated_at,timestamptz,default(NOW()),notNull"`
-	UpdatedBy *string    `po:"updated_by,uuid"`
+	CreatedAt time.Time `po:"created_at,timestamptz,default(NOW()),notNull"`
+	CreatedBy *string   `po:"created_by,uuid"`
+	UpdatedAt time.Time `po:"updated_at,timestamptz,default(NOW()),notNull"`
+	UpdatedBy *string   `po:"updated_by,uuid"`
 
 	// Soft delete for audit trail (GDPR Article 17 - Right to Erasure)
 	DeletedAt *time.Time `po:"deleted_at,timestamptz"`
@@ -96,12 +96,12 @@ type AuditLog struct {
 
 	// Who, What, When, Where
 	UserID     string `po:"user_id,uuid,notNull,index"`
-	Action     string `po:"action,varchar(50),notNull"`     // CREATE, READ, UPDATE, DELETE, EXPORT, ANONYMIZE
-	Resource   string `po:"resource,varchar(100),notNull"`  // users, documents, etc.
+	Action     string `po:"action,varchar(50),notNull"`    // CREATE, READ, UPDATE, DELETE, EXPORT, ANONYMIZE
+	Resource   string `po:"resource,varchar(100),notNull"` // users, documents, etc.
 	ResourceID string `po:"resource_id,uuid,notNull,index"`
 
 	// Details
-	Changes   schema.JSONB `po:"changes,jsonb"`       // Before/after values
+	Changes   schema.JSONB `po:"changes,jsonb"` // Before/after values
 	IPAddress string       `po:"ip_address,varchar(45),notNull"`
 	UserAgent string       `po:"user_agent,text"`
 
@@ -139,7 +139,7 @@ type DeletionRequest struct {
 	TenantID string `po:"tenant_id,uuid,notNull,index"`
 	UserID   string `po:"user_id,uuid,notNull,index"`
 
-	Status      string `po:"status,varchar(50),default('pending'),notNull"`     // pending, approved, processing, completed
+	Status      string `po:"status,varchar(50),default('pending'),notNull"`    // pending, approved, processing, completed
 	RequestType string `po:"request_type,varchar(50),default('user'),notNull"` // user, tenant
 
 	// Legal compliance

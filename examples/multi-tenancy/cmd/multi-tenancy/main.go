@@ -483,10 +483,10 @@ func (app *App) requestDeletion(c *fiber.Ctx) error {
 	}
 
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
-		"request_id":  request.ID,
-		"status":      request.Status,
-		"message":     "Deletion request created. Pending approval.",
-		"created_at":  request.CreatedAt,
+		"request_id": request.ID,
+		"status":     request.Status,
+		"message":    "Deletion request created. Pending approval.",
+		"created_at": request.CreatedAt,
 	})
 }
 
@@ -620,9 +620,9 @@ func customErrorHandler(c *fiber.Ctx, err error) error {
 	}
 
 	return c.Status(code).JSON(fiber.Map{
-		"error":   err.Error(),
-		"status":  code,
-		"path":    c.Path(),
-		"method":  c.Method(),
+		"error":  err.Error(),
+		"status": code,
+		"path":   c.Path(),
+		"method": c.Method(),
 	})
 }

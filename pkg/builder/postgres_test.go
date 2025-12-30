@@ -7,24 +7,24 @@ import (
 )
 
 func TestJSONBOperators(t *testing.T) {
-	tests := []struct{
-		name string
-		condition Condition
+	tests := []struct {
+		name       string
+		condition  Condition
 		expectedOp Operator
 	}{
 		{
-			name: "JSONBContains",
-			condition: JSONBContains("data", `{"key": "value"}`),
+			name:       "JSONBContains",
+			condition:  JSONBContains("data", `{"key": "value"}`),
 			expectedOp: "@>",
 		},
 		{
-			name: "JSONBContainedBy",
-			condition: JSONBContainedBy("data", `{"key": "value"}`),
+			name:       "JSONBContainedBy",
+			condition:  JSONBContainedBy("data", `{"key": "value"}`),
 			expectedOp: "<@",
 		},
 		{
-			name: "JSONBHasKey",
-			condition: JSONBHasKey("data", "email"),
+			name:       "JSONBHasKey",
+			condition:  JSONBHasKey("data", "email"),
 			expectedOp: "?",
 		},
 	}
@@ -39,24 +39,24 @@ func TestJSONBOperators(t *testing.T) {
 }
 
 func TestArrayOperators(t *testing.T) {
-	tests := []struct{
-		name string
-		condition Condition
+	tests := []struct {
+		name       string
+		condition  Condition
 		expectedOp Operator
 	}{
 		{
-			name: "ArrayContains",
-			condition: ArrayContains("tags", []string{"go", "postgresql"}),
+			name:       "ArrayContains",
+			condition:  ArrayContains("tags", []string{"go", "postgresql"}),
 			expectedOp: "@>",
 		},
 		{
-			name: "ArrayContainedBy",
-			condition: ArrayContainedBy("tags", []string{"go", "postgresql", "database"}),
+			name:       "ArrayContainedBy",
+			condition:  ArrayContainedBy("tags", []string{"go", "postgresql", "database"}),
 			expectedOp: "<@",
 		},
 		{
-			name: "ArrayOverlap",
-			condition: ArrayOverlap("tags", []string{"go"}),
+			name:       "ArrayOverlap",
+			condition:  ArrayOverlap("tags", []string{"go"}),
 			expectedOp: "&&",
 		},
 	}

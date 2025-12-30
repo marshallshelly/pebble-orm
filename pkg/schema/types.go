@@ -128,11 +128,11 @@ func IsNullable(t reflect.Type) bool {
 
 // PostgreSQLType represents a PostgreSQL data type with its properties.
 type PostgreSQLType struct {
-	Name       string
-	Size       int    // For varchar(n), numeric(p,s) precision
-	Scale      int    // For numeric(p,s) scale
-	IsArray    bool
-	BaseType   string // For array types
+	Name     string
+	Size     int // For varchar(n), numeric(p,s) precision
+	Scale    int // For numeric(p,s) scale
+	IsArray  bool
+	BaseType string // For array types
 }
 
 // ParsePostgreSQLType parses a PostgreSQL type string into structured data.

@@ -33,26 +33,26 @@ type SchemaDiff struct {
 
 // TableDiff represents changes to a single table.
 type TableDiff struct {
-	TableName        string                  // Name of the table
-	ColumnsAdded     []schema.ColumnMetadata // Columns to add
-	ColumnsDropped   []string                // Column names to drop
-	ColumnsModified  []ColumnDiff            // Columns with changes
-	IndexesAdded     []schema.IndexMetadata  // Indexes to create
-	IndexesDropped   []string                // Index names to drop
-	ForeignKeysAdded []schema.ForeignKeyMetadata // Foreign keys to add
-	ForeignKeysDropped []string               // Foreign key names to drop
-	ConstraintsAdded []schema.ConstraintMetadata // Constraints to add
-	ConstraintsDropped []string              // Constraint names to drop
-	PrimaryKeyChanged  *PrimaryKeyChange     // Primary key modification
+	TableName          string                      // Name of the table
+	ColumnsAdded       []schema.ColumnMetadata     // Columns to add
+	ColumnsDropped     []string                    // Column names to drop
+	ColumnsModified    []ColumnDiff                // Columns with changes
+	IndexesAdded       []schema.IndexMetadata      // Indexes to create
+	IndexesDropped     []string                    // Index names to drop
+	ForeignKeysAdded   []schema.ForeignKeyMetadata // Foreign keys to add
+	ForeignKeysDropped []string                    // Foreign key names to drop
+	ConstraintsAdded   []schema.ConstraintMetadata // Constraints to add
+	ConstraintsDropped []string                    // Constraint names to drop
+	PrimaryKeyChanged  *PrimaryKeyChange           // Primary key modification
 }
 
 // ColumnDiff represents changes to a single column.
 type ColumnDiff struct {
-	ColumnName   string // Name of the column
-	OldColumn    schema.ColumnMetadata
-	NewColumn    schema.ColumnMetadata
-	TypeChanged  bool   // SQL type changed
-	NullChanged  bool   // Nullability changed
+	ColumnName     string // Name of the column
+	OldColumn      schema.ColumnMetadata
+	NewColumn      schema.ColumnMetadata
+	TypeChanged    bool // SQL type changed
+	NullChanged    bool // Nullability changed
 	DefaultChanged bool // Default value changed
 }
 

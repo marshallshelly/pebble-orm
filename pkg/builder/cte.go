@@ -120,10 +120,10 @@ func (q *CTESelect[T]) ToSQL() (string, []interface{}, error) {
 
 // RecursiveCTE represents a recursive Common Table Expression
 type RecursiveCTE struct {
-	Name          string
-	Columns       []string
-	BaseQuery     string
-	BaseArgs      []interface{}
+	Name           string
+	Columns        []string
+	BaseQuery      string
+	BaseArgs       []interface{}
 	RecursiveQuery string
 	RecursiveArgs  []interface{}
 }

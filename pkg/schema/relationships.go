@@ -98,7 +98,7 @@ func (p *Parser) parseRelationship(field reflect.StructField, opts *TagOptions, 
 	}
 
 	if fieldType.Kind() == reflect.Struct {
-		rel.TargetType = fieldType                   // Store the actual Go type for accurate table name lookup
+		rel.TargetType = fieldType                      // Store the actual Go type for accurate table name lookup
 		rel.TargetTable = toSnakeCase(fieldType.Name()) // Fallback (may be incorrect with custom table names)
 		rel.TargetField = fieldType.Name()
 	}
