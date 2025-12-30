@@ -102,10 +102,18 @@ func (p *Planner) generateCreateTable(table *schema.TableMetadata) string {
 		parts = append(parts, "    "+p.generateForeignKeyDefinition(fk))
 	}
 
-	// Check constraints
+	// Constraints (CHECK, UNIQUE)
 	for _, constraint := range table.Constraints {
-		if constraint.Type == schema.CheckConstraint {
+		switch constraint.Type {
+		case schema.CheckConstraint:
 			parts = append(parts, fmt.Sprintf("    CONSTRAINT %s CHECK %s", constraint.Name, constraint.Expression))
+		case schema.UniqueConstraint:
+			// Only add UNIQUE constraint if it's not already handled by inline column UNIQUE
+			// Multi-column UNIQUE constraints or explicit UNIQUE constraints go here
+			if len(constraint.Columns) > 1 {
+				cols := strings.Join(constraint.Columns, ", ")
+				parts = append(parts, fmt.Sprintf("    CONSTRAINT %s UNIQUE (%s)", constraint.Name, cols))
+			}
 		}
 	}
 
@@ -278,8 +286,7 @@ func (p *Planner) generateAlterTable(diff TableDiff) (upSQL, downSQL []string) {
 
 	// Add constraints
 	for _, c := range diff.ConstraintsAdded {
-		upSQL = append(upSQL, fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s CHECK %s;",
-			tableName, c.Name, c.Expression))
+		upSQL = append(upSQL, p.generateAddConstraintSQL(tableName, c))
 		downSQL = append(downSQL, fmt.Sprintf("ALTER TABLE %s DROP CONSTRAINT IF EXISTS %s;",
 			tableName, c.Name))
 	}
@@ -496,4 +503,18 @@ func generateUsingClause(columnName, fromType, toType string) string {
 
 	// No safe automatic conversion available
 	return ""
+}
+
+// generateAddConstraintSQL generates SQL for adding a constraint.
+func (p *Planner) generateAddConstraintSQL(tableName string, c schema.ConstraintMetadata) string {
+	switch c.Type {
+	case schema.UniqueConstraint:
+		return fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s UNIQUE (%s);",
+			tableName, c.Name, strings.Join(c.Columns, ", "))
+	case schema.CheckConstraint:
+		return fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s CHECK %s;",
+			tableName, c.Name, c.Expression)
+	default:
+		return fmt.Sprintf("-- Unknown constraint type: %s", c.Type)
+	}
 }

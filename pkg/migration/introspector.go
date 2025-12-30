@@ -324,18 +324,25 @@ func (i *Introspector) getIndexes(ctx context.Context, tableName string) ([]sche
 	return indexes, rows.Err()
 }
 
-// getConstraints retrieves CHECK constraint information.
+// getConstraints retrieves CHECK and UNIQUE constraint information.
 func (i *Introspector) getConstraints(ctx context.Context, tableName string) ([]schema.ConstraintMetadata, error) {
 	query := `
 		SELECT
 			con.conname as constraint_name,
-			pg_get_constraintdef(con.oid) as constraint_def
+			con.contype as constraint_type,
+			pg_get_constraintdef(con.oid) as constraint_def,
+			ARRAY(
+				SELECT a.attname
+				FROM unnest(con.conkey) AS u(attnum)
+				JOIN pg_attribute AS a ON a.attrelid = con.conrelid AND a.attnum = u.attnum
+				ORDER BY u.attnum
+			) as column_names
 		FROM pg_constraint con
 		JOIN pg_class rel ON rel.oid = con.conrelid
 		JOIN pg_namespace nsp ON nsp.oid = connamespace
 		WHERE nsp.nspname = 'public'
 			AND rel.relname = $1
-			AND con.contype = 'c'
+			AND con.contype IN ('c', 'u')
 	`
 
 	rows, err := i.pool.Query(ctx, query, tableName)
@@ -347,11 +354,21 @@ func (i *Introspector) getConstraints(ctx context.Context, tableName string) ([]
 	var constraints []schema.ConstraintMetadata
 	for rows.Next() {
 		var c schema.ConstraintMetadata
-		c.Type = schema.CheckConstraint
+		var contype string
+		var columnNames []string
 
-		err := rows.Scan(&c.Name, &c.Expression)
+		err := rows.Scan(&c.Name, &contype, &c.Expression, &columnNames)
 		if err != nil {
 			return nil, err
+		}
+
+		// Set constraint type
+		switch contype {
+		case "c":
+			c.Type = schema.CheckConstraint
+		case "u":
+			c.Type = schema.UniqueConstraint
+			c.Columns = columnNames
 		}
 
 		constraints = append(constraints, c)

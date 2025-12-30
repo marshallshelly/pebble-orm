@@ -418,6 +418,7 @@ go install github.com/marshallshelly/pebble-orm/cmd/pebble@latest
 
 # Commands
 pebble generate --name migration_name [--empty]
+pebble generate metadata --scan ./internal/models  # Generate table name metadata from comment directives
 pebble migrate up [--all|--steps N] [--interactive]
 pebble migrate down [--steps N|--target VERSION]
 pebble migrate status

@@ -110,6 +110,19 @@ func (p *Parser) Parse(modelType reflect.Type) (*TableMetadata, error) {
 		table.Columns = append(table.Columns, column)
 	}
 
+	// Create UNIQUE constraints for columns marked as unique
+	// This allows the migration system to detect and manage UNIQUE constraints
+	for _, col := range table.Columns {
+		if col.Unique {
+			constraint := ConstraintMetadata{
+				Name:    fmt.Sprintf("%s_%s_key", table.Name, col.Name),
+				Type:    UniqueConstraint,
+				Columns: []string{col.Name},
+			}
+			table.Constraints = append(table.Constraints, constraint)
+		}
+	}
+
 	// Parse foreign keys from tags
 	if err := p.parseForeignKeys(modelType, table); err != nil {
 		return nil, fmt.Errorf("failed to parse foreign keys: %w", err)

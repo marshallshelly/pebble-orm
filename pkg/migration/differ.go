@@ -1,6 +1,7 @@
 package migration
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/marshallshelly/pebble-orm/pkg/schema"
@@ -231,32 +232,47 @@ func (d *Differ) compareForeignKeys(codeTable, dbTable *schema.TableMetadata, di
 	}
 }
 
-// compareConstraints compares check constraints.
+// compareConstraints compares check and unique constraints.
 func (d *Differ) compareConstraints(codeTable, dbTable *schema.TableMetadata, diff *TableDiff) {
 	// Build maps for easier lookup
+	// For UNIQUE constraints, use column-based key; for CHECK constraints, use name
 	codeConstraints := make(map[string]schema.ConstraintMetadata)
 	for _, c := range codeTable.Constraints {
-		codeConstraints[c.Name] = c
+		key := d.getConstraintKey(c)
+		codeConstraints[key] = c
 	}
 
 	dbConstraints := make(map[string]schema.ConstraintMetadata)
 	for _, c := range dbTable.Constraints {
-		dbConstraints[c.Name] = c
+		key := d.getConstraintKey(c)
+		dbConstraints[key] = c
 	}
 
-	// Find constraints to add
-	for cName, codeC := range codeConstraints {
-		if _, exists := dbConstraints[cName]; !exists {
+	// Find constraints to add (in code but not in DB)
+	for key, codeC := range codeConstraints {
+		if _, exists := dbConstraints[key]; !exists {
 			diff.ConstraintsAdded = append(diff.ConstraintsAdded, codeC)
 		}
 	}
 
-	// Find constraints to drop
-	for cName := range dbConstraints {
-		if _, exists := codeConstraints[cName]; !exists {
-			diff.ConstraintsDropped = append(diff.ConstraintsDropped, cName)
+	// Find constraints to drop (in DB but not in code)
+	for key, dbC := range dbConstraints {
+		if _, exists := codeConstraints[key]; !exists {
+			diff.ConstraintsDropped = append(diff.ConstraintsDropped, dbC.Name)
 		}
 	}
+}
+
+// getConstraintKey returns a unique key for constraint comparison.
+// For UNIQUE constraints, key by columns (order matters).
+// For CHECK constraints, key by name.
+func (d *Differ) getConstraintKey(c schema.ConstraintMetadata) string {
+	if c.Type == schema.UniqueConstraint {
+		// For UNIQUE: key by columns (order matters)
+		return fmt.Sprintf("unique:%s", strings.Join(c.Columns, ","))
+	}
+	// For CHECK and others: key by name
+	return c.Name
 }
 
 // Helper functions

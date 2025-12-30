@@ -94,11 +94,12 @@ type IndexMetadata struct {
 	Type    string   // Index type (btree, hash, gin, etc.)
 }
 
-// ConstraintMetadata represents additional constraints (CHECK, etc.).
+// ConstraintMetadata represents additional constraints (CHECK, UNIQUE, etc.).
 type ConstraintMetadata struct {
 	Name       string         // Constraint name
 	Type       ConstraintType // Constraint type
 	Expression string         // CHECK expression or other definition
+	Columns    []string       // Column names for UNIQUE/PRIMARY/FOREIGN constraints
 }
 
 // RelationshipMetadata represents relationships between tables.
@@ -151,6 +152,8 @@ type ConstraintType string
 const (
 	// CheckConstraint represents a CHECK constraint.
 	CheckConstraint ConstraintType = "CHECK"
+	// UniqueConstraint represents a UNIQUE constraint.
+	UniqueConstraint ConstraintType = "UNIQUE"
 	// ExclusionConstraint represents an EXCLUDE constraint.
 	ExclusionConstraint ConstraintType = "EXCLUDE"
 )

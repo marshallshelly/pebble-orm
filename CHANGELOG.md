@@ -5,6 +5,24 @@ All notable changes to Pebble ORM will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.5] - 2025-12-31
+
+### Added
+
+- UNIQUE constraint auto-migration support with `unique` struct tags.
+- Automatic generation of `ALTER TABLE ADD CONSTRAINT ... UNIQUE (...)` SQL.
+- Support for both single-column and composite (multi-column) UNIQUE constraints.
+- Smart constraint comparison by columns instead of constraint names.
+- 11 new unit tests for constraint detection and migration.
+- 4 integration tests with real PostgreSQL database.
+
+### Fixed
+
+- Critical bug where UNIQUE constraints were completely ignored during auto-migration.
+- Introspector now detects UNIQUE constraints (`contype = 'u'`) in addition to CHECK constraints.
+- Migration differ now compares UNIQUE constraints using column-based keys for accurate detection.
+- Migration planner now generates proper `ALTER TABLE ADD CONSTRAINT` SQL for UNIQUE constraints.
+
 ## [1.8.4] - 2025-12-30
 
 ### Fixed
