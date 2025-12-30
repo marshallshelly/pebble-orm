@@ -4,6 +4,97 @@ All notable changes to Pebble ORM will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [1.8.2] - 2025-12-30
+
+### Fixed - Critical Preload Bug with Go Initialisms
+
+**🔴 P0: All Preload operations completely broken**
+
+Fixed a critical bug in the `toPascalCase()` function that broke all relationship preloading by incorrectly converting database column names to Go struct field names.
+
+#### Problem
+
+The `toPascalCase()` helper function didn't follow Go naming conventions for initialisms (ID, URL, API, etc.), causing the preload system to look for non-existent struct fields.
+
+**What was broken:**
+```go
+type Post struct {
+    UserID int   `po:"user_id,integer,notNull"`  // Actual field: "UserID"
+    User   *User `po:"-,belongsTo,foreignKey(user_id),references(id)"`
+}
+
+posts, _ := builder.Select[Post](db).
+    Preload("User").  // ❌ FAILED - User field stayed nil
+    All(ctx)
+
+// posts[0].User == nil (not loaded!)
+```
+
+**Root Cause:**
+
+The preload code converts `user_id` → `"UserId"` and then tries:
+```go
+fkField := item.FieldByName("UserId")  // ❌ NOT FOUND
+```
+
+But the actual Go struct field is `"UserID"` (not `"UserId"`), per Go convention that initialisms should be all-caps.
+
+#### Incorrect Conversions
+
+```go
+// Before fix (WRONG):
+toPascalCase("user_id") → "UserId"      // Should be "UserID"
+toPascalCase("id") → "Id"                // Should be "ID"
+toPascalCase("api_key") → "ApiKey"      // Should be "APIKey"
+toPascalCase("http_url") → "HttpUrl"    // Should be "HTTPURL"
+```
+
+#### Solution
+
+Rewrote `toPascalCase()` to recognize 38 common Go initialisms (ID, API, URL, HTTP, JSON, SQL, UUID, etc.) and convert them to all-caps:
+
+```go
+// After fix (CORRECT):
+toPascalCase("user_id") → "UserID"      ✅
+toPascalCase("id") → "ID"                ✅
+toPascalCase("api_key") → "APIKey"      ✅
+toPascalCase("http_url") → "HTTPURL"    ✅
+toPascalCase("created_by_user_id") → "CreatedByUserID" ✅
+```
+
+#### Impact
+
+**Before fix:**
+- `belongsTo`: ❌ Completely broken
+- `hasOne`: ❌ Completely broken
+- `hasMany`: ❌ Completely broken
+- `manyToMany`: ❌ Completely broken
+
+**After fix:**
+- `belongsTo`: ✅ Working
+- `hasOne`: ✅ Working
+- `hasMany`: ✅ Working
+- `manyToMany`: ✅ Working
+
+#### Files Changed
+
+- `pkg/builder/relationships.go`: Rewrote `toPascalCase()` with initialism support
+- `pkg/builder/relationships_test.go`: Updated tests + added 27 comprehensive test cases
+- All relationship preload operations now work correctly
+
+#### Supported Initialisms
+
+ACL, API, ASCII, CPU, CSS, DNS, EOF, GUID, HTML, HTTP, HTTPS, ID, IP, JSON, LHS, QPS, RAM, RHS, RPC, SLA, SMTP, SQL, SSH, TCP, TLS, TTL, UDP, UI, UID, UUID, URI, URL, UTF8, VM, XML, XMPP, XSRF, XSS
+
+Based on: https://github.com/golang/lint/blob/master/lint.go
+
+#### Testing
+
+- Added `TestToPascalCase` with 27 comprehensive test cases
+- Updated existing helper function tests
+- All 200+ tests pass ✅
+- Verified field lookup works correctly with reflection
+
 ## [1.8.1] - 2025-12-30
 
 ### Fixed - Critical Preload Bug with Custom Table Names

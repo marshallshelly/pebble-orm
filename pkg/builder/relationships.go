@@ -521,30 +521,103 @@ func (q *SelectQuery[T]) loadManyToMany(ctx context.Context, results reflect.Val
 
 // Helper functions
 
+// commonInitialisms contains Go initialisms that should be all uppercase.
+// See: https://github.com/golang/lint/blob/master/lint.go
+var commonInitialisms = map[string]bool{
+	"ACL":   true,
+	"API":   true,
+	"ASCII": true,
+	"CPU":   true,
+	"CSS":   true,
+	"DNS":   true,
+	"EOF":   true,
+	"GUID":  true,
+	"HTML":  true,
+	"HTTP":  true,
+	"HTTPS": true,
+	"ID":    true,
+	"IP":    true,
+	"JSON":  true,
+	"LHS":   true,
+	"QPS":   true,
+	"RAM":   true,
+	"RHS":   true,
+	"RPC":   true,
+	"SLA":   true,
+	"SMTP":  true,
+	"SQL":   true,
+	"SSH":   true,
+	"TCP":   true,
+	"TLS":   true,
+	"TTL":   true,
+	"UDP":   true,
+	"UI":    true,
+	"UID":   true,
+	"UUID":  true,
+	"URI":   true,
+	"URL":   true,
+	"UTF8":  true,
+	"VM":    true,
+	"XML":   true,
+	"XMPP":  true,
+	"XSRF":  true,
+	"XSS":   true,
+}
+
 // toPascalCase converts snake_case to PascalCase for field names.
+// Handles Go initialisms properly (e.g., "user_id" -> "UserID", not "UserId").
 func toPascalCase(s string) string {
 	if s == "" {
 		return ""
 	}
 
-	var result []rune
-	capitalize := true
+	// Split by underscore
+	parts := make([]string, 0)
+	currentPart := make([]rune, 0)
 
 	for _, ch := range s {
 		if ch == '_' {
-			capitalize = true
+			if len(currentPart) > 0 {
+				parts = append(parts, string(currentPart))
+				currentPart = make([]rune, 0)
+			}
+		} else {
+			currentPart = append(currentPart, ch)
+		}
+	}
+	if len(currentPart) > 0 {
+		parts = append(parts, string(currentPart))
+	}
+
+	// Capitalize each part, checking for initialisms
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part == "" {
 			continue
 		}
 
-		if capitalize {
-			result = append(result, toUpper(ch))
-			capitalize = false
+		// Check if this part is a common initialism (case-insensitive)
+		upperPart := ""
+		for _, ch := range part {
+			upperPart += string(toUpper(ch))
+		}
+
+		if commonInitialisms[upperPart] {
+			result = append(result, upperPart)
 		} else {
-			result = append(result, ch)
+			// Capitalize first letter, keep rest as-is
+			capitalized := string(toUpper(rune(part[0]))) + part[1:]
+			result = append(result, capitalized)
 		}
 	}
 
-	return string(result)
+	// Join all parts
+	final := ""
+	for _, part := range result {
+		final += part
+	}
+
+	return final
 }
 
 // toUpper converts a character to uppercase.

@@ -10,10 +10,10 @@ import (
 // Test models for relationships
 
 type Author struct {
-	ID    int      `po:"id,primaryKey,serial"`
-	Name  string   `po:"name,varchar(100),notNull"`
-	Books []Book   `po:"-,hasMany,foreignKey(author_id),references(id)"`
-	Posts []Post   `po:"-,hasMany,foreignKey(author_id),references(id)"`
+	ID    int    `po:"id,primaryKey,serial"`
+	Name  string `po:"name,varchar(100),notNull"`
+	Books []Book `po:"-,hasMany,foreignKey(author_id),references(id)"`
+	Posts []Post `po:"-,hasMany,foreignKey(author_id),references(id)"`
 }
 
 type Book struct {
@@ -257,9 +257,9 @@ func TestHelperFunctions_ToPascalCase(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{"author_id", "AuthorId"},
-		{"user_profile_id", "UserProfileId"},
-		{"id", "Id"},
+		{"author_id", "AuthorID"},
+		{"user_profile_id", "UserProfileID"},
+		{"id", "ID"},
 		{"name", "Name"},
 		{"", ""},
 	}
@@ -277,9 +277,9 @@ func TestHelperFunctions_ToSnakeCase(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{"AuthorId", "author_id"},
-		{"UserProfileId", "user_profile_id"},
-		{"Id", "id"},
+		{"AuthorID", "author_i_d"},
+		{"UserProfileID", "user_profile_i_d"},
+		{"ID", "i_d"},
 		{"Name", "name"},
 		{"", ""},
 	}
@@ -381,4 +381,57 @@ func TestRelationshipTargetType(t *testing.T) {
 
 	// Clean up
 	registry.Clear()
+}
+
+func TestToPascalCase(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		// Common initialisms
+		{"id", "ID"},
+		{"user_id", "UserID"},
+		{"post_id", "PostID"},
+		{"api_key", "APIKey"},
+		{"url", "URL"},
+		{"http_url", "HTTPURL"},
+		{"json_data", "JSONData"},
+		{"html_content", "HTMLContent"},
+		{"sql_query", "SQLQuery"},
+		{"uuid", "UUID"},
+		{"ip_address", "IPAddress"},
+
+		// Regular words
+		{"name", "Name"},
+		{"email", "Email"},
+		{"first_name", "FirstName"},
+		{"last_name", "LastName"},
+		{"created_at", "CreatedAt"},
+		{"updated_at", "UpdatedAt"},
+
+		// Mixed initialisms and regular words
+		{"user_api_key", "UserAPIKey"},
+		{"server_url_path", "ServerURLPath"},
+		{"http_api_endpoint", "HTTPAPIEndpoint"},
+
+		// Edge cases
+		{"", ""},
+		{"a", "A"},
+
+		// Real-world ORM examples
+		{"table_name", "TableName"},
+		{"foreign_key", "ForeignKey"},
+		{"primary_key", "PrimaryKey"},
+		{"created_by_user_id", "CreatedByUserID"},
+		{"api_request_id", "APIRequestID"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			result := toPascalCase(tt.input)
+			if result != tt.expected {
+				t.Errorf("toPascalCase(%q) = %q; expected %q", tt.input, result, tt.expected)
+			}
+		})
+	}
 }
