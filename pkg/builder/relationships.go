@@ -100,6 +100,11 @@ func (q *SelectQuery[T]) loadBelongsTo(ctx context.Context, results reflect.Valu
 			continue
 		}
 
+		// Dereference pointer if needed (for nullable foreign keys like *string)
+		if fkField.Kind() == reflect.Ptr && !fkField.IsNil() {
+			fkValue = fkField.Elem().Interface()
+		}
+
 		// Track which results have this FK value
 		if _, exists := foreignKeyMap[fkValue]; !exists {
 			foreignKeys = append(foreignKeys, fkValue)
@@ -193,6 +198,12 @@ func (q *SelectQuery[T]) loadHasOne(ctx context.Context, results reflect.Value, 
 		}
 
 		pkValue := pkField.Interface()
+
+		// Dereference pointer if needed
+		if pkField.Kind() == reflect.Ptr && !pkField.IsNil() {
+			pkValue = pkField.Elem().Interface()
+		}
+
 		primaryKeys = append(primaryKeys, pkValue)
 		pkMap[pkValue] = i
 	}
@@ -285,6 +296,12 @@ func (q *SelectQuery[T]) loadHasMany(ctx context.Context, results reflect.Value,
 		}
 
 		pkValue := pkField.Interface()
+
+		// Dereference pointer if needed
+		if pkField.Kind() == reflect.Ptr && !pkField.IsNil() {
+			pkValue = pkField.Elem().Interface()
+		}
+
 		primaryKeys = append(primaryKeys, pkValue)
 		pkMap[pkValue] = i
 
@@ -393,6 +410,12 @@ func (q *SelectQuery[T]) loadManyToMany(ctx context.Context, results reflect.Val
 		}
 
 		pkValue := pkField.Interface()
+
+		// Dereference pointer if needed
+		if pkField.Kind() == reflect.Ptr && !pkField.IsNil() {
+			pkValue = pkField.Elem().Interface()
+		}
+
 		primaryKeys = append(primaryKeys, pkValue)
 		pkMap[pkValue] = i
 

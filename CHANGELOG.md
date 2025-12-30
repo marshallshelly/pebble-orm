@@ -2,11 +2,24 @@
 
 All notable changes to Pebble ORM will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [1.8.3] - 2025-12-30
+
+### Fixed
+
+- **Critical**: Preload failing with pgx encode error when foreign keys are nullable pointers (`*string`, `*int`, etc.)
+  - Error: `unable to encode []interface{}{(*string)(0x...)} into text format for unknown type (OID 0)`
+  - Root cause: Relationship loading collected pointer values instead of dereferencing them
+  - Fixed by adding pointer dereferencing before collecting foreign/primary key values in all 4 relationship load functions
+  - Impact: Preload with nullable foreign keys now works correctly
 
 ## [1.8.2] - 2025-12-30
 
-### Fixed - Critical Preload Bug with Go Initialisms
+### Fixed
+
+- **Critical**: Preload operations completely broken due to Go initialism handling
 
 **🔴 P0: All Preload operations completely broken**
 
