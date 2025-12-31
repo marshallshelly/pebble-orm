@@ -29,6 +29,7 @@ basic/
 - ✅ **DELETE**: Removing records
 - ✅ **Relationships**: Eager loading with Preload
 - ✅ **COUNT**: Aggregate queries
+- ✅ **Enum Types**: PostgreSQL ENUM types with automatic migrations
 - ✅ **Error Handling**: Proper error checking
 
 ## Prerequisites
@@ -65,10 +66,11 @@ go run cmd/basic/main.go
 2. **Inserts User**: Creates a new user record
 3. **Queries Users**: Fetches users with WHERE conditions
 4. **Updates User**: Modifies user age
-5. **Inserts Post**: Creates a post associated with user
+5. **Inserts Post**: Creates a post with status enum (draft/published)
 6. **Queries with Relationships**: Fetches posts with author information
-7. **Counts Records**: Gets total user count
-8. **Deletes Records**: Removes unpublished posts
+7. **Queries by Enum**: Filters posts by status enum value
+8. **Counts Records**: Gets total user count
+9. **Deletes Records**: Removes draft posts
 
 ## Expected Output
 
@@ -86,17 +88,21 @@ Found 1 users:
 Updated 1 rows
 
 --- Example 4: INSERT Post ---
-Inserted post: Getting Started with Pebble ORM
+Inserted post: Getting Started with Pebble ORM (status: published)
 
 --- Example 5: SELECT with Relationship ---
 Found 1 published posts:
   - Getting Started with Pebble ORM by Alice Johnson
 
---- Example 6: COUNT ---
+--- Example 6: Query by Enum Status ---
+Found 1 published posts:
+  - Getting Started with Pebble ORM (status: published)
+
+--- Example 7: COUNT ---
 Total users in database: 1
 
---- Example 7: DELETE ---
-Deleted 0 unpublished posts
+--- Example 8: DELETE ---
+Deleted 0 draft posts
 
 ✅ All examples completed!
 ```
@@ -139,7 +145,36 @@ func RegisterAll() error {
 }
 ```
 
-### 3. Environment-Based Configuration
+### 3. PostgreSQL Enum Types
+
+Define enum types with automatic CREATE TYPE generation:
+
+```go
+// Define enum type
+type PostStatus string
+
+// Use in model
+type Post struct {
+    ID     int        `po:"id,primaryKey,serial"`
+    Status PostStatus `po:"status,enum(draft,published,archived),notNull"`
+}
+
+// Migrations automatically generate:
+// CREATE TYPE post_status AS ENUM ('draft', 'published', 'archived');
+
+// Query by enum value
+posts, _ := builder.Select[Post](db).
+    Where(builder.Eq(builder.Col[Post]("Status"), "published")).
+    All(ctx)
+```
+
+Adding new enum values is automatic - just update the tag:
+```go
+// Change: enum(draft,published,archived,deleted)
+// Migration generates: ALTER TYPE post_status ADD VALUE IF NOT EXISTS 'deleted';
+```
+
+### 4. Environment-Based Configuration
 
 ```go
 connStr := os.Getenv("DATABASE_URL")

@@ -49,6 +49,7 @@ func (i *Introspector) IntrospectTable(ctx context.Context, tableName string) (*
 		ForeignKeys: make([]schema.ForeignKeyMetadata, 0),
 		Indexes:     make([]schema.IndexMetadata, 0),
 		Constraints: make([]schema.ConstraintMetadata, 0),
+		EnumTypes:   make([]schema.EnumType, 0),
 	}
 
 	// Get columns
@@ -85,6 +86,13 @@ func (i *Introspector) IntrospectTable(ctx context.Context, tableName string) (*
 		return nil, fmt.Errorf("failed to get constraints: %w", err)
 	}
 	table.Constraints = constraints
+
+	// Get enum types used by this table
+	enumTypes, err := i.getEnumTypes(ctx, tableName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get enum types: %w", err)
+	}
+	table.EnumTypes = enumTypes
 
 	return table, nil
 }
@@ -175,6 +183,12 @@ func (i *Introspector) getColumns(ctx context.Context, tableName string) ([]sche
 		// Check if auto-increment (serial)
 		if defaultVal != nil && strings.Contains(*defaultVal, "nextval") {
 			col.AutoIncrement = true
+		}
+
+		// Check if column uses enum type
+		if dataType == "USER-DEFINED" {
+			col.EnumType = udtName
+			// Enum values will be populated from table.EnumTypes
 		}
 
 		columns = append(columns, col)
@@ -425,4 +439,47 @@ func parseReferenceAction(rule string) schema.ReferenceAction {
 	default:
 		return schema.NoAction
 	}
+}
+
+// getEnumTypes retrieves enum types used by columns in this table.
+func (i *Introspector) getEnumTypes(ctx context.Context, tableName string) ([]schema.EnumType, error) {
+	query := `
+		SELECT DISTINCT
+			t.typname as enum_name,
+			array_agg(e.enumlabel ORDER BY e.enumsortorder) as enum_values
+		FROM pg_type t
+		JOIN pg_enum e ON t.oid = e.enumtypid
+		JOIN pg_class c ON c.oid = t.oid
+		WHERE t.typname IN (
+			SELECT udt_name
+			FROM information_schema.columns
+			WHERE table_schema = 'public'
+			  AND table_name = $1
+			  AND data_type = 'USER-DEFINED'
+		)
+		GROUP BY t.typname
+		ORDER BY t.typname
+	`
+
+	rows, err := i.pool.Query(ctx, query, tableName)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var enumTypes []schema.EnumType
+	for rows.Next() {
+		var enumType schema.EnumType
+		var values []string
+
+		err := rows.Scan(&enumType.Name, &values)
+		if err != nil {
+			return nil, err
+		}
+
+		enumType.Values = values
+		enumTypes = append(enumTypes, enumType)
+	}
+
+	return enumTypes, rows.Err()
 }

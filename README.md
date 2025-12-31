@@ -24,7 +24,7 @@ A production-ready ORM leveraging Go generics for type-safe queries, struct-tag 
 - **Relationships**: hasMany, hasOne, belongsTo, manyToMany with eager loading
 - **CASCADE DELETE**: Database-level foreign key constraints via tags
 - **Transactions**: Full transaction support with proper error handling
-- **PostgreSQL Features**: JSONB, arrays, UUID, geometric types, full-text search
+- **PostgreSQL Features**: JSONB, arrays, enum types, UUID, geometric types, full-text search
 
 ## Quick Start
 
@@ -393,6 +393,29 @@ type Post struct {
 
 posts, err := builder.Select[Post](qb).
     Where(builder.ArrayContains("tags", []string{"golang"})).
+    All(ctx)
+```
+
+### Enum Types
+
+```go
+type OrderStatus string
+
+type Order struct {
+    ID     int         `po:"id,primaryKey,serial"`
+    Status OrderStatus `po:"status,enum(pending,active,completed),notNull"`
+}
+
+// Automatic migration generates:
+// CREATE TYPE order_status AS ENUM ('pending', 'active', 'completed');
+// CREATE TABLE orders (
+//     id serial PRIMARY KEY,
+//     status order_status NOT NULL
+// );
+
+// Query using enum values
+orders, err := builder.Select[Order](qb).
+    Where(builder.Eq(builder.Col[Order]("Status"), "active")).
     All(ctx)
 ```
 

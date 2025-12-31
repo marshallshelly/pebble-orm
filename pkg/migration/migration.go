@@ -29,6 +29,9 @@ type SchemaDiff struct {
 	TablesAdded    []schema.TableMetadata // Tables to create
 	TablesDropped  []string               // Table names to drop
 	TablesModified []TableDiff            // Tables with changes
+	EnumTypesAdded []schema.EnumType      // Enum types to create
+	EnumTypesDropped []string             // Enum type names to drop
+	EnumTypesModified []EnumTypeDiff      // Enum types with new values
 }
 
 // TableDiff represents changes to a single table.
@@ -62,6 +65,13 @@ type PrimaryKeyChange struct {
 	New *schema.PrimaryKeyMetadata
 }
 
+// EnumTypeDiff represents changes to an enum type.
+type EnumTypeDiff struct {
+	Name        string   // Enum type name
+	OldValues   []string // Existing values in database
+	NewValues   []string // New values to add
+}
+
 // MigrationStatus represents the status of a migration.
 type MigrationStatus string
 
@@ -93,7 +103,10 @@ type MigrationPlan struct {
 func (d *SchemaDiff) HasChanges() bool {
 	return len(d.TablesAdded) > 0 ||
 		len(d.TablesDropped) > 0 ||
-		len(d.TablesModified) > 0
+		len(d.TablesModified) > 0 ||
+		len(d.EnumTypesAdded) > 0 ||
+		len(d.EnumTypesDropped) > 0 ||
+		len(d.EnumTypesModified) > 0
 }
 
 // HasChanges returns true if the table has any changes.

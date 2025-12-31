@@ -5,6 +5,19 @@ All notable changes to Pebble ORM will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.7] - 2025-12-31
+
+### Added
+
+- PostgreSQL ENUM type support with `enum(value1,value2,...)` struct tag syntax.
+- Automatic `CREATE TYPE ... AS ENUM (...)` generation in migrations.
+- Automatic `ALTER TYPE ... ADD VALUE` generation for new enum values.
+- Enum type introspection from database via `pg_enum` system catalog.
+- Smart enum deduplication when same type used by multiple columns/tables.
+- 11 comprehensive unit tests for enum parsing and migrations.
+- 3 parser tests for enum tag syntax.
+- Documentation and examples updated with enum usage.
+
 ## [1.8.6] - 2025-12-31
 
 ### Fixed

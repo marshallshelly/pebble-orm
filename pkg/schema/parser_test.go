@@ -305,3 +305,112 @@ func TestSplitTag(t *testing.T) {
 		})
 	}
 }
+
+func TestEnumParsing(t *testing.T) {
+	parser := NewParser()
+
+	type OrderStatus string
+
+	type TestOrder struct {
+		ID     int         `po:"id,primaryKey,serial"`
+		Status OrderStatus `po:"status,enum(pending,active,completed),notNull"`
+	}
+
+	t.Run("enum column parsing", func(t *testing.T) {
+		table, err := parser.Parse(reflect.TypeOf(TestOrder{}))
+		if err != nil {
+			t.Fatalf("Parse failed: %v", err)
+		}
+
+		// Check status column
+		statusCol := table.GetColumnByName("status")
+		if statusCol == nil {
+			t.Fatal("status column not found")
+		}
+
+		// Should have enum type set
+		if statusCol.EnumType == "" {
+			t.Error("expected EnumType to be set")
+		}
+
+		// Enum type name should be derived from Go type name (OrderStatus -> order_status)
+		if statusCol.EnumType != "order_status" {
+			t.Errorf("expected EnumType 'order_status', got '%s'", statusCol.EnumType)
+		}
+
+		// SQL type should be the enum type
+		if statusCol.SQLType != "order_status" {
+			t.Errorf("expected SQLType 'order_status', got '%s'", statusCol.SQLType)
+		}
+
+		// Should have enum values
+		if len(statusCol.EnumValues) != 3 {
+			t.Fatalf("expected 3 enum values, got %d", len(statusCol.EnumValues))
+		}
+
+		expectedValues := []string{"pending", "active", "completed"}
+		for i, expected := range expectedValues {
+			if statusCol.EnumValues[i] != expected {
+				t.Errorf("enum value[%d]: expected '%s', got '%s'", i, expected, statusCol.EnumValues[i])
+			}
+		}
+	})
+
+	t.Run("enum types collected at table level", func(t *testing.T) {
+		table, err := parser.Parse(reflect.TypeOf(TestOrder{}))
+		if err != nil {
+			t.Fatalf("Parse failed: %v", err)
+		}
+
+		// Table should have enum types
+		if len(table.EnumTypes) != 1 {
+			t.Fatalf("expected 1 enum type at table level, got %d", len(table.EnumTypes))
+		}
+
+		enumType := table.EnumTypes[0]
+		if enumType.Name != "order_status" {
+			t.Errorf("expected enum name 'order_status', got '%s'", enumType.Name)
+		}
+
+		if len(enumType.Values) != 3 {
+			t.Fatalf("expected 3 enum values, got %d", len(enumType.Values))
+		}
+
+		expectedValues := []string{"pending", "active", "completed"}
+		for i, expected := range expectedValues {
+			if enumType.Values[i] != expected {
+				t.Errorf("enum value[%d]: expected '%s', got '%s'", i, expected, enumType.Values[i])
+			}
+		}
+	})
+
+	t.Run("multiple columns with same enum type", func(t *testing.T) {
+		type TestShipment struct {
+			ID            int         `po:"id,primaryKey,serial"`
+			CurrentStatus OrderStatus `po:"current_status,enum(pending,active,completed)"`
+			PrevStatus    OrderStatus `po:"prev_status,enum(pending,active,completed)"`
+		}
+
+		table, err := parser.Parse(reflect.TypeOf(TestShipment{}))
+		if err != nil {
+			t.Fatalf("Parse failed: %v", err)
+		}
+
+		// Both columns should use the same enum type
+		currentCol := table.GetColumnByName("current_status")
+		prevCol := table.GetColumnByName("prev_status")
+
+		if currentCol.EnumType != "order_status" {
+			t.Errorf("current_status: expected enum type 'order_status', got '%s'", currentCol.EnumType)
+		}
+
+		if prevCol.EnumType != "order_status" {
+			t.Errorf("prev_status: expected enum type 'order_status', got '%s'", prevCol.EnumType)
+		}
+
+		// Enum type should only be registered once at table level
+		if len(table.EnumTypes) != 1 {
+			t.Errorf("expected enum type to be deduplicated, got %d types", len(table.EnumTypes))
+		}
+	})
+}

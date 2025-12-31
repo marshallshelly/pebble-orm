@@ -41,13 +41,38 @@ func (p *Planner) GenerateMigration(diff *SchemaDiff) (upSQL, downSQL string) {
 	var upStatements []string
 	var downStatements []string
 
-	// Generate CREATE TABLE statements (up) and DROP TABLE statements (down)
+	// IMPORTANT: Enum types must be created BEFORE tables that use them
+	// and dropped AFTER tables that use them are dropped.
+
+	// UP migration order:
+	// 1. CREATE TYPE for new enum types
+	for _, enumType := range diff.EnumTypesAdded {
+		upStatements = append(upStatements, p.generateCreateEnumType(enumType))
+		downStatements = append(downStatements, p.generateDropEnumType(enumType.Name))
+	}
+
+	// 2. ALTER TYPE to add new enum values
+	for _, enumDiff := range diff.EnumTypesModified {
+		alterSQL := p.generateAlterEnumType(enumDiff)
+		upStatements = append(upStatements, alterSQL...)
+		// Note: PostgreSQL doesn't support removing enum values
+		downStatements = append(downStatements, fmt.Sprintf("-- TODO: Cannot automatically remove enum values from %s", enumDiff.Name))
+	}
+
+	// 3. CREATE TABLE statements
 	for _, table := range diff.TablesAdded {
 		upStatements = append(upStatements, p.generateCreateTable(&table))
 		downStatements = append(downStatements, p.generateDropTable(table.Name))
 	}
 
-	// Generate DROP TABLE statements (up) and CREATE TABLE statements (down)
+	// 4. ALTER TABLE statements for table modifications
+	for _, tableDiff := range diff.TablesModified {
+		upAlter, downAlter := p.generateAlterTable(tableDiff)
+		upStatements = append(upStatements, upAlter...)
+		downStatements = append(downStatements, downAlter...)
+	}
+
+	// 5. DROP TABLE statements
 	// Note: For dropped tables, we can't recreate them perfectly in down migration
 	// without storing the schema, so we just generate comments
 	for _, tableName := range diff.TablesDropped {
@@ -55,11 +80,11 @@ func (p *Planner) GenerateMigration(diff *SchemaDiff) (upSQL, downSQL string) {
 		downStatements = append(downStatements, fmt.Sprintf("-- TODO: Recreate table %s", tableName))
 	}
 
-	// Generate ALTER TABLE statements for modified tables
-	for _, tableDiff := range diff.TablesModified {
-		upAlter, downAlter := p.generateAlterTable(tableDiff)
-		upStatements = append(upStatements, upAlter...)
-		downStatements = append(downStatements, downAlter...)
+	// 6. DROP TYPE for enum types that are no longer used
+	// This should come AFTER dropping tables that use them
+	for _, enumName := range diff.EnumTypesDropped {
+		upStatements = append(upStatements, p.generateDropEnumType(enumName))
+		downStatements = append(downStatements, fmt.Sprintf("-- TODO: Recreate enum type %s", enumName))
 	}
 
 	// Join statements
@@ -517,4 +542,38 @@ func (p *Planner) generateAddConstraintSQL(tableName string, c schema.Constraint
 	default:
 		return fmt.Sprintf("-- Unknown constraint type: %s", c.Type)
 	}
+}
+
+// generateCreateEnumType generates a CREATE TYPE statement for an enum.
+func (p *Planner) generateCreateEnumType(enumType schema.EnumType) string {
+	// Quote each enum value
+	quotedValues := make([]string, len(enumType.Values))
+	for i, val := range enumType.Values {
+		quotedValues[i] = fmt.Sprintf("'%s'", val)
+	}
+
+	values := strings.Join(quotedValues, ", ")
+	return fmt.Sprintf("CREATE TYPE %s AS ENUM (%s);", enumType.Name, values)
+}
+
+// generateDropEnumType generates a DROP TYPE statement for an enum.
+func (p *Planner) generateDropEnumType(enumName string) string {
+	return fmt.Sprintf("DROP TYPE IF EXISTS %s;", enumName)
+}
+
+// generateAlterEnumType generates ALTER TYPE statements to add new enum values.
+// Note: PostgreSQL doesn't support removing or reordering enum values.
+func (p *Planner) generateAlterEnumType(enumDiff EnumTypeDiff) []string {
+	statements := make([]string, 0)
+
+	// Add each new value
+	for _, newValue := range enumDiff.NewValues {
+		// ALTER TYPE ... ADD VALUE 'new_value'
+		// Note: Adding values to enums cannot be done in a transaction block in older PostgreSQL versions,
+		// but in PostgreSQL 12+ it can be done with IF NOT EXISTS
+		statements = append(statements, fmt.Sprintf("ALTER TYPE %s ADD VALUE IF NOT EXISTS '%s';",
+			enumDiff.Name, newValue))
+	}
+
+	return statements
 }

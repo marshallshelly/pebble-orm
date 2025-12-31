@@ -123,6 +123,27 @@ func (p *Parser) Parse(modelType reflect.Type) (*TableMetadata, error) {
 		}
 	}
 
+	// Collect enum types used by this table
+	// Build a map to deduplicate enum types (multiple columns can use same enum)
+	enumTypeMap := make(map[string]EnumType)
+	for _, col := range table.Columns {
+		if col.EnumType != "" {
+			// Only add if not already present
+			if _, exists := enumTypeMap[col.EnumType]; !exists {
+				enumTypeMap[col.EnumType] = EnumType{
+					Name:   col.EnumType,
+					Values: col.EnumValues,
+				}
+			}
+		}
+	}
+
+	// Convert map to slice
+	table.EnumTypes = make([]EnumType, 0, len(enumTypeMap))
+	for _, enumType := range enumTypeMap {
+		table.EnumTypes = append(table.EnumTypes, enumType)
+	}
+
 	// Parse foreign keys from tags
 	if err := p.parseForeignKeys(modelType, table); err != nil {
 		return nil, fmt.Errorf("failed to parse foreign keys: %w", err)
@@ -329,6 +350,22 @@ func (p *Parser) createColumnMetadata(field reflect.StructField, opts *TagOption
 			Expression: generatedExpr,
 			Type:       genType,
 		}
+	}
+
+	// Parse enum column
+	if enumValues := opts.Get("enum"); enumValues != "" {
+		// Parse enum values from tag (e.g., "pending,active,completed")
+		values := strings.Split(enumValues, ",")
+		for i := range values {
+			values[i] = strings.TrimSpace(values[i])
+		}
+		column.EnumValues = values
+
+		// Derive enum type name from Go type (e.g., OrderStatus -> order_status)
+		column.EnumType = toSnakeCase(field.Type.Name())
+
+		// Override SQL type to use the enum type
+		column.SQLType = column.EnumType
 	}
 
 	return column

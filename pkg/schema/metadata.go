@@ -3,6 +3,12 @@ package schema
 
 import "reflect"
 
+// EnumType represents a PostgreSQL ENUM type.
+type EnumType struct {
+	Name   string   // PostgreSQL enum type name (e.g., "order_status")
+	Values []string // Enum values in order (e.g., ["pending", "active", "completed"])
+}
+
 // TableMetadata represents a database table with all its metadata.
 type TableMetadata struct {
 	Name          string                 // Table name in database
@@ -13,6 +19,7 @@ type TableMetadata struct {
 	Indexes       []IndexMetadata        // Table indexes
 	Constraints   []ConstraintMetadata   // Additional constraints
 	Relationships []RelationshipMetadata // Relationships to other tables
+	EnumTypes     []EnumType             // Enum types used by this table
 	Comment       string                 // Table comment
 }
 
@@ -30,6 +37,8 @@ type ColumnMetadata struct {
 	Comment       string           // Column comment
 	Position      int              // Column position in struct
 	Generated     *GeneratedColumn // Generated column definition (nil if not generated)
+	EnumType      string           // PostgreSQL enum type name (e.g., "order_status"), empty if not enum
+	EnumValues    []string         // Enum values for this column (if enum type)
 }
 
 // IdentityColumn represents a PostgreSQL identity column (GENERATED AS IDENTITY).

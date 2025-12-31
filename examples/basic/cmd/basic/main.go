@@ -69,43 +69,65 @@ func main() {
 		log.Printf("Updated %d rows", count)
 	}
 
-	// Example 4: INSERT a post
-	log.Println("\n--- Example 4: INSERT Post ---")
+	// Example 4: INSERT a post with enum status
+	log.Println("\n--- Example 4: INSERT Post with Enum Status ---")
 	if len(insertedUsers) > 0 {
 		newPost := models.Post{
-			Title:     "Getting Started with Pebble ORM",
-			Content:   "Pebble ORM is a type-safe PostgreSQL ORM for Go...",
-			AuthorID:  insertedUsers[0].ID,
-			Published: true,
+			Title:    "Getting Started with Pebble ORM",
+			Content:  "Pebble ORM is a type-safe PostgreSQL ORM for Go...",
+			AuthorID: insertedUsers[0].ID,
+			Status:   "published", // Using enum value
 		}
 		insertedPosts, err := builder.Insert[models.Post](qb).
 			Values(newPost).
 			Returning(
 				builder.Col[models.Post]("ID"),
 				builder.Col[models.Post]("Title"),
+				builder.Col[models.Post]("Status"),
 			).
 			ExecReturning(ctx)
 		if err != nil {
 			log.Printf("Insert post failed: %v", err)
 		} else {
-			log.Printf("Inserted post: %+v", insertedPosts[0])
+			log.Printf("Inserted post: %s (status: %s)", insertedPosts[0].Title, insertedPosts[0].Status)
 		}
 	}
 
-	// Example 5: Complex WHERE with AND/OR
-	log.Println("\n--- Example 5: Complex WHERE ---")
-	complexUsers, err := builder.Select[models.User](qb).
-		Where(builder.Gte(builder.Col[models.User]("Age"), 25)).
-		And(builder.Like(builder.Col[models.User]("Email"), "%@example.com")).
+	// Example 5: SELECT with Relationship (Preload)
+	log.Println("\n--- Example 5: SELECT with Relationship (Preload) ---")
+	posts, err := builder.Select[models.Post](qb).
+		Where(builder.Eq(builder.Col[models.Post]("Status"), "published")).
+		Preload("Author").
 		All(ctx)
 	if err != nil {
-		log.Printf("Complex query failed: %v", err)
+		log.Printf("Select with preload failed: %v", err)
 	} else {
-		log.Printf("Found %d users matching complex criteria", len(complexUsers))
+		log.Printf("Found %d published posts:", len(posts))
+		for _, post := range posts {
+			authorName := "Unknown"
+			if post.Author != nil {
+				authorName = post.Author.Name
+			}
+			log.Printf("  - %s by %s", post.Title, authorName)
+		}
 	}
 
-	// Example 6: COUNT
-	log.Println("\n--- Example 6: COUNT ---")
+	// Example 6: Query by Enum Status
+	log.Println("\n--- Example 6: Query by Enum Status ---")
+	publishedPosts, err := builder.Select[models.Post](qb).
+		Where(builder.Eq(builder.Col[models.Post]("Status"), "published")).
+		All(ctx)
+	if err != nil {
+		log.Printf("Query by enum failed: %v", err)
+	} else {
+		log.Printf("Found %d published posts:", len(publishedPosts))
+		for _, post := range publishedPosts {
+			log.Printf("  - %s (status: %s)", post.Title, post.Status)
+		}
+	}
+
+	// Example 7: COUNT
+	log.Println("\n--- Example 7: COUNT ---")
 	userCount, err := builder.Select[models.User](qb).
 		Where(builder.Gte(builder.Col[models.User]("Age"), 18)).
 		Count(ctx)
@@ -115,15 +137,15 @@ func main() {
 		log.Printf("Total users (18+): %d", userCount)
 	}
 
-	// Example 7: DELETE
-	log.Println("\n--- Example 7: DELETE ---")
+	// Example 8: DELETE by Enum Status
+	log.Println("\n--- Example 8: DELETE by Enum Status ---")
 	deleteCount, err := builder.Delete[models.Post](qb).
-		Where(builder.Eq(builder.Col[models.Post]("Published"), false)).
+		Where(builder.Eq(builder.Col[models.Post]("Status"), "draft")).
 		Exec(ctx)
 	if err != nil {
 		log.Printf("Delete failed: %v", err)
 	} else {
-		log.Printf("Deleted %d unpublished posts", deleteCount)
+		log.Printf("Deleted %d draft posts", deleteCount)
 	}
 
 	log.Println("\n=== Examples Complete ===")

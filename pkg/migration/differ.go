@@ -20,9 +20,12 @@ func NewDiffer() *Differ {
 // dbSchema: TableMetadata from introspecting database
 func (d *Differ) Compare(codeSchema, dbSchema map[string]*schema.TableMetadata) *SchemaDiff {
 	diff := &SchemaDiff{
-		TablesAdded:    make([]schema.TableMetadata, 0),
-		TablesDropped:  make([]string, 0),
-		TablesModified: make([]TableDiff, 0),
+		TablesAdded:       make([]schema.TableMetadata, 0),
+		TablesDropped:     make([]string, 0),
+		TablesModified:    make([]TableDiff, 0),
+		EnumTypesAdded:    make([]schema.EnumType, 0),
+		EnumTypesDropped:  make([]string, 0),
+		EnumTypesModified: make([]EnumTypeDiff, 0),
 	}
 
 	// Find tables that exist in code but not in DB (need to create)
@@ -48,6 +51,9 @@ func (d *Differ) Compare(codeSchema, dbSchema map[string]*schema.TableMetadata) 
 			}
 		}
 	}
+
+	// Compare enum types across all tables
+	d.compareEnumTypes(codeSchema, dbSchema, diff)
 
 	return diff
 }
@@ -430,4 +436,73 @@ func (d *Differ) isSameStringSlice(slice1, slice2 []string) bool {
 	}
 
 	return true
+}
+
+// compareEnumTypes compares enum types across all tables.
+// Enum types are database-level objects, so we collect them from all tables.
+func (d *Differ) compareEnumTypes(codeSchema, dbSchema map[string]*schema.TableMetadata, diff *SchemaDiff) {
+	// Collect all enum types from all tables (deduplicated)
+	codeEnums := d.collectEnumTypes(codeSchema)
+	dbEnums := d.collectEnumTypes(dbSchema)
+
+	// Find enum types to add (in code but not in DB)
+	for enumName, codeEnum := range codeEnums {
+		if _, exists := dbEnums[enumName]; !exists {
+			diff.EnumTypesAdded = append(diff.EnumTypesAdded, codeEnum)
+		}
+	}
+
+	// Find enum types to drop (in DB but not in code)
+	for enumName := range dbEnums {
+		if _, exists := codeEnums[enumName]; !exists {
+			diff.EnumTypesDropped = append(diff.EnumTypesDropped, enumName)
+		}
+	}
+
+	// Find enum types with new values (exist in both but values differ)
+	for enumName, codeEnum := range codeEnums {
+		if dbEnum, exists := dbEnums[enumName]; exists {
+			newValues := d.findNewEnumValues(codeEnum.Values, dbEnum.Values)
+			if len(newValues) > 0 {
+				diff.EnumTypesModified = append(diff.EnumTypesModified, EnumTypeDiff{
+					Name:      enumName,
+					OldValues: dbEnum.Values,
+					NewValues: newValues,
+				})
+			}
+		}
+	}
+}
+
+// collectEnumTypes collects all unique enum types from all tables.
+func (d *Differ) collectEnumTypes(tables map[string]*schema.TableMetadata) map[string]schema.EnumType {
+	enumTypes := make(map[string]schema.EnumType)
+
+	for _, table := range tables {
+		for _, enumType := range table.EnumTypes {
+			if _, exists := enumTypes[enumType.Name]; !exists {
+				enumTypes[enumType.Name] = enumType
+			}
+		}
+	}
+
+	return enumTypes
+}
+
+// findNewEnumValues finds values in codeValues that don't exist in dbValues.
+// PostgreSQL only allows adding new values, not removing or reordering.
+func (d *Differ) findNewEnumValues(codeValues, dbValues []string) []string {
+	dbValueSet := make(map[string]bool)
+	for _, val := range dbValues {
+		dbValueSet[val] = true
+	}
+
+	newValues := make([]string, 0)
+	for _, val := range codeValues {
+		if !dbValueSet[val] {
+			newValues = append(newValues, val)
+		}
+	}
+
+	return newValues
 }
