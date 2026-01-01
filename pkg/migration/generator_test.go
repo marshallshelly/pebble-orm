@@ -116,7 +116,7 @@ func TestGeneratorGenerate(t *testing.T) {
 	}
 
 	downSQL := string(downContent)
-	if !strings.Contains(downSQL, "DROP TABLE IF EXISTS users") {
+	if !strings.Contains(downSQL, `DROP TABLE IF EXISTS "users"`) {
 		t.Errorf("Expected DROP TABLE in down migration, got: %s", downSQL)
 	}
 }

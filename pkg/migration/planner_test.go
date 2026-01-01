@@ -116,7 +116,7 @@ func TestGenerateDropTable(t *testing.T) {
 	planner := NewPlanner()
 	sql := planner.generateDropTable("users")
 
-	expected := "DROP TABLE IF EXISTS users;"
+	expected := `DROP TABLE IF EXISTS "users";`
 	if sql != expected {
 		t.Errorf("Expected %s, got: %s", expected, sql)
 	}
@@ -309,7 +309,7 @@ func TestGenerateMigration(t *testing.T) {
 	if !strings.Contains(upSQL, "CREATE TABLE IF NOT EXISTS users") {
 		t.Errorf("Expected CREATE TABLE in up migration, got: %s", upSQL)
 	}
-	if !strings.Contains(upSQL, "DROP TABLE IF EXISTS old_table") {
+	if !strings.Contains(upSQL, `DROP TABLE IF EXISTS "old_table"`) {
 		t.Errorf("Expected DROP TABLE in up migration, got: %s", upSQL)
 	}
 	if !strings.Contains(upSQL, "ALTER TABLE posts ADD COLUMN status") {
@@ -317,7 +317,7 @@ func TestGenerateMigration(t *testing.T) {
 	}
 
 	// Check down migration has all components
-	if !strings.Contains(downSQL, "DROP TABLE IF EXISTS users") {
+	if !strings.Contains(downSQL, `DROP TABLE IF EXISTS "users"`) {
 		t.Errorf("Expected DROP TABLE in down migration, got: %s", downSQL)
 	}
 	if !strings.Contains(downSQL, "TODO: Recreate table old_table") {
