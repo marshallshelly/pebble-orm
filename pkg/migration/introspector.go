@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/marshallshelly/pebble-orm/pkg/schema"
 )
@@ -17,6 +18,35 @@ type Introspector struct {
 // NewIntrospector creates a new database introspector.
 func NewIntrospector(pool *pgxpool.Pool) *Introspector {
 	return &Introspector{pool: pool}
+}
+
+// query executes a query using simple query protocol to avoid prepared statement caching.
+func (i *Introspector) query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error) {
+	conn, err := i.pool.Acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// Note: conn.Release() should be called by the caller after rows.Close()
+
+	rows, err := conn.Query(ctx, sql, args...)
+	if err != nil {
+		conn.Release()
+		return nil, err
+	}
+
+	// Wrap rows to release connection when closed
+	return &rowsWithRelease{Rows: rows, conn: conn}, nil
+}
+
+// rowsWithRelease wraps pgx.Rows and releases the connection when closed.
+type rowsWithRelease struct {
+	pgx.Rows
+	conn *pgxpool.Conn
+}
+
+func (r *rowsWithRelease) Close() {
+	r.Rows.Close()
+	r.conn.Release()
 }
 
 // IntrospectSchema introspects the entire database schema.
@@ -108,7 +138,7 @@ func (i *Introspector) getTableNames(ctx context.Context) ([]string, error) {
 		ORDER BY table_name
 	`
 
-	rows, err := i.pool.Query(ctx, query)
+	rows, err := i.query(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +174,7 @@ func (i *Introspector) getColumns(ctx context.Context, tableName string) ([]sche
 		ORDER BY ordinal_position
 	`
 
-	rows, err := i.pool.Query(ctx, query, tableName)
+	rows, err := i.query(ctx, query, tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -213,15 +243,21 @@ func (i *Introspector) getPrimaryKey(ctx context.Context, tableName string) (*sc
 		GROUP BY tc.constraint_name
 	`
 
+	rows, err := i.query(ctx, query, tableName)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		// No primary key is not an error
+		return nil, nil
+	}
+
 	var name string
 	var columns []string
 
-	err := i.pool.QueryRow(ctx, query, tableName).Scan(&name, &columns)
-	if err != nil {
-		// No primary key is not an error
-		if err.Error() == "no rows in result set" {
-			return nil, nil
-		}
+	if err := rows.Scan(&name, &columns); err != nil {
 		return nil, err
 	}
 
@@ -254,7 +290,7 @@ func (i *Introspector) getForeignKeys(ctx context.Context, tableName string) ([]
 		GROUP BY tc.constraint_name, ccu.table_name, rc.update_rule, rc.delete_rule
 	`
 
-	rows, err := i.pool.Query(ctx, query, tableName)
+	rows, err := i.query(ctx, query, tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -312,7 +348,7 @@ func (i *Introspector) getIndexes(ctx context.Context, tableName string) ([]sche
 		ORDER BY i.relname
 	`
 
-	rows, err := i.pool.Query(ctx, query, tableName)
+	rows, err := i.query(ctx, query, tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -359,7 +395,7 @@ func (i *Introspector) getConstraints(ctx context.Context, tableName string) ([]
 			AND con.contype IN ('c', 'u')
 	`
 
-	rows, err := i.pool.Query(ctx, query, tableName)
+	rows, err := i.query(ctx, query, tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -461,7 +497,7 @@ func (i *Introspector) getEnumTypes(ctx context.Context, tableName string) ([]sc
 		ORDER BY t.typname
 	`
 
-	rows, err := i.pool.Query(ctx, query, tableName)
+	rows, err := i.query(ctx, query, tableName)
 	if err != nil {
 		return nil, err
 	}

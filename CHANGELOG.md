@@ -5,6 +5,29 @@ All notable changes to Pebble ORM will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.9] - 2026-01-02
+
+### Fixed
+
+- **Prepared Statement Caching in Schema Introspection**: Extended prepared statement caching fix from v1.8.8 to schema introspection
+  - Error: `failed to get table names: ERROR: prepared statement "stmtcache_..." already exists (SQLSTATE 42P05)`
+  - Root cause: Introspector was using default query execution mode which caches prepared statements
+  - Solution: Added helper method that acquires connections directly and wraps rows to properly release connections
+  - Impact: Schema introspection now bypasses prepared statement cache, ensuring migrations can safely introspect database schema on retry
+  - Applied to: `getTableNames()`, `getColumns()`, `getPrimaryKey()`, `getForeignKeys()`, `getIndexes()`, `getConstraints()`, `getEnumTypes()`
+  - Technical: Uses custom `rowsWithRelease` wrapper to ensure connection release after rows are closed
+
+### Technical Details
+
+The introspector queries database metadata tables to compare code schema with database schema. When migrations fail and retry, these queries could conflict with cached prepared statements:
+
+```
+First run:  SELECT table_name FROM information_schema.tables  → cached as "stmtcache_af2a4a1..."
+Retry:      SELECT table_name FROM information_schema.tables  → ERROR: statement already exists
+```
+
+The new `query()` helper method acquires connections directly from the pool and wraps returned rows with `rowsWithRelease` to ensure proper connection cleanup. This approach bypasses the prepared statement cache entirely while maintaining connection pool efficiency.
+
 ## [1.8.8] - 2026-01-01
 
 ### Fixed
