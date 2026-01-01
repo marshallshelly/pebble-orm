@@ -7,6 +7,12 @@ import (
 	"github.com/marshallshelly/pebble-orm/pkg/schema"
 )
 
+// quoteIdent quotes a PostgreSQL identifier (table name, column name, etc.)
+// to handle reserved keywords and special characters.
+func quoteIdent(name string) string {
+	return fmt.Sprintf(`"%s"`, name)
+}
+
 // PlannerOptions configures migration generation behavior.
 type PlannerOptions struct {
 	// IfNotExists adds IF NOT EXISTS to CREATE TABLE statements.
@@ -246,7 +252,7 @@ func (p *Planner) generateCreateIndex(tableName string, idx schema.IndexMetadata
 
 // generateDropTable generates a DROP TABLE statement.
 func (p *Planner) generateDropTable(tableName string) string {
-	return fmt.Sprintf("DROP TABLE IF EXISTS %s;", tableName)
+	return fmt.Sprintf("DROP TABLE IF EXISTS %s;", quoteIdent(tableName))
 }
 
 // generateAlterTable generates ALTER TABLE statements for table modifications.

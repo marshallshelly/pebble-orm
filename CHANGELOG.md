@@ -5,6 +5,28 @@ All notable changes to Pebble ORM will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0] - 2026-01-02
+
+### Fixed
+
+- **PostgreSQL Reserved Keywords in DROP TABLE**: Fixed syntax error when dropping tables with reserved keyword names
+  - Error: `ERROR: syntax error at or near "user" (SQLSTATE 42601)`
+  - Root cause: DROP TABLE statements were not quoting table names, causing errors with PostgreSQL reserved keywords like `user`, `table`, `order`, etc.
+  - Solution: Added `quoteIdent()` helper function to quote all table identifiers in DROP TABLE statements
+  - Impact: Migrations can now safely drop tables regardless of their names
+  - Note: This is a partial fix focusing on DROP TABLE. Future versions will quote all SQL identifiers (columns, indexes, constraints) for comprehensive reserved keyword support
+
+### Technical Details
+
+PostgreSQL has many reserved keywords that cannot be used as unquoted identifiers. When dropping a table named `user`:
+
+```sql
+DROP TABLE IF EXISTS user;   -- Syntax error
+DROP TABLE IF EXISTS "user";  -- Works correctly
+```
+
+The `quoteIdent()` function wraps identifiers in double quotes to handle reserved keywords and special characters safely.
+
 ## [1.8.9] - 2026-01-02
 
 ### Fixed
