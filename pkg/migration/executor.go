@@ -48,7 +48,13 @@ func (e *Executor) Initialize(ctx context.Context) error {
 		ON schema_migrations(status);
 	`
 
-	_, err := e.pool.Exec(ctx, query)
+	conn, err := e.pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to acquire connection: %w", err)
+	}
+	defer conn.Release()
+
+	_, err = conn.Exec(ctx, query, pgx.QueryExecModeExec)
 	if err != nil {
 		return fmt.Errorf("failed to create schema_migrations table: %w", err)
 	}
@@ -189,7 +195,7 @@ func (e *Executor) Apply(ctx context.Context, migration Migration, dryRun bool) 
 		return fmt.Errorf("failed to record migration: %w", err)
 	}
 
-	// Execute migration SQL
+	// Execute migration SQL using simple query protocol to avoid prepared statement caching
 	statements := splitSQL(migration.UpSQL)
 	for i, stmt := range statements {
 		stmt = strings.TrimSpace(stmt)
@@ -197,7 +203,7 @@ func (e *Executor) Apply(ctx context.Context, migration Migration, dryRun bool) 
 			continue
 		}
 
-		_, err = tx.Exec(ctx, stmt)
+		_, err = tx.Conn().Exec(ctx, stmt, pgx.QueryExecModeExec)
 		if err != nil {
 			// Record failure
 			now := time.Now()
@@ -252,7 +258,7 @@ func (e *Executor) Rollback(ctx context.Context, migration Migration, dryRun boo
 	}
 	defer tx.Rollback(ctx)
 
-	// Execute rollback SQL
+	// Execute rollback SQL using simple query protocol to avoid prepared statement caching
 	statements := splitSQL(migration.DownSQL)
 	for i, stmt := range statements {
 		stmt = strings.TrimSpace(stmt)
@@ -260,7 +266,7 @@ func (e *Executor) Rollback(ctx context.Context, migration Migration, dryRun boo
 			continue
 		}
 
-		_, err = tx.Exec(ctx, stmt)
+		_, err = tx.Conn().Exec(ctx, stmt, pgx.QueryExecModeExec)
 		if err != nil {
 			return fmt.Errorf("rollback failed at statement %d: %w", i+1, err)
 		}

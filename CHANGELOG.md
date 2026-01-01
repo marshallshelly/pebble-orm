@@ -5,6 +5,28 @@ All notable changes to Pebble ORM will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.8] - 2026-01-01
+
+### Fixed
+
+- **Prepared Statement Caching in Migrations**: Fixed idempotency issue where re-running migrations could fail with prepared statement cache errors
+  - Error: `prepared statement "stmtcache_..." already exists (SQLSTATE 42P05)`
+  - Root cause: Default query execution mode caches prepared statements, causing conflicts on migration retry
+  - Solution: Migration executor now uses `QueryExecModeExec` (simple query protocol) to bypass prepared statement caching
+  - Impact: Migrations are now truly idempotent and can be safely retried without manual cache cleanup
+  - Applied to: `Initialize()`, `Apply()`, and `Rollback()` functions
+
+### Technical Details
+
+PostgreSQL prepared statement cache persists across queries within a connection pool. When migrations fail and are retried, cached statement names can conflict with new statements:
+
+```
+First run:  CREATE TABLE users (...)  → cached as "stmtcache_af2a4a1..."
+Retry:      CREATE TABLE users (...)  → ERROR: statement already exists
+```
+
+Using `QueryExecModeExec` bypasses the prepared statement cache entirely, ensuring migrations execute cleanly on every attempt.
+
 ## [1.8.7] - 2025-12-31
 
 ### Added
