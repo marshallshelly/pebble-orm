@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/marshallshelly/pebble-orm/cmd/pebble/output"
@@ -215,7 +216,14 @@ func generateTableNamesFile(outputPath, packageName string, tableNames map[strin
 	sb.WriteString("\t// Register custom table names from comment directives\n")
 
 	// Sort for consistent output
-	for structName, tableName := range tableNames {
+	var structNames []string
+	for k := range tableNames {
+		structNames = append(structNames, k)
+	}
+	sort.Strings(structNames)
+
+	for _, structName := range structNames {
+		tableName := tableNames[structName]
 		sb.WriteString(fmt.Sprintf("\tschema.RegisterTableName(\"%s\", \"%s\")\n", structName, tableName))
 	}
 

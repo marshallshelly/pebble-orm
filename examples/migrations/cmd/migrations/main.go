@@ -13,7 +13,7 @@ import (
 func main() {
 	ctx := context.Background()
 
-	log.Println("=== Migrations & Schema Management Example ===\n")
+	log.Println("=== Migrations & Schema Management Example ===")
 
 	// Connect to database
 	db, err := database.Connect(ctx)
@@ -22,7 +22,7 @@ func main() {
 	}
 	defer db.Close()
 
-	log.Println("✅ Connected to database\n")
+	log.Println("✅ Connected to database")
 
 	// Example 1: Introspect current database schema
 	fmt.Println("--- Example 1: Schema Introspection ---")
@@ -48,7 +48,7 @@ func main() {
 	// Example 3: Compare schemas and generate diff
 	fmt.Println("\n--- Example 3: Schema Diff ---")
 	differ := migration.NewDiffer()
-	diff := differ.Compare(dbSchema, codeSchema)
+	diff := differ.Compare(codeSchema, dbSchema)
 
 	if !diff.HasChanges() {
 		fmt.Println("✅ Database schema matches code schema (no changes)")
@@ -81,7 +81,7 @@ func main() {
 		planner := migration.NewPlanner()
 		upSQL, downSQL := planner.GenerateMigration(diff)
 
-		fmt.Println("✅ Generated SAFE migration SQL (idempotent):\n")
+		fmt.Println("✅ Generated SAFE migration SQL (idempotent):")
 		fmt.Println("UP Migration (apply changes - safe to run multiple times):")
 		fmt.Println(upSQL)
 		fmt.Println("\nDOWN Migration (revert changes):")

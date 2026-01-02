@@ -299,6 +299,10 @@ func (d *Differ) normalizeType(sqlType string) string {
 	normalized := strings.ToLower(strings.TrimSpace(sqlType))
 
 	// Handle common aliases
+	if strings.HasPrefix(normalized, "decimal") {
+		normalized = strings.Replace(normalized, "decimal", "numeric", 1)
+	}
+
 	switch normalized {
 	case "int", "int4":
 		return "integer"
@@ -318,6 +322,12 @@ func (d *Differ) normalizeType(sqlType string) string {
 		return "timestamp"
 	case "timestamp with time zone":
 		return "timestamptz"
+	case "time without time zone":
+		return "time"
+
+	// Decimal synonyms
+	case "decimal":
+		return "numeric"
 
 	// Serial types are PostgreSQL pseudotypes that expand to integer + sequence + default
 	// They ONLY work in CREATE TABLE, NOT in ALTER TABLE statements

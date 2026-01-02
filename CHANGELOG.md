@@ -5,6 +5,16 @@ All notable changes to Pebble ORM will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.1] - 2026-01-02
+
+### Fixed
+
+- **Migration Indeterminacy**: Fixed issues where migrations would be repeatedly generated due to type mismatches.
+  - Normalized `decimal` to `numeric` in schema comparison.
+  - Normalized `time without time zone` to `time` in schema comparison.
+- **Table Name Generation**: Made `pebble generate metadata` output deterministic by sorting table names alphabetically.
+- **Migration Example**: Corrected argument order in `examples/migrations` to ensure proper diff generation direction (Code vs DB).
+
 ## [1.9.0] - 2026-01-02
 
 ### Fixed
@@ -151,6 +161,7 @@ Fixed a critical bug in the `toPascalCase()` function that broke all relationshi
 The `toPascalCase()` helper function didn't follow Go naming conventions for initialisms (ID, URL, API, etc.), causing the preload system to look for non-existent struct fields.
 
 **What was broken:**
+
 ```go
 type Post struct {
     UserID int   `po:"user_id,integer,notNull"`  // Actual field: "UserID"
@@ -167,6 +178,7 @@ posts, _ := builder.Select[Post](db).
 **Root Cause:**
 
 The preload code converts `user_id` → `"UserId"` and then tries:
+
 ```go
 fkField := item.FieldByName("UserId")  // ❌ NOT FOUND
 ```
@@ -199,12 +211,14 @@ toPascalCase("created_by_user_id") → "CreatedByUserID" ✅
 #### Impact
 
 **Before fix:**
+
 - `belongsTo`: ❌ Completely broken
 - `hasOne`: ❌ Completely broken
 - `hasMany`: ❌ Completely broken
 - `manyToMany`: ❌ Completely broken
 
 **After fix:**
+
 - `belongsTo`: ✅ Working
 - `hasOne`: ✅ Working
 - `hasMany`: ✅ Working
