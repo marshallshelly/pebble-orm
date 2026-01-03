@@ -21,11 +21,31 @@ func main() {
 
 	log.Println("=== Pebble ORM Basic Examples ===")
 
-	// Example 1: INSERT with RETURNING
-	log.Println("\n--- Example 1: INSERT with RETURNING ---")
+	// Example 1: INSERT with RETURNING (including JSONB fields)
+	log.Println("\n--- Example 1: INSERT with RETURNING (JSONB Support) ---")
 	newUsers := []models.User{
-		{Name: "Alice Smith", Email: "alice@example.com", Age: 28},
-		{Name: "Bob Johnson", Email: "bob@example.com", Age: 35},
+		{
+			Name:  "Alice Smith",
+			Email: "alice@example.com",
+			Age:   28,
+			Preferences: &models.UserPreferences{
+				Theme:              "dark",
+				EmailNotifications: true,
+				Language:           "en",
+				FavoriteTopics:     []string{"golang", "databases", "cloud"},
+			},
+		},
+		{
+			Name:  "Bob Johnson",
+			Email: "bob@example.com",
+			Age:   35,
+			Preferences: &models.UserPreferences{
+				Theme:              "light",
+				EmailNotifications: false,
+				Language:           "es",
+				FavoriteTopics:     []string{"javascript", "react"},
+			},
+		},
 	}
 	insertedUsers, err := builder.Insert[models.User](qb).
 		Values(newUsers...).
@@ -33,12 +53,16 @@ func main() {
 			builder.Col[models.User]("ID"),
 			builder.Col[models.User]("Name"),
 			builder.Col[models.User]("Email"),
+			builder.Col[models.User]("Preferences"),
 		).
 		ExecReturning(ctx)
 	if err != nil {
 		log.Printf("Insert failed: %v", err)
 	} else {
-		log.Printf("Inserted user: %+v", insertedUsers[0])
+		log.Printf("Inserted user: %s with preferences: theme=%s, lang=%s",
+			insertedUsers[0].Name,
+			insertedUsers[0].Preferences.Theme,
+			insertedUsers[0].Preferences.Language)
 	}
 
 	// Example 2: SELECT with WHERE
@@ -69,14 +93,20 @@ func main() {
 		log.Printf("Updated %d rows", count)
 	}
 
-	// Example 4: INSERT a post with enum status
-	log.Println("\n--- Example 4: INSERT Post with Enum Status ---")
+	// Example 4: INSERT a post with enum status and JSONB metadata
+	log.Println("\n--- Example 4: INSERT Post with Enum Status and JSONB Metadata ---")
 	if len(insertedUsers) > 0 {
 		newPost := models.Post{
 			Title:    "Getting Started with Pebble ORM",
 			Content:  "Pebble ORM is a type-safe PostgreSQL ORM for Go...",
 			AuthorID: insertedUsers[0].ID,
-			Status:   "published", // Using enum value
+			Status:   "published",
+			Metadata: &models.PostMetadata{
+				Tags:            []string{"golang", "orm", "postgresql", "tutorial"},
+				ReadTimeMinutes: 5,
+				FeaturedImage:   "https://example.com/images/pebble-intro.jpg",
+				SEOKeywords:     []string{"go orm", "postgresql go", "type-safe orm"},
+			},
 		}
 		insertedPosts, err := builder.Insert[models.Post](qb).
 			Values(newPost).
@@ -84,12 +114,16 @@ func main() {
 				builder.Col[models.Post]("ID"),
 				builder.Col[models.Post]("Title"),
 				builder.Col[models.Post]("Status"),
+				builder.Col[models.Post]("Metadata"),
 			).
 			ExecReturning(ctx)
 		if err != nil {
 			log.Printf("Insert post failed: %v", err)
 		} else {
-			log.Printf("Inserted post: %s (status: %s)", insertedPosts[0].Title, insertedPosts[0].Status)
+			log.Printf("Inserted post: %s (status: %s, tags: %v)",
+				insertedPosts[0].Title,
+				insertedPosts[0].Status,
+				insertedPosts[0].Metadata.Tags)
 		}
 	}
 
@@ -137,8 +171,28 @@ func main() {
 		log.Printf("Total users (18+): %d", userCount)
 	}
 
-	// Example 8: DELETE by Enum Status
-	log.Println("\n--- Example 8: DELETE by Enum Status ---")
+	// Example 8: Query JSONB with operators
+	log.Println("\n--- Example 8: Query JSONB with Operators ---")
+	// Find users who have "golang" in their favorite topics
+	goLangUsers, err := builder.Select[models.User](qb).
+		Where(builder.JSONBContains(
+			builder.Col[models.User]("Preferences"),
+			`{"favoriteTopics": ["golang"]}`,
+		)).
+		All(ctx)
+	if err != nil {
+		log.Printf("JSONB query failed: %v", err)
+	} else {
+		log.Printf("Found %d users interested in golang:", len(goLangUsers))
+		for _, user := range goLangUsers {
+			if user.Preferences != nil {
+				log.Printf("  - %s (topics: %v)", user.Name, user.Preferences.FavoriteTopics)
+			}
+		}
+	}
+
+	// Example 9: DELETE by Enum Status
+	log.Println("\n--- Example 9: DELETE by Enum Status ---")
 	deleteCount, err := builder.Delete[models.Post](qb).
 		Where(builder.Eq(builder.Col[models.Post]("Status"), "draft")).
 		Exec(ctx)

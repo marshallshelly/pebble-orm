@@ -30,6 +30,8 @@ basic/
 - ✅ **Relationships**: Eager loading with Preload
 - ✅ **COUNT**: Aggregate queries
 - ✅ **Enum Types**: PostgreSQL ENUM types with automatic migrations
+- ✅ **JSONB Support**: Direct struct scanning for JSONB fields (no wrapper needed!)
+- ✅ **JSONB Queries**: Using JSONB operators for advanced queries
 - ✅ **Error Handling**: Proper error checking
 
 ## Prerequisites
@@ -63,14 +65,15 @@ go run cmd/basic/main.go
 ## What It Does
 
 1. **Connects to Database**: Establishes connection and registers models
-2. **Inserts User**: Creates a new user record
+2. **Inserts User with JSONB**: Creates users with preferences stored as JSONB
 3. **Queries Users**: Fetches users with WHERE conditions
 4. **Updates User**: Modifies user age
-5. **Inserts Post**: Creates a post with status enum (draft/published)
+5. **Inserts Post with JSONB**: Creates a post with metadata stored as JSONB
 6. **Queries with Relationships**: Fetches posts with author information
 7. **Queries by Enum**: Filters posts by status enum value
 8. **Counts Records**: Gets total user count
-9. **Deletes Records**: Removes draft posts
+9. **Queries JSONB**: Finds users by JSONB field content using operators
+10. **Deletes Records**: Removes draft posts
 
 ## Expected Output
 
@@ -174,7 +177,49 @@ Adding new enum values is automatic - just update the tag:
 // Migration generates: ALTER TYPE post_status ADD VALUE IF NOT EXISTS 'deleted';
 ```
 
-### 4. Environment-Based Configuration
+### 4. JSONB Support (Direct Struct Scanning)
+
+Use JSONB fields without any wrapper types - pgx handles it natively:
+
+```go
+// Define your JSONB struct
+type UserPreferences struct {
+    Theme              string   `json:"theme"`
+    EmailNotifications bool     `json:"emailNotifications"`
+    FavoriteTopics     []string `json:"favoriteTopics,omitempty"`
+}
+
+// Use it directly in your model (pointer for NULL handling)
+type User struct {
+    ID          string           `po:"id,primaryKey,uuid"`
+    Preferences *UserPreferences `po:"preferences,jsonb"`
+}
+
+// Insert with structured data
+user := User{
+    Preferences: &UserPreferences{
+        Theme:          "dark",
+        FavoriteTopics: []string{"golang", "databases"},
+    },
+}
+inserted, _ := builder.Insert[User](db).Values(user).ExecReturning(ctx)
+
+// Query JSONB with operators
+users, _ := builder.Select[User](db).
+    Where(builder.JSONBContains("preferences", `{"favoriteTopics": ["golang"]}`)).
+    All(ctx)
+
+// Access the data directly - no unwrapping needed!
+fmt.Println(users[0].Preferences.Theme) // "dark"
+```
+
+**Why this is great:**
+- ✅ **No wrapper types** - just use your struct directly
+- ✅ **Type safety** - full compile-time checking
+- ✅ **NULL handling** - use pointers for nullable JSONB
+- ✅ **Clean API** - works exactly like you'd expect
+
+### 5. Environment-Based Configuration
 
 ```go
 connStr := os.Getenv("DATABASE_URL")

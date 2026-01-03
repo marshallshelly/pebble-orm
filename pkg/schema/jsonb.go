@@ -6,8 +6,32 @@ import (
 	"errors"
 )
 
-// JSONB represents a PostgreSQL JSONB column
-// It provides automatic marshaling/unmarshaling for JSON data
+// JSONB represents a PostgreSQL JSONB column as a generic map.
+// It provides automatic marshaling/unmarshaling for JSON data.
+//
+// pebble-orm supports three ways to work with JSONB fields:
+//
+// 1. Direct struct scanning (Recommended - uses pgx native support):
+//    type Metadata struct {
+//        Premium bool     `json:"premium"`
+//        Tags    []string `json:"tags"`
+//    }
+//    type User struct {
+//        ID       int       `po:"id,primaryKey,serial"`
+//        Metadata *Metadata `po:"metadata,jsonb"` // Use pointer for NULL handling
+//    }
+//
+// 2. Generic map (flexible schema):
+//    type User struct {
+//        ID       int          `po:"id,primaryKey,serial"`
+//        Metadata schema.JSONB `po:"metadata,jsonb"` // map[string]interface{}
+//    }
+//
+// 3. Typed wrapper (for backward compatibility):
+//    type User struct {
+//        ID       int                              `po:"id,primaryKey,serial"`
+//        Metadata schema.JSONBStruct[MyStructType] `po:"metadata,jsonb"`
+//    }
 type JSONB map[string]interface{}
 
 // Value implements the driver.Valuer interface for database writes
@@ -71,7 +95,19 @@ func (j *JSONBArray) Scan(value interface{}) error {
 	return nil
 }
 
-// JSONBStruct is a generic type for storing structs as JSONB
+// JSONBStruct is a generic wrapper type for storing structs as JSONB.
+// This is provided for backward compatibility. For new code, consider using
+// direct struct scanning instead (just use *YourStruct for the field type).
+//
+// Example using JSONBStruct (old approach):
+//    type User struct {
+//        Metadata schema.JSONBStruct[MyMetadata] `po:"metadata,jsonb"`
+//    }
+//
+// Recommended alternative (direct struct scanning):
+//    type User struct {
+//        Metadata *MyMetadata `po:"metadata,jsonb"` // Cleaner, no wrapper needed
+//    }
 type JSONBStruct[T any] struct {
 	Data T
 }

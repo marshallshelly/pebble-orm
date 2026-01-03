@@ -5,6 +5,25 @@ All notable changes to Pebble ORM will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.0] - 2026-01-03
+
+### Added
+
+- Native JSONB struct scanning without wrapper types using pgx v5's `JSONBCodec`.
+- Direct struct field support: `Metadata *ProfileData` instead of `Metadata schema.JSONBStruct[ProfileData]`.
+- Full NULL handling via pointer types for JSONB fields.
+- Support for any JSON-compatible Go type in JSONB columns (structs, slices, maps, primitives).
+- Comprehensive test suite in `pkg/builder/jsonb_native_test.go` with struct, slice, and map scanning tests.
+- Updated `examples/basic` with real-world JSONB usage (user preferences, post metadata).
+- JSONB querying examples with `JSONBContains` operator.
+
+### Changed
+
+- Updated README.md with comprehensive JSONB examples showing three supported approaches.
+- Enhanced CLAUDE.md with detailed JSONB usage patterns and benefits.
+- Added documentation to `pkg/schema/jsonb.go` explaining direct scanning vs wrapper types.
+- Updated `examples/basic/README.md` with JSONB support section and benefits.
+
 ## [1.9.1] - 2026-01-02
 
 ### Fixed

@@ -373,14 +373,51 @@ pebble migrate status --db "postgres://..."
 
 ### JSONB
 
+pebble-orm supports three ways to work with JSONB fields:
+
 ```go
-type Product struct {
-    Attributes schema.JSONB `po:"attributes,jsonb"`
+// 1. Direct struct scanning (Recommended - uses pgx native support)
+type Attributes struct {
+    Color  string   `json:"color"`
+    Sizes  []string `json:"sizes"`
+    InStock bool    `json:"inStock"`
 }
 
-// Query JSONB
-products, err := builder.Select[Product](qb).
+type Product struct {
+    ID         int         `po:"id,primaryKey,serial"`
+    Name       string      `po:"name,varchar(255),notNull"`
+    Attributes *Attributes `po:"attributes,jsonb"` // Use pointer for NULL handling
+}
+
+product := Product{
+    Name: "T-Shirt",
+    Attributes: &Attributes{
+        Color:   "red",
+        Sizes:   []string{"S", "M", "L"},
+        InStock: true,
+    },
+}
+
+// 2. Generic map (flexible schema)
+type ProductWithMap struct {
+    ID         int          `po:"id,primaryKey,serial"`
+    Attributes schema.JSONB `po:"attributes,jsonb"` // map[string]interface{}
+}
+
+// 3. Typed wrapper (for backward compatibility)
+type ProductWithWrapper struct {
+    ID         int                             `po:"id,primaryKey,serial"`
+    Attributes schema.JSONBStruct[Attributes] `po:"attributes,jsonb"`
+}
+
+// Query JSONB (works with all three approaches)
+products, err := builder.Select[Product](db).
     Where(builder.JSONBContains("attributes", `{"color": "red"}`)).
+    All(ctx)
+
+// JSONB operators
+products, err := builder.Select[Product](db).
+    Where(builder.JSONBHasKey("attributes", "sizes")).
     All(ctx)
 ```
 
