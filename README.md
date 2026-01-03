@@ -304,22 +304,37 @@ type User struct {
 ## Transactions
 
 ```go
+// Begin transaction
 tx, err := qb.Begin(ctx)
 if err != nil {
     return err
 }
 defer tx.Rollback() // Rollback if we don't reach Commit
 
-// Perform operations
-_, err = tx.Insert(User{}).Values(user).Exec()
-_, err = tx.Update(Account{}).Set("balance", 1000).Exec()
+// Perform operations using type-safe query builders
+inserted, err := builder.TxInsert[User](tx).
+    Values(user).
+    ExecReturning()
 
-// Savepoints
+_, err = builder.TxUpdate[Account](tx).
+    Set("balance", 1000).
+    Where(builder.Eq("id", accountID)).
+    Exec()
+
+// SELECT within transaction with row locking
+account, err := builder.TxSelect[Account](tx).
+    Where(builder.Eq("id", accountID)).
+    ForUpdate().  // Lock row for update
+    First()
+
+// Savepoints for nested transaction control
 tx.Savepoint("before_update")
 // ... operations ...
-tx.RollbackToSavepoint("before_update")
+tx.RollbackToSavepoint("before_update")  // Undo to savepoint
+// or
+tx.ReleaseSavepoint("before_update")     // Commit savepoint
 
-// Commit
+// Commit the transaction
 if err := tx.Commit(); err != nil {
     return err
 }

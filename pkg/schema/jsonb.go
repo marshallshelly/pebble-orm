@@ -49,18 +49,31 @@ func (j *JSONB) Scan(value interface{}) error {
 		return nil
 	}
 
-	bytes, ok := value.([]byte)
-	if !ok {
-		return errors.New("failed to scan JSONB: value is not []byte")
+	// Handle different value types that pgx might pass
+	switch v := value.(type) {
+	case []byte:
+		// Raw JSON bytes from database
+		var result map[string]interface{}
+		if err := json.Unmarshal(v, &result); err != nil {
+			return err
+		}
+		*j = result
+		return nil
+	case string:
+		// JSON as string
+		var result map[string]interface{}
+		if err := json.Unmarshal([]byte(v), &result); err != nil {
+			return err
+		}
+		*j = result
+		return nil
+	case map[string]interface{}:
+		// Already decoded by pgx
+		*j = v
+		return nil
+	default:
+		return errors.New("failed to scan JSONB: unsupported type")
 	}
-
-	var result map[string]interface{}
-	if err := json.Unmarshal(bytes, &result); err != nil {
-		return err
-	}
-
-	*j = result
-	return nil
 }
 
 // JSONBArray represents a PostgreSQL JSONB array
@@ -81,18 +94,31 @@ func (j *JSONBArray) Scan(value interface{}) error {
 		return nil
 	}
 
-	bytes, ok := value.([]byte)
-	if !ok {
-		return errors.New("failed to scan JSONBArray: value is not []byte")
+	// Handle different value types that pgx might pass
+	switch v := value.(type) {
+	case []byte:
+		// Raw JSON bytes from database
+		var result []interface{}
+		if err := json.Unmarshal(v, &result); err != nil {
+			return err
+		}
+		*j = result
+		return nil
+	case string:
+		// JSON as string
+		var result []interface{}
+		if err := json.Unmarshal([]byte(v), &result); err != nil {
+			return err
+		}
+		*j = result
+		return nil
+	case []interface{}:
+		// Already decoded by pgx
+		*j = v
+		return nil
+	default:
+		return errors.New("failed to scan JSONBArray: unsupported type")
 	}
-
-	var result []interface{}
-	if err := json.Unmarshal(bytes, &result); err != nil {
-		return err
-	}
-
-	*j = result
-	return nil
 }
 
 // JSONBStruct is a generic wrapper type for storing structs as JSONB.
@@ -123,12 +149,23 @@ func (j *JSONBStruct[T]) Scan(value interface{}) error {
 		return nil
 	}
 
-	bytes, ok := value.([]byte)
-	if !ok {
-		return errors.New("failed to scan JSONBStruct: value is not []byte")
+	// Handle different value types that pgx might pass
+	switch v := value.(type) {
+	case []byte:
+		// Raw JSON bytes from database
+		return json.Unmarshal(v, &j.Data)
+	case string:
+		// JSON as string
+		return json.Unmarshal([]byte(v), &j.Data)
+	default:
+		// Try JSON marshaling the value and then unmarshaling into our struct
+		// This handles cases where pgx passes already-decoded values
+		bytes, err := json.Marshal(v)
+		if err != nil {
+			return errors.New("failed to scan JSONBStruct: unsupported type")
+		}
+		return json.Unmarshal(bytes, &j.Data)
 	}
-
-	return json.Unmarshal(bytes, &j.Data)
 }
 
 // MarshalJSON implements json.Marshaler

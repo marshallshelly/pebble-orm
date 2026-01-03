@@ -2,11 +2,12 @@
 
 This example demonstrates **transaction handling** in Pebble ORM including:
 
+- ✅ **Type-Safe Transactions** - Full query builder support within transactions
 - ✅ **Basic Transactions** - Commit and rollback
-- ✅ **Transaction Lifecycle** - Begin, commit, rollback
 - ✅ **Error Handling** - Automatic rollback on errors
 - ✅ **Atomicity** - All-or-nothing operations
-- ✅ **Money Transfers** - Real-world atomic operations
+- ✅ **Money Transfers** - Real-world atomic operations with row locking
+- ✅ **Savepoints** - Nested transaction control
 
 ## Features Demonstrated
 
@@ -14,44 +15,140 @@ This example demonstrates **transaction handling** in Pebble ORM including:
 
 ```go
 // Begin transaction
-tx, _ := qb.Runtime().Begin(ctx)
-defer tx.Rollback(ctx)  // Safety net
+tx, err := qb.Begin(ctx)
+if err != nil {
+    return err
+}
+defer tx.Rollback()  // Safety net - rollback if we don't reach Commit
 
-// Execute operations
-_, _ = tx.Exec(ctx, "INSERT INTO accounts (...) VALUES (...)")
+// Execute operations using type-safe builders
+account1 := models.Account{UserID: 1, Balance: 1000.00}
+account2 := models.Account{UserID: 2, Balance: 500.00}
+
+inserted, err := builder.TxInsert[models.Account](tx).
+    Values(account1, account2).
+    Returning("*").
+    ExecReturning()
+if err != nil {
+    return err  // Defer will rollback
+}
 
 // Commit if successful
-tx.Commit(ctx)
+if err := tx.Commit(); err != nil {
+    return err
+}
 ```
 
 ### 2. Automatic Rollback on Error
 
 ```go
-tx, _ := qb.Runtime().Begin(ctx)
-defer tx.Rollback(ctx)  // Executes if Commit not called
-
-_, err := tx.Exec(ctx, "INSERT ...")
+tx, err := qb.Begin(ctx)
 if err != nil {
-    return err  // Defer will rollback
+    return err
+}
+defer tx.Rollback()  // Executes if Commit not called
+
+account := models.Account{UserID: 999, Balance: 10000.00}
+
+_, err = builder.TxInsert[models.Account](tx).
+    Values(account).
+    ExecReturning()
+if err != nil {
+    return err  // Defer will automatically rollback
 }
 
-tx.Commit(ctx)  // Success - defer won't rollback
+tx.Commit()  // Success - defer won't rollback
 ```
 
-### 3. Atomic Money Transfer
+### 3. Atomic Money Transfer with Row Locking
 
 ```go
-tx, _ := qb.Runtime().Begin(ctx)
-defer tx.Rollback(ctx)
+tx, err := qb.Begin(ctx)
+if err != nil {
+    return err
+}
+defer tx.Rollback()
 
-// Deduct from source
-tx.Exec(ctx, "UPDATE accounts SET balance = balance - $1 WHERE id = $2", amount, fromID)
+// Fetch current balances with FOR UPDATE lock (prevents race conditions)
+fromAccount, err := builder.TxSelect[models.Account](tx).
+    Where(builder.Eq("id", fromAccountID)).
+    ForUpdate().  // Lock row
+    First()
+if err != nil {
+    return err
+}
 
-// Add to destination
-tx.Exec(ctx, "UPDATE accounts SET balance = balance + $1 WHERE id = $2", amount, toID)
+toAccount, err := builder.TxSelect[models.Account](tx).
+    Where(builder.Eq("id", toAccountID)).
+    ForUpdate().  // Lock row
+    First()
+if err != nil {
+    return err
+}
 
-// Both succeed or both fail
-tx.Commit(ctx)
+// Check sufficient balance
+if fromAccount.Balance < transferAmount {
+    return fmt.Errorf("insufficient balance")
+}
+
+// Update balances
+_, err = builder.TxUpdate[models.Account](tx).
+    Set("balance", fromAccount.Balance - transferAmount).
+    Where(builder.Eq("id", fromAccountID)).
+    Exec()
+if err != nil {
+    return err
+}
+
+_, err = builder.TxUpdate[models.Account](tx).
+    Set("balance", toAccount.Balance + transferAmount).
+    Where(builder.Eq("id", toAccountID)).
+    Exec()
+if err != nil {
+    return err
+}
+
+// Both updates succeed or both fail
+tx.Commit()
+```
+
+### 4. Savepoints (Nested Transactions)
+
+```go
+tx, err := qb.Begin(ctx)
+if err != nil {
+    return err
+}
+defer tx.Rollback()
+
+// First operation
+account1 := models.Account{UserID: 300, Balance: 1000.00}
+inserted1, err := builder.TxInsert[models.Account](tx).
+    Values(account1).
+    ExecReturning()
+if err != nil {
+    return err
+}
+
+// Create a savepoint
+if err := tx.Savepoint("before_second_account"); err != nil {
+    return err
+}
+
+// Second operation (might fail)
+account2 := models.Account{UserID: 400, Balance: 500.00}
+_, err = builder.TxInsert[models.Account](tx).
+    Values(account2).
+    ExecReturning()
+
+// Rollback to savepoint if second operation fails
+if err != nil {
+    tx.RollbackToSavepoint("before_second_account")
+    // First account still exists
+}
+
+// Commit transaction (only first account if second failed)
+tx.Commit()
 ```
 
 ## Running the Example
@@ -76,7 +173,7 @@ go run cmd/transactions/main.go
 transactions/
 ├── cmd/
 │   └── transactions/
-│       └── main.go           # Main application
+│       └── main.go           # Main application with 4 examples
 ├── internal/
 │   ├── database/
 │   │   └── db.go             # Database connection
@@ -112,155 +209,118 @@ type Account struct {
   - Created account 2 with balance: $500.00
 
 --- Example 2: Transaction Rollback ---
-Created account with balance: $10000.00
+Created account 999 with balance: $10000.00
 Simulating error - rolling back transaction...
-
 Accounts with user_id=999 after rollback: 0 (should be 0)
 
 --- Example 3: Money Transfer (Atomic) ---
 Initial state:
-  From account (ID 1): $1000.00
-  To account (ID 2): $500.00
+  From account (ID 3): $1000.00
+  To account (ID 4): $500.00
   Transfer amount: $250.00
 
 ✅ Successfully transferred $250.00
-  From account ID: 1
-  To account ID: 2
+  From account ID: 3
+  To account ID: 4
+
+Final balances:
+  From account: $750.00 (deducted $250.00)
+  To account: $750.00 (added $250.00)
+
+--- Example 4: Savepoints (Nested Transactions) ---
+Created account 5 with balance: $1000.00
+Created savepoint: before_second_account
+Created account 6 with balance: $500.00
+Simulating error - rolling back to savepoint...
+Rolled back to savepoint - second account creation undone
+
+Result after savepoint rollback:
+  Accounts with user_id=300: 1 (should be 1)
+  Accounts with user_id=400: 0 (should be 0)
 
 ✅ All transaction examples completed!
 
 Key Takeaways:
   - Transactions ensure atomicity (all-or-nothing)
   - Use defer tx.Rollback() as safety net
-  - Use Begin() to start a transaction
+  - Type-safe query builders work within transactions
+  - Savepoints allow nested transaction control
   - Perfect for money transfers, inventory updates, etc.
 ```
 
-## Transaction Lifecycle
+## Transaction API
 
-### 1. Begin Transaction
+### Begin Transaction
 
 ```go
-tx, err := qb.Runtime().Begin(ctx)
+tx, err := qb.Begin(ctx)
 if err != nil {
     return err
 }
+defer tx.Rollback()  // Always defer rollback as safety net
 ```
 
-### 2. Defer Rollback (Safety Net)
+### Type-Safe Query Builders
+
+All query builders work within transactions using generic functions:
 
 ```go
-defer tx.Rollback(ctx)
-// Will rollback if Commit not called
-// Safe to call even after Commit
+// INSERT
+inserted, err := builder.TxInsert[User](tx).
+    Values(user).
+    ExecReturning()
+
+// SELECT
+users, err := builder.TxSelect[User](tx).
+    Where(builder.Eq("status", "active")).
+    All()
+
+// UPDATE
+count, err := builder.TxUpdate[User](tx).
+    Set("status", "active").
+    Where(builder.Eq("id", userId)).
+    Exec()
+
+// DELETE
+count, err := builder.TxDelete[User](tx).
+    Where(builder.Eq("status", "inactive")).
+    Exec()
 ```
 
-### 3. Execute Operations
+### Row Locking with FOR UPDATE
 
 ```go
-_, err = tx.Exec(ctx, "INSERT ...")
-if err != nil {
-    return err  // Defer will rollback
-}
-
-_, err = tx.Exec(ctx, "UPDATE ...")
-if err != nil {
-    return err  // Defer will rollback
-}
+// Lock row for update to prevent race conditions
+account, err := builder.TxSelect[Account](tx).
+    Where(builder.Eq("id", accountID)).
+    ForUpdate().  // Locks the row until transaction commits
+    First()
 ```
 
-### 4. Commit on Success
+### Savepoints
 
 ```go
-if err := tx.Commit(ctx); err != nil {
+// Create savepoint
+tx.Savepoint("my_savepoint")
+
+// Rollback to savepoint
+tx.RollbackToSavepoint("my_savepoint")
+
+// Release savepoint (commit it)
+tx.ReleaseSavepoint("my_savepoint")
+```
+
+### Commit and Rollback
+
+```go
+// Commit transaction (all changes persisted)
+if err := tx.Commit(); err != nil {
     return err
 }
-// Defer rollback won't execute (Commit called)
-```
 
-## Common Use Cases
-
-### Money Transfer
-
-```go
-func transferMoney(ctx context.Context, db *runtime.DB, fromID, toID int64, amount float64) error {
-    tx, _ := db.Begin(ctx)
-    defer tx.Rollback(ctx)
-
-    // Deduct from source
-    _, err := tx.Exec(ctx,
-        "UPDATE accounts SET balance = balance - $1 WHERE id = $2",
-        amount, fromID)
-    if err != nil {
-        return err
-    }
-
-    // Add to destination
-    _, err = tx.Exec(ctx,
-        "UPDATE accounts SET balance = balance + $1 WHERE id = $2",
-        amount, toID)
-    if err != nil {
-        return err
-    }
-
-    return tx.Commit(ctx)
-}
-```
-
-### Order Creation
-
-```go
-func createOrder(ctx context.Context, db *runtime.DB, order Order) error {
-    tx, _ := db.Begin(ctx)
-    defer tx.Rollback(ctx)
-
-    // Create order
-    _, err := tx.Exec(ctx, "INSERT INTO orders (...) VALUES (...)")
-    if err != nil {
-        return err
-    }
-
-    // Create line items
-    for _, item := range order.Items {
-        _, err := tx.Exec(ctx, "INSERT INTO line_items (...) VALUES (...)")
-        if err != nil {
-            return err
-        }
-    }
-
-    // Update inventory
-    _, err = tx.Exec(ctx, "UPDATE products SET stock = stock - 1 ...")
-    if err != nil {
-        return err
-    }
-
-    return tx.Commit(ctx)
-}
-```
-
-### User Registration
-
-```go
-func registerUser(ctx context.Context, db *runtime.DB, user User) error {
-    tx, _ := db.Begin(ctx)
-    defer tx.Rollback(ctx)
-
-    // Create user
-    _, err := tx.Exec(ctx, "INSERT INTO users (...) VALUES (...)")
-    if err != nil {
-        return err
-    }
-
-    // Create profile
-    _, err = tx.Exec(ctx, "INSERT INTO profiles (...) VALUES (...)")
-    if err != nil {
-        return err
-    }
-
-    // Send welcome email (idempotent!)
-    // ...
-
-    return tx.Commit(ctx)
+// Explicit rollback (usually handled by defer)
+if err := tx.Rollback(); err != nil {
+    return err
 }
 ```
 
@@ -268,10 +328,11 @@ func registerUser(ctx context.Context, db *runtime.DB, user User) error {
 
 ### ✅ DO:
 
-- Always use `defer tx.Rollback(ctx)` immediately after Begin
+- Always use `defer tx.Rollback()` immediately after Begin
 - Keep transactions short-lived
 - Handle all errors properly
-- Use for operations that must be atomic
+- Use `ForUpdate()` for row locking when needed
+- Use savepoints for complex nested operations
 - Test rollback behavior
 
 ### ❌ DON'T:
@@ -280,195 +341,134 @@ func registerUser(ctx context.Context, db *runtime.DB, user User) error {
 - Leave transactions open for too long
 - Mix transactional and non-transactional code
 - Ignore transaction errors
-- Nest transactions naively
+- Forget to lock rows in concurrent scenarios
 
 ## Error Handling Patterns
 
-### Pattern 1: Early Return
+### Pattern 1: Early Return with Defer
 
 ```go
-tx, _ := db.Begin(ctx)
-defer tx.Rollback(ctx)
-
-if err := step1(tx, ctx); err != nil {
-    return err  // Rollback via defer
-}
-
-if err := step2(tx, ctx); err != nil {
-    return err  // Rollback via defer
-}
-
-return tx.Commit(ctx)
-```
-
-### Pattern 2: Named Return
-
-```go
-func doWork(ctx context.Context, db *runtime.DB) (err error) {
-    tx, _ := db.Begin(ctx)
-    defer func() {
-        if err != nil {
-            tx.Rollback(ctx)
-        }
-    }()
-
-    // Operations...
-
-    err = tx.Commit(ctx)
-    return
-}
-```
-
-### Pattern 3: Explicit Rollback
-
-```go
-tx, _ := db.Begin(ctx)
-
-err := performOperation(tx, ctx)
+tx, err := qb.Begin(ctx)
 if err != nil {
-    tx.Rollback(ctx)
     return err
 }
+defer tx.Rollback()  // Runs on any early return
 
-return tx.Commit(ctx)
-```
-
-## Isolation Levels
-
-PostgreSQL supports different isolation levels:
-
-```go
-// Default: Read Committed
-tx, _ := db.Begin(ctx)
-
-// Serializable (strictest)
-tx, _ := db.BeginTx(ctx, pgx.TxOptions{
-    IsoLevel: pgx.Serializable,
-})
-
-// Repeatable Read
-tx, _ := db.BeginTx(ctx, pgx.TxOptions{
-    IsoLevel: pgx.RepeatableRead,
-})
-```
-
-### Isolation Levels Explained
-
-| Level                | Dirty Read      | Non-Repeatable Read | Phantom Read    |
-| -------------------- | --------------- | ------------------- | --------------- |
-| **Read Uncommitted** | ✅ Possible     | ✅ Possible         | ✅ Possible     |
-| **Read Committed**   | ❌ Not Possible | ✅ Possible         | ✅ Possible     |
-| **Repeatable Read**  | ❌ Not Possible | ❌ Not Possible     | ✅ Possible     |
-| **Serializable**     | ❌ Not Possible | ❌ Not Possible     | ❌ Not Possible |
-
-**PostgreSQL default: Read Committed**
-
-## Performance Tips
-
-### Keep Transactions Short
-
-```go
-// ❌ Bad: Long-running transaction
-tx, _ := db.Begin(ctx)
-defer tx.Rollback(ctx)
-
-// Lots of work...
-time.Sleep(10 * time.Second)
- // Blocks other transactions!
-
-tx.Commit(ctx)
-```
-
-```go
-// ✅ Good: Short transaction
-// Do non-DB work first
-email := prepareEmail(user)
-
-// Quick transaction
-tx, _ := db.Begin(ctx)
-defer tx.Rollback(ctx)
-
-_, err := tx.Exec(ctx, "INSERT ...")
-tx.Commit(ctx)
-
-// Send email after transaction
-sendEmail(email)
-```
-
-### Retry on Conflicts
-
-```go
-func withRetry(ctx context.Context, db *runtime.DB, fn func(tx pgx.Tx) error) error {
-    maxRetries := 3
-
-    for i := 0; i < maxRetries; i++ {
-        tx, _ := db.Begin(ctx)
-
-        err := fn(tx)
-        if err == nil {
-            return tx.Commit(ctx)
-        }
-
-        tx.Rollback(ctx)
-
-        // Check if serialization error
-        if isSerializationError(err) {
-            continue  // Retry
-        }
-
-        return err  // Other error
-    }
-
-    return errors.New("max retries exceeded")
+result1, err := builder.TxInsert[Account](tx).Values(account1).ExecReturning()
+if err != nil {
+    return err  // Rollback happens automatically
 }
-```
 
-## Deadlock Prevention
-
-### Tips to avoid deadlocks:
-
-1. **Access tables in consistent order**
-
-```go
-// ✅ Always: users → accounts → orders
-tx.Exec(ctx, "UPDATE users ...")
-tx.Exec(ctx, "UPDATE accounts ...")
-tx.Exec(ctx, "UPDATE orders ...")
-```
-
-2. **Use shorter transactions**
-3. **Lock rows explicitly if needed**
-
-```sql
-SELECT * FROM accounts WHERE id = 1 FOR UPDATE;
-```
-
-4. **Use appropriate isolation levels**
-
-## Testing Transactions
-
-### Test Rollback Behavior
-
-```go
-func TestTransactionRollback(t *testing.T) {
-    tx, _ := db.Begin(ctx)
-    defer tx.Rollback(ctx)
-
-    // Make changes
-    tx.Exec(ctx, "INSERT INTO accounts ...")
-
-    // Verify in transaction
-    var count int
-    tx.QueryRow(ctx, "SELECT COUNT(*) FROM accounts").Scan(&count)
-    assert.Equal(t, 1, count)
-
-    // Rollback
-    tx.Rollback(ctx)
-
-    // Verify rolled back
-    db.QueryRow(ctx, "SELECT COUNT(*) FROM accounts").Scan(&count)
-    assert.Equal(t, 0, count)
+result2, err := builder.TxInsert[Account](tx).Values(account2).ExecReturning()
+if err != nil {
+    return err  // Rollback happens automatically
 }
+
+// Only commit if everything succeeded
+return tx.Commit()
+```
+
+### Pattern 2: Conditional Rollback
+
+```go
+tx, err := qb.Begin(ctx)
+if err != nil {
+    return err
+}
+defer tx.Rollback()
+
+// Try operation
+_, err = builder.TxUpdate[Account](tx).
+    Set("balance", newBalance).
+    Where(builder.Eq("id", accountID)).
+    Exec()
+
+if err != nil {
+    log.Printf("Operation failed, rolling back: %v", err)
+    return err  // Defer handles rollback
+}
+
+return tx.Commit()
+```
+
+### Pattern 3: Explicit Error Handling
+
+```go
+tx, err := qb.Begin(ctx)
+if err != nil {
+    return fmt.Errorf("failed to begin transaction: %w", err)
+}
+defer tx.Rollback()
+
+inserted, err := builder.TxInsert[Account](tx).
+    Values(account).
+    ExecReturning()
+if err != nil {
+    return fmt.Errorf("failed to insert account: %w", err)
+}
+
+if err := tx.Commit(); err != nil {
+    return fmt.Errorf("failed to commit transaction: %w", err)
+}
+
+return nil
+```
+
+## Common Use Cases
+
+### 1. Money Transfer
+
+```go
+// Atomic transfer between accounts with race condition prevention
+tx, _ := qb.Begin(ctx)
+defer tx.Rollback()
+
+// Lock both accounts
+from, _ := builder.TxSelect[Account](tx).Where(builder.Eq("id", fromID)).ForUpdate().First()
+to, _ := builder.TxSelect[Account](tx).Where(builder.Eq("id", toID)).ForUpdate().First()
+
+// Validate and update
+if from.Balance < amount {
+    return errors.New("insufficient funds")
+}
+
+builder.TxUpdate[Account](tx).Set("balance", from.Balance - amount).Where(builder.Eq("id", fromID)).Exec()
+builder.TxUpdate[Account](tx).Set("balance", to.Balance + amount).Where(builder.Eq("id", toID)).Exec()
+
+tx.Commit()
+```
+
+### 2. Inventory Update
+
+```go
+// Atomic inventory deduction with stock check
+tx, _ := qb.Begin(ctx)
+defer tx.Rollback()
+
+product, _ := builder.TxSelect[Product](tx).Where(builder.Eq("id", productID)).ForUpdate().First()
+
+if product.Stock < quantity {
+    return errors.New("out of stock")
+}
+
+builder.TxUpdate[Product](tx).Set("stock", product.Stock - quantity).Where(builder.Eq("id", productID)).Exec()
+builder.TxInsert[Order](tx).Values(order).ExecReturning()
+
+tx.Commit()
+```
+
+### 3. Cascading Updates
+
+```go
+// Update user and all related records atomically
+tx, _ := qb.Begin(ctx)
+defer tx.Rollback()
+
+builder.TxUpdate[User](tx).Set("status", "inactive").Where(builder.Eq("id", userID)).Exec()
+builder.TxUpdate[Post](tx).Set("published", false).Where(builder.Eq("user_id", userID)).Exec()
+builder.TxDelete[Session](tx).Where(builder.Eq("user_id", userID)).Exec()
+
+tx.Commit()
 ```
 
 ## Learn More
@@ -477,12 +477,8 @@ func TestTransactionRollback(t *testing.T) {
 - **Isolation Levels**: https://www.postgresql.org/docs/current/transaction-iso.html
 - **pgx Documentation**: https://pkg.go.dev/github.com/jackc/pgx/v5
 
-## Key Takeaways
+## Next Steps
 
-1. **Atomicity** - All operations succeed or all fail
-2. **defer Rollback** - Always use as safety net
-3. **Short Transactions** - Minimize lock duration
-4. **Error Handling** - Proper error checking is critical
-5. **Production Pattern** - Same pattern used in banking, e-commerce, etc.
-
-**This example shows how to handle money transfers and critical operations safely!** 💰
+- Try the [Basic Example](../basic/) for CRUD operations
+- See [Relationships Example](../relationships) for joins and eager loading
+- Check [Migrations Example](../migrations) for schema management

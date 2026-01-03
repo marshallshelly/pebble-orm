@@ -85,23 +85,17 @@ func runGenerate() error {
 	ctx := context.Background()
 
 	// Load models from file or directory specified in --models flag
-	if verbose {
-		output.Info("Loading models from: %s", modelsPath)
-	}
+	output.Info("🔍 Scanning models from: %s", modelsPath)
 
-	modelsCount, err := loader.LoadModelsFromPath(modelsPath, globalRegistryWrapper{})
+	_, err := loader.LoadModelsFromPath(modelsPath, globalRegistryWrapper{})
 	if err != nil {
 		return fmt.Errorf("failed to load models: %w", err)
-	}
-
-	if verbose {
-		output.Success("Loaded %d model(s)", modelsCount)
 	}
 
 	codeSchema := registry.AllTables()
 
 	if len(codeSchema) == 0 {
-		output.Warning("No models registered. Use --models to specify model definitions.")
+		output.Warning("No models found in %s", modelsPath)
 		output.Info("Generating empty migration instead.")
 
 		migrationFile, err := generator.GenerateEmpty(migrationName)
@@ -115,14 +109,20 @@ func runGenerate() error {
 		return nil
 	}
 
+	// Show discovered models
+	modelNames := make([]string, 0, len(codeSchema))
+	for tableName := range codeSchema {
+		modelNames = append(modelNames, tableName)
+	}
+	output.Success("  ✓ Found %d model(s): %v", len(codeSchema), modelNames)
+	fmt.Println()
+
 	// Determine database schema (empty if no --db provided)
 	var dbSchema map[string]*schema.TableMetadata
 
 	if dbURL != "" {
 		// Connect to database and introspect
-		if verbose {
-			output.Info("Connecting to database to introspect schema...")
-		}
+		output.Info("🔄 Comparing with database...")
 
 		pool, err := pgxpool.New(ctx, dbURL)
 		if err != nil {
@@ -136,14 +136,12 @@ func runGenerate() error {
 			return fmt.Errorf("failed to introspect database: %w", err)
 		}
 
-		if verbose {
-			output.Success("Found %d table(s) in database", len(dbSchema))
-		}
+		output.Success("  ✓ Found %d table(s) in database", len(dbSchema))
+		fmt.Println()
 	} else {
 		// No database connection - treat as empty database
-		if verbose {
-			output.Info("No --db provided, generating initial migration from models")
-		}
+		output.Info("🔄 Generating initial migration (no database connection)")
+		fmt.Println()
 		dbSchema = make(map[string]*schema.TableMetadata)
 	}
 
@@ -153,39 +151,37 @@ func runGenerate() error {
 
 	// Check if there are changes
 	if !diff.HasChanges() {
-		output.Info("No schema changes detected. Database is in sync with models.")
+		output.Success("✓ No schema changes detected. Database is in sync with models.")
 		return nil
 	}
 
 	// Show summary of changes
-	output.Section("Detected Schema Changes")
+	output.Section("📋 Schema Changes")
 	if len(diff.TablesAdded) > 0 {
-		output.Success("Tables to add: %d", len(diff.TablesAdded))
 		for _, table := range diff.TablesAdded {
-			fmt.Printf("    + %s\n", table.Name)
-		}
-	}
-	if len(diff.TablesDropped) > 0 {
-		output.Warning("Tables to drop: %d", len(diff.TablesDropped))
-		for _, tableName := range diff.TablesDropped {
-			fmt.Printf("    - %s\n", tableName)
+			output.Success("  + %s (new table)", table.Name)
 		}
 	}
 	if len(diff.TablesModified) > 0 {
-		output.Info("Tables to modify: %d", len(diff.TablesModified))
 		for _, tableDiff := range diff.TablesModified {
-			fmt.Printf("    ~ %s\n", tableDiff.TableName)
+			output.Info("  ~ %s (modified)", tableDiff.TableName)
 			if len(tableDiff.ColumnsAdded) > 0 {
-				fmt.Printf("      + %d column(s)\n", len(tableDiff.ColumnsAdded))
+				fmt.Printf("      + %d column(s) added\n", len(tableDiff.ColumnsAdded))
 			}
 			if len(tableDiff.ColumnsDropped) > 0 {
-				fmt.Printf("      - %d column(s)\n", len(tableDiff.ColumnsDropped))
+				fmt.Printf("      - %d column(s) dropped\n", len(tableDiff.ColumnsDropped))
 			}
 			if len(tableDiff.ColumnsModified) > 0 {
-				fmt.Printf("      ~ %d column(s)\n", len(tableDiff.ColumnsModified))
+				fmt.Printf("      ~ %d column(s) modified\n", len(tableDiff.ColumnsModified))
 			}
 		}
 	}
+	if len(diff.TablesDropped) > 0 {
+		for _, tableName := range diff.TablesDropped {
+			output.Warning("  - %s (dropped)", tableName)
+		}
+	}
+	fmt.Println()
 
 	// Generate migration
 	migrationFile, err := generator.Generate(migrationName, diff)
@@ -193,12 +189,11 @@ func runGenerate() error {
 		return fmt.Errorf("failed to generate migration: %w", err)
 	}
 
+	output.Success("✅ Generated migration: %s", migrationFile.Version)
+	output.Muted("  ↑ Up:   %s", migrationFile.UpPath)
+	output.Muted("  ↓ Down: %s", migrationFile.DownPath)
 	fmt.Println()
-	output.Success("Created migration: %s", migrationFile.Version)
-	output.Muted("  Up:   %s", migrationFile.UpPath)
-	output.Muted("  Down: %s", migrationFile.DownPath)
-	fmt.Println()
-	output.Info("Review the generated SQL files before applying the migration.")
+	output.Info("💡 Review the generated SQL files before applying the migration.")
 
 	return nil
 }

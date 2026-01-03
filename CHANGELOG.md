@@ -5,6 +5,38 @@ All notable changes to Pebble ORM will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.0] - 2026-01-04
+
+### Added
+
+- Generic transaction functions: `builder.TxSelect[T](tx)`, `TxInsert[T](tx)`, `TxUpdate[T](tx)`, `TxDelete[T](tx)` for type-safe query building within transactions
+- Enhanced migration generation output with visual indicators (🔍, 🔄, 📋) and model discovery feedback
+- Row locking examples using `ForUpdate()` in transaction documentation
+- Savepoints example (Example 4) demonstrating nested transaction control
+- Comprehensive transaction documentation in `examples/transactions/README.md` (485 lines)
+
+### Fixed
+
+- **Critical**: Transaction query builders were completely broken due to incomplete `scanRows()` implementation
+  - Error: `scanRows not fully implemented` caused all transaction queries to fail
+  - Root cause: Stub implementation at line 988 just returned error instead of scanning rows
+  - Solution: Replaced with proper `scanIntoStruct()` calls throughout `pkg/builder/transaction.go`
+  - Impact: All transaction operations (Select, Insert, Update, Delete) now work correctly
+- JSONB scanning errors when pgx passes pre-decoded values instead of raw bytes
+  - Enhanced `JSONB.Scan()`, `JSONBArray.Scan()`, and `JSONBStruct.Scan()` to handle `[]byte`, `string`, and pre-decoded types
+  - Prevents "failed to scan JSONB: value is not []byte" errors
+- Transaction method signatures now return proper types instead of requiring dest parameters
+  - `All()` returns `([]T, error)` instead of `All(dest interface{}) error`
+  - `First()` returns `(T, error)` instead of `First(dest interface{}) error`
+  - `ExecReturning()` returns `([]T, error)` instead of `ExecReturning(dest interface{}) error`
+
+### Changed
+
+- Completely rewrote `examples/transactions/cmd/transactions/main.go` to use type-safe query builders instead of raw SQL
+- Updated README.md, CLAUDE.md, and examples/transactions/README.md with correct transaction API usage
+- Migration generation now always shows model scanning results (not hidden behind verbose flag)
+- Improved migration output with emojis and clear visual hierarchy for better developer experience
+
 ## [1.10.0] - 2026-01-03
 
 ### Added

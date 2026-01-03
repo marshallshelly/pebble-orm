@@ -77,6 +77,32 @@ func (t *Tx) ReleaseSavepoint(name string) error {
 	return nil
 }
 
+// TxSelect creates a new type-safe SELECT query within the transaction.
+// Usage: builder.TxSelect[User](tx).Where(...).All()
+func TxSelect[T any](t *Tx) *TxSelectQuery[T] {
+	var model T
+
+	table, err := registry.GetOrRegister(model)
+	if err != nil {
+		return &TxSelectQuery[T]{
+			tx:    t,
+			table: nil,
+		}
+	}
+
+	return &TxSelectQuery[T]{
+		tx:       t,
+		table:    table,
+		columns:  []string{"*"},
+		where:    make([]Condition, 0),
+		joins:    make([]Join, 0),
+		groupBy:  make([]string, 0),
+		having:   make([]Condition, 0),
+		orderBy:  make([]OrderBy, 0),
+		preloads: make([]string, 0),
+	}
+}
+
 // Select creates a new SELECT query within the transaction.
 func (t *Tx) Select(model interface{}) *TxSelectQuery[interface{}] {
 	return t.SelectTyped(model)
@@ -105,6 +131,27 @@ func (t *Tx) SelectTyped(model interface{}) *TxSelectQuery[interface{}] {
 	}
 }
 
+// TxInsert creates a new type-safe INSERT query within the transaction.
+// Usage: builder.TxInsert[User](tx).Values(user).ExecReturning()
+func TxInsert[T any](t *Tx) *TxInsertQuery[T] {
+	var model T
+
+	table, err := registry.GetOrRegister(model)
+	if err != nil {
+		return &TxInsertQuery[T]{
+			tx:    t,
+			table: nil,
+		}
+	}
+
+	return &TxInsertQuery[T]{
+		tx:        t,
+		table:     table,
+		values:    make([]interface{}, 0),
+		returning: make([]string, 0),
+	}
+}
+
 // Insert creates a new INSERT query within the transaction.
 func (t *Tx) Insert(model interface{}) *TxInsertQuery[interface{}] {
 	return t.InsertTyped(model)
@@ -128,6 +175,28 @@ func (t *Tx) InsertTyped(model interface{}) *TxInsertQuery[interface{}] {
 	}
 }
 
+// TxUpdate creates a new type-safe UPDATE query within the transaction.
+// Usage: builder.TxUpdate[User](tx).Set("name", "John").Where(...).Exec()
+func TxUpdate[T any](t *Tx) *TxUpdateQuery[T] {
+	var model T
+
+	table, err := registry.GetOrRegister(model)
+	if err != nil {
+		return &TxUpdateQuery[T]{
+			tx:    t,
+			table: nil,
+		}
+	}
+
+	return &TxUpdateQuery[T]{
+		tx:        t,
+		table:     table,
+		sets:      make(map[string]interface{}),
+		where:     make([]Condition, 0),
+		returning: make([]string, 0),
+	}
+}
+
 // Update creates a new UPDATE query within the transaction.
 func (t *Tx) Update(model interface{}) *TxUpdateQuery[interface{}] {
 	return t.UpdateTyped(model)
@@ -147,6 +216,27 @@ func (t *Tx) UpdateTyped(model interface{}) *TxUpdateQuery[interface{}] {
 		tx:        t,
 		table:     table,
 		sets:      make(map[string]interface{}),
+		where:     make([]Condition, 0),
+		returning: make([]string, 0),
+	}
+}
+
+// TxDelete creates a new type-safe DELETE query within the transaction.
+// Usage: builder.TxDelete[User](tx).Where(...).Exec()
+func TxDelete[T any](t *Tx) *TxDeleteQuery[T] {
+	var model T
+
+	table, err := registry.GetOrRegister(model)
+	if err != nil {
+		return &TxDeleteQuery[T]{
+			tx:    t,
+			table: nil,
+		}
+	}
+
+	return &TxDeleteQuery[T]{
+		tx:        t,
+		table:     table,
 		where:     make([]Condition, 0),
 		returning: make([]string, 0),
 	}
@@ -430,41 +520,63 @@ func (q *TxSelectQuery[T]) ToSQL() (string, []interface{}, error) {
 }
 
 // All executes the query and returns all results.
-func (q *TxSelectQuery[T]) All(dest interface{}) error {
+func (q *TxSelectQuery[T]) All() ([]T, error) {
 	sql, args, err := q.ToSQL()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	rows, err := q.tx.tx.Query(q.tx.ctx, sql, args...)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer rows.Close()
 
-	return scanRows(rows, dest, q.table)
+	var results []T
+	for rows.Next() {
+		var item T
+		if err := scanIntoStruct(rows, &item, q.table); err != nil {
+			return nil, err
+		}
+		results = append(results, item)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return results, nil
 }
 
 // First executes the query and returns the first result.
-func (q *TxSelectQuery[T]) First(dest interface{}) error {
+func (q *TxSelectQuery[T]) First() (T, error) {
 	q.Limit(1)
 
 	sql, args, err := q.ToSQL()
 	if err != nil {
-		return err
+		var zero T
+		return zero, err
 	}
 
 	rows, err := q.tx.tx.Query(q.tx.ctx, sql, args...)
 	if err != nil {
-		return err
+		var zero T
+		return zero, err
 	}
 	defer rows.Close()
 
 	if !rows.Next() {
-		return pgx.ErrNoRows
+		var zero T
+		return zero, pgx.ErrNoRows
 	}
 
-	return scanIntoStruct(rows, dest, q.table)
+	var result T
+	if err := scanIntoStruct(rows, &result, q.table); err != nil {
+		var zero T
+		return zero, err
+	}
+
+	return result, nil
 }
 
 // Count executes a COUNT query.
@@ -679,7 +791,7 @@ func (q *TxInsertQuery[T]) Exec() (int64, error) {
 }
 
 // ExecReturning executes the INSERT and scans the RETURNING values.
-func (q *TxInsertQuery[T]) ExecReturning(dest interface{}) error {
+func (q *TxInsertQuery[T]) ExecReturning() ([]T, error) {
 	// Ensure we have RETURNING clause
 	if len(q.returning) == 0 {
 		q.Returning("*")
@@ -687,16 +799,29 @@ func (q *TxInsertQuery[T]) ExecReturning(dest interface{}) error {
 
 	sql, args, err := q.ToSQL()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	rows, err := q.tx.tx.Query(q.tx.ctx, sql, args...)
 	if err != nil {
-		return fmt.Errorf("failed to execute insert: %w", err)
+		return nil, fmt.Errorf("failed to execute insert: %w", err)
 	}
 	defer rows.Close()
 
-	return scanRows(rows, dest, q.table)
+	var results []T
+	for rows.Next() {
+		var item T
+		if err := scanIntoStruct(rows, &item, q.table); err != nil {
+			return nil, err
+		}
+		results = append(results, item)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return results, nil
 }
 
 // TxUpdateQuery represents an UPDATE query within a transaction.
@@ -830,7 +955,7 @@ func (q *TxUpdateQuery[T]) Exec() (int64, error) {
 }
 
 // ExecReturning executes the UPDATE and scans the RETURNING values.
-func (q *TxUpdateQuery[T]) ExecReturning(dest interface{}) error {
+func (q *TxUpdateQuery[T]) ExecReturning() ([]T, error) {
 	// Ensure we have RETURNING clause
 	if len(q.returning) == 0 {
 		q.Returning("*")
@@ -838,16 +963,29 @@ func (q *TxUpdateQuery[T]) ExecReturning(dest interface{}) error {
 
 	sql, args, err := q.ToSQL()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	rows, err := q.tx.tx.Query(q.tx.ctx, sql, args...)
 	if err != nil {
-		return fmt.Errorf("failed to execute update: %w", err)
+		return nil, fmt.Errorf("failed to execute update: %w", err)
 	}
 	defer rows.Close()
 
-	return scanRows(rows, dest, q.table)
+	var results []T
+	for rows.Next() {
+		var item T
+		if err := scanIntoStruct(rows, &item, q.table); err != nil {
+			return nil, err
+		}
+		results = append(results, item)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return results, nil
 }
 
 // TxDeleteQuery represents a DELETE query within a transaction.
@@ -951,7 +1089,7 @@ func (q *TxDeleteQuery[T]) Exec() (int64, error) {
 }
 
 // ExecReturning executes the DELETE and scans the RETURNING values.
-func (q *TxDeleteQuery[T]) ExecReturning(dest interface{}) error {
+func (q *TxDeleteQuery[T]) ExecReturning() ([]T, error) {
 	// Ensure we have RETURNING clause
 	if len(q.returning) == 0 {
 		q.Returning("*")
@@ -959,31 +1097,27 @@ func (q *TxDeleteQuery[T]) ExecReturning(dest interface{}) error {
 
 	sql, args, err := q.ToSQL()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	rows, err := q.tx.tx.Query(q.tx.ctx, sql, args...)
 	if err != nil {
-		return fmt.Errorf("failed to execute delete: %w", err)
+		return nil, fmt.Errorf("failed to execute delete: %w", err)
 	}
 	defer rows.Close()
 
-	return scanRows(rows, dest, q.table)
-}
-
-// scanRows is a helper to scan multiple rows into a slice.
-func scanRows(rows pgx.Rows, dest interface{}, table *schema.TableMetadata) error {
-	// This is a simplified implementation
-	// In a real implementation, we would use reflection to populate the slice
-	// For now, we just validate the input
-	if dest == nil {
-		return fmt.Errorf("dest cannot be nil")
-	}
-	if table == nil {
-		return fmt.Errorf("table metadata not available")
+	var results []T
+	for rows.Next() {
+		var item T
+		if err := scanIntoStruct(rows, &item, q.table); err != nil {
+			return nil, err
+		}
+		results = append(results, item)
 	}
 
-	// Implementation would iterate through rows and scan each into dest
-	// This is left as a TODO for now since it requires complex reflection logic
-	return fmt.Errorf("scanRows not fully implemented")
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return results, nil
 }
