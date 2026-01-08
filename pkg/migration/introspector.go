@@ -327,24 +327,33 @@ func (i *Introspector) getForeignKeys(ctx context.Context, tableName string) ([]
 // (UNIQUE, PRIMARY KEY) are managed through the constraints themselves and
 // should not be dropped with DROP INDEX.
 func (i *Introspector) getIndexes(ctx context.Context, tableName string) ([]schema.IndexMetadata, error) {
+	// This query retrieves comprehensive index information including:
+	// - Operator classes and collations per column
+	// - Column ordering (DESC/ASC, NULLS FIRST/LAST)
+	// - Expression indexes
+	// - Partial indexes (WHERE clause)
+	// - INCLUDE columns (covering indexes)
 	query := `
 		SELECT
 			i.relname as index_name,
-			array_agg(a.attname ORDER BY x.ordinality) as columns,
+			am.amname as index_type,
 			ix.indisunique as is_unique,
-			am.amname as index_type
+			pg_get_indexdef(ix.indexrelid) as index_def,
+			pg_get_expr(ix.indpred, ix.indrelid) as predicate,
+			ix.indnatts as num_columns,
+			ix.indnkeyatts as num_key_columns,
+			ix.indkey as column_numbers,
+			ix.indoption as column_options,
+			ix.indexprs IS NOT NULL as is_expression
 		FROM pg_class t
 		JOIN pg_index ix ON t.oid = ix.indrelid
 		JOIN pg_class i ON i.oid = ix.indexrelid
 		JOIN pg_am am ON i.relam = am.oid
-		CROSS JOIN LATERAL unnest(ix.indkey) WITH ORDINALITY AS x(attnum, ordinality)
-		JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = x.attnum
 		LEFT JOIN pg_constraint c ON c.conindid = ix.indexrelid
 		WHERE t.relname = $1
 			AND t.relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'public')
 			AND NOT ix.indisprimary
 			AND c.conindid IS NULL  -- Exclude constraint-backed indexes
-		GROUP BY i.relname, ix.indisunique, am.amname
 		ORDER BY i.relname
 	`
 
@@ -356,19 +365,46 @@ func (i *Introspector) getIndexes(ctx context.Context, tableName string) ([]sche
 
 	var indexes []schema.IndexMetadata
 	for rows.Next() {
-		var idx schema.IndexMetadata
+		var indexName, indexType, indexDef string
+		var isUnique, isExpression bool
+		var predicate *string
+		var numColumns, numKeyColumns int16
+		var columnNumbers []int16
+		var columnOptions []int16
 
 		err := rows.Scan(
-			&idx.Name,
-			&idx.Columns,
-			&idx.Unique,
-			&idx.Type,
+			&indexName,
+			&indexType,
+			&isUnique,
+			&indexDef,
+			&predicate,
+			&numColumns,
+			&numKeyColumns,
+			&columnNumbers,
+			&columnOptions,
+			&isExpression,
 		)
 		if err != nil {
 			return nil, err
 		}
 
-		indexes = append(indexes, idx)
+		// Parse the index definition to extract detailed information
+		idx, err := i.parseIndexDefinition(ctx, tableName, indexName, indexType, isUnique, indexDef, predicate, isExpression)
+		if err != nil {
+			// If parsing fails, create a basic index structure
+			idx = &schema.IndexMetadata{
+				Name:   indexName,
+				Type:   indexType,
+				Unique: isUnique,
+			}
+		}
+
+		// Add WHERE clause if it's a partial index
+		if predicate != nil && *predicate != "" {
+			idx.Where = *predicate
+		}
+
+		indexes = append(indexes, *idx)
 	}
 
 	return indexes, rows.Err()
@@ -518,4 +554,259 @@ func (i *Introspector) getEnumTypes(ctx context.Context, tableName string) ([]sc
 	}
 
 	return enumTypes, rows.Err()
+}
+
+// parseIndexDefinition parses the output of pg_get_indexdef() to extract index components.
+// Example input: "CREATE INDEX idx_email ON users USING btree (email varchar_pattern_ops COLLATE \"C\" DESC NULLS LAST)"
+func (i *Introspector) parseIndexDefinition(ctx context.Context, tableName, indexName, indexType string, isUnique bool, indexDef string, predicate *string, isExpression bool) (*schema.IndexMetadata, error) {
+	idx := &schema.IndexMetadata{
+		Name:   indexName,
+		Type:   indexType,
+		Unique: isUnique,
+	}
+
+	// Extract column list - find first '(' after table name and matching ')'
+	tableNamePos := strings.Index(indexDef, " ON "+tableName)
+	if tableNamePos == -1 {
+		return idx, nil // Fallback to basic index
+	}
+
+	// Find the column list start (after USING clause if present, or after table name)
+	startPos := strings.Index(indexDef[tableNamePos:], "(")
+	if startPos == -1 {
+		return idx, nil
+	}
+	startPos += tableNamePos
+
+	// Extract balanced parentheses for column list
+	columnList, remaining := extractBalancedParens(indexDef[startPos+1:])
+	if columnList == "" {
+		return idx, nil
+	}
+
+	// Check for INCLUDE clause in remaining string
+	if strings.Contains(remaining, "INCLUDE") {
+		includeStart := strings.Index(remaining, "INCLUDE")
+		includeRest := remaining[includeStart+7:] // Skip "INCLUDE"
+		includeRest = strings.TrimSpace(includeRest)
+		if strings.HasPrefix(includeRest, "(") {
+			includeCols, _ := extractBalancedParens(includeRest[1:])
+			// Split include columns by comma
+			for _, col := range strings.Split(includeCols, ",") {
+				col = strings.TrimSpace(col)
+				if col != "" {
+					idx.Include = append(idx.Include, col)
+				}
+			}
+		}
+	}
+
+	// For expression indexes, store the entire expression
+	if isExpression {
+		idx.Expression = strings.TrimSpace(columnList)
+		return idx, nil
+	}
+
+	// Parse column list - split by commas (but not inside nested parentheses)
+	columns, orderings := parseIndexColumnList(columnList)
+	idx.Columns = columns
+	idx.ColumnOrdering = orderings
+
+	return idx, nil
+}
+
+// extractBalancedParens extracts content within balanced parentheses.
+// Returns the content and the remaining string after the closing parenthesis.
+func extractBalancedParens(s string) (content, remaining string) {
+	depth := 0
+	for i, ch := range s {
+		switch ch {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == -1 {
+				return s[:i], s[i+1:]
+			}
+		}
+	}
+	return s, "" // If no closing paren found, return entire string
+}
+
+// parseIndexColumnList parses a comma-separated list of columns with modifiers.
+// Example: "email varchar_pattern_ops COLLATE \"C\" DESC NULLS LAST, name, created_at"
+func parseIndexColumnList(columnList string) ([]string, []schema.ColumnOrder) {
+	var columns []string
+	var orderings []schema.ColumnOrder
+
+	// Split by commas, but respect nested parentheses (for expressions)
+	parts := splitRespectingParens(columnList, ',')
+
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+
+		// Parse individual column with modifiers
+		colName, ordering := parseIndexColumn(part)
+		columns = append(columns, colName)
+
+		// Only add ordering if it has non-default values (not just the column name)
+		hasNonDefaultOrdering := ordering.Direction == schema.Descending ||
+			ordering.Nulls != "" ||
+			ordering.OpClass != "" ||
+			ordering.Collation != ""
+		if hasNonDefaultOrdering {
+			orderings = append(orderings, ordering)
+		}
+	}
+
+	return columns, orderings
+}
+
+// parseIndexColumn parses a single column definition with modifiers.
+// Example: "email varchar_pattern_ops COLLATE \"C\" DESC NULLS LAST"
+func parseIndexColumn(s string) (string, schema.ColumnOrder) {
+	order := schema.ColumnOrder{}
+
+	// Tokenize the string, respecting quoted strings
+	tokens := tokenizeIndexColumn(s)
+	if len(tokens) == 0 {
+		return "", order
+	}
+
+	// First token is the column name
+	order.Column = tokens[0]
+	columnName := tokens[0]
+
+	// Parse remaining tokens
+	for i := 1; i < len(tokens); i++ {
+		token := strings.ToUpper(tokens[i])
+
+		switch token {
+		case "DESC":
+			order.Direction = schema.Descending
+		case "ASC":
+			order.Direction = schema.Ascending
+		case "NULLS":
+			if i+1 < len(tokens) {
+				nullsToken := strings.ToUpper(tokens[i+1])
+				if nullsToken == "FIRST" {
+					order.Nulls = schema.NullsFirst
+					i++
+				} else if nullsToken == "LAST" {
+					order.Nulls = schema.NullsLast
+					i++
+				}
+			}
+		case "COLLATE":
+			if i+1 < len(tokens) {
+				// Remove quotes from collation if present
+				collation := tokens[i+1]
+				collation = strings.Trim(collation, "\"")
+				order.Collation = collation
+				i++
+			}
+		default:
+			// Check if this is an operator class (not a reserved keyword)
+			if !isReservedIndexKeyword(token) && order.OpClass == "" {
+				order.OpClass = tokens[i] // Use original case for operator class
+			}
+		}
+	}
+
+	return columnName, order
+}
+
+// tokenizeIndexColumn splits a column definition into tokens, respecting quoted strings.
+// Example: "email varchar_pattern_ops COLLATE \"en_US\" DESC" -> ["email", "varchar_pattern_ops", "COLLATE", "\"en_US\"", "DESC"]
+func tokenizeIndexColumn(s string) []string {
+	var tokens []string
+	var current strings.Builder
+	inQuotes := false
+	quoteChar := rune(0)
+
+	for _, ch := range s {
+		switch {
+		case ch == '"' || ch == '\'':
+			if inQuotes && ch == quoteChar {
+				current.WriteRune(ch)
+				tokens = append(tokens, current.String())
+				current.Reset()
+				inQuotes = false
+				quoteChar = 0
+			} else if !inQuotes {
+				inQuotes = true
+				quoteChar = ch
+				current.WriteRune(ch)
+			} else {
+				current.WriteRune(ch)
+			}
+		case ch == ' ' || ch == '\t' || ch == '\n':
+			if inQuotes {
+				current.WriteRune(ch)
+			} else if current.Len() > 0 {
+				tokens = append(tokens, current.String())
+				current.Reset()
+			}
+		default:
+			current.WriteRune(ch)
+		}
+	}
+
+	if current.Len() > 0 {
+		tokens = append(tokens, current.String())
+	}
+
+	return tokens
+}
+
+// isReservedIndexKeyword checks if a token is a reserved PostgreSQL index keyword.
+func isReservedIndexKeyword(token string) bool {
+	reserved := map[string]bool{
+		"ASC":     true,
+		"DESC":    true,
+		"NULLS":   true,
+		"FIRST":   true,
+		"LAST":    true,
+		"COLLATE": true,
+		"USING":   true,
+		"WHERE":   true,
+		"INCLUDE": true,
+	}
+	return reserved[strings.ToUpper(token)]
+}
+
+// splitRespectingParens splits a string by delimiter, but respects nested parentheses.
+func splitRespectingParens(s string, delim rune) []string {
+	var parts []string
+	var current strings.Builder
+	depth := 0
+
+	for _, ch := range s {
+		switch ch {
+		case '(':
+			depth++
+			current.WriteRune(ch)
+		case ')':
+			depth--
+			current.WriteRune(ch)
+		case delim:
+			if depth == 0 {
+				parts = append(parts, current.String())
+				current.Reset()
+			} else {
+				current.WriteRune(ch)
+			}
+		default:
+			current.WriteRune(ch)
+		}
+	}
+
+	if current.Len() > 0 {
+		parts = append(parts, current.String())
+	}
+
+	return parts
 }

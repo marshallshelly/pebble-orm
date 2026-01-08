@@ -195,19 +195,154 @@ func (d *Differ) compareIndexes(codeTable, dbTable *schema.TableMetadata, diff *
 		dbIndexes[idx.Name] = idx
 	}
 
-	// Find indexes to add
+	// Find indexes to add or replace (modified)
 	for idxName, codeIdx := range codeIndexes {
-		if _, exists := dbIndexes[idxName]; !exists {
+		if dbIdx, exists := dbIndexes[idxName]; !exists {
+			// Index doesn't exist - add it
 			diff.IndexesAdded = append(diff.IndexesAdded, codeIdx)
+		} else {
+			// Index exists - check if it's different
+			if !d.isSameIndex(codeIdx, dbIdx) {
+				// Index is different - drop and recreate
+				diff.IndexesDropped = append(diff.IndexesDropped, idxName)
+				diff.IndexesAdded = append(diff.IndexesAdded, codeIdx)
+			}
 		}
 	}
 
-	// Find indexes to drop
+	// Find indexes to drop (only those that don't exist in code and weren't already marked for drop)
 	for idxName := range dbIndexes {
 		if _, exists := codeIndexes[idxName]; !exists {
-			diff.IndexesDropped = append(diff.IndexesDropped, idxName)
+			// Check if not already in IndexesDropped (from modification case)
+			alreadyDropped := false
+			for _, dropped := range diff.IndexesDropped {
+				if dropped == idxName {
+					alreadyDropped = true
+					break
+				}
+			}
+			if !alreadyDropped {
+				diff.IndexesDropped = append(diff.IndexesDropped, idxName)
+			}
 		}
 	}
+}
+
+// isSameIndex compares two indexes to determine if they are equivalent.
+// Indexes are considered different if any of their properties differ.
+func (d *Differ) isSameIndex(idx1, idx2 schema.IndexMetadata) bool {
+	// Compare basic properties
+	if idx1.Unique != idx2.Unique {
+		return false
+	}
+
+	// Normalize index type (btree is default)
+	type1 := strings.ToLower(strings.TrimSpace(idx1.Type))
+	type2 := strings.ToLower(strings.TrimSpace(idx2.Type))
+	if type1 == "" {
+		type1 = "btree"
+	}
+	if type2 == "" {
+		type2 = "btree"
+	}
+	if type1 != type2 {
+		return false
+	}
+
+	// Compare expression indexes
+	if idx1.Expression != idx2.Expression {
+		return false
+	}
+
+	// Compare WHERE clause (partial indexes)
+	where1 := strings.TrimSpace(idx1.Where)
+	where2 := strings.TrimSpace(idx2.Where)
+	if where1 != where2 {
+		return false
+	}
+
+	// Compare columns (if not expression index)
+	if idx1.Expression == "" {
+		if !d.isSameStringSlice(idx1.Columns, idx2.Columns) {
+			return false
+		}
+	}
+
+	// Compare INCLUDE columns
+	if !d.isSameStringSlice(idx1.Include, idx2.Include) {
+		return false
+	}
+
+	// Compare column ordering (direction, nulls, operator classes, collations)
+	if !d.isSameColumnOrdering(idx1.ColumnOrdering, idx2.ColumnOrdering) {
+		return false
+	}
+
+	// Note: We don't compare Concurrent flag because it's a creation-time option,
+	// not a property of the resulting index
+
+	return true
+}
+
+// isSameColumnOrdering compares column ordering specifications.
+func (d *Differ) isSameColumnOrdering(ord1, ord2 []schema.ColumnOrder) bool {
+	// Build maps for easier comparison (keyed by column name)
+	ord1Map := make(map[string]schema.ColumnOrder)
+	for _, o := range ord1 {
+		ord1Map[o.Column] = o
+	}
+
+	ord2Map := make(map[string]schema.ColumnOrder)
+	for _, o := range ord2 {
+		ord2Map[o.Column] = o
+	}
+
+	// Check if same columns have orderings
+	if len(ord1Map) != len(ord2Map) {
+		return false
+	}
+
+	// Compare each column's ordering
+	for colName, o1 := range ord1Map {
+		o2, exists := ord2Map[colName]
+		if !exists {
+			return false
+		}
+
+		// Compare direction (default ASC if not specified)
+		dir1 := o1.Direction
+		dir2 := o2.Direction
+		if dir1 == "" {
+			dir1 = schema.Ascending
+		}
+		if dir2 == "" {
+			dir2 = schema.Ascending
+		}
+		if dir1 != dir2 {
+			return false
+		}
+
+		// Compare nulls ordering
+		if o1.Nulls != o2.Nulls {
+			return false
+		}
+
+		// Compare operator class
+		opClass1 := strings.TrimSpace(o1.OpClass)
+		opClass2 := strings.TrimSpace(o2.OpClass)
+		if opClass1 != opClass2 {
+			return false
+		}
+
+		// Compare collation
+		collation1 := strings.TrimSpace(o1.Collation)
+		collation2 := strings.TrimSpace(o2.Collation)
+		if collation1 != collation2 {
+			return false
+		}
+	}
+
+	return true
 }
 
 // compareForeignKeys compares foreign keys.

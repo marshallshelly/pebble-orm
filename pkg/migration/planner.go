@@ -228,26 +228,115 @@ func (p *Planner) generateForeignKeyDefinition(fk schema.ForeignKeyMetadata) str
 	return strings.Join(parts, " ")
 }
 
-// generateCreateIndex generates a CREATE INDEX statement.
+// generateCreateIndex generates a CREATE INDEX statement with full support for:
+// - Expression indexes: CREATE INDEX ... ON table (lower(email))
+// - Partial indexes: CREATE INDEX ... ON table (col) WHERE condition
+// - Covering indexes: CREATE INDEX ... ON table (col) INCLUDE (col2, col3)
+// - Column ordering: CREATE INDEX ... ON table (col1 DESC, col2 ASC)
+// - Index types: CREATE INDEX ... ON table USING gin (col)
 func (p *Planner) generateCreateIndex(tableName string, idx schema.IndexMetadata) string {
-	unique := ""
+	var parts []string
+
+	// CREATE [UNIQUE] INDEX
 	if idx.Unique {
-		unique = "UNIQUE "
+		parts = append(parts, "CREATE UNIQUE INDEX")
+	} else {
+		parts = append(parts, "CREATE INDEX")
 	}
 
-	method := ""
-	if idx.Type != "" && idx.Type != "btree" {
-		method = " USING " + idx.Type
+	// [CONCURRENTLY]
+	if idx.Concurrent {
+		parts = append(parts, "CONCURRENTLY")
 	}
 
-	// Add IF NOT EXISTS for idempotent index creation
-	ifNotExists := ""
+	// [IF NOT EXISTS]
 	if p.options.IfNotExists {
-		ifNotExists = "IF NOT EXISTS "
+		parts = append(parts, "IF NOT EXISTS")
 	}
 
-	cols := strings.Join(idx.Columns, ", ")
-	return fmt.Sprintf("CREATE %sINDEX %s%s ON %s%s (%s);", unique, ifNotExists, idx.Name, tableName, method, cols)
+	// index_name
+	parts = append(parts, idx.Name)
+
+	// ON table
+	parts = append(parts, "ON", tableName)
+
+	// [USING method]
+	if idx.Type != "" && idx.Type != "btree" {
+		parts = append(parts, "USING", idx.Type)
+	}
+
+	// (columns) or (expression)
+	if idx.Expression != "" {
+		// Expression index
+		parts = append(parts, fmt.Sprintf("(%s)", idx.Expression))
+	} else {
+		// Regular column index with optional ordering
+		cols := p.formatColumnsWithOrdering(idx.Columns, idx.ColumnOrdering)
+		parts = append(parts, fmt.Sprintf("(%s)", cols))
+	}
+
+	// [INCLUDE (columns)]
+	if len(idx.Include) > 0 {
+		includeCols := strings.Join(idx.Include, ", ")
+		parts = append(parts, fmt.Sprintf("INCLUDE (%s)", includeCols))
+	}
+
+	// [WHERE predicate]
+	if idx.Where != "" {
+		parts = append(parts, "WHERE", idx.Where)
+	}
+
+	return strings.Join(parts, " ") + ";"
+}
+
+// formatColumnsWithOrdering formats columns with optional modifiers.
+// Supports: column_name [opclass] [COLLATE "collation"] [ASC|DESC] [NULLS FIRST|LAST]
+// Examples:
+//   - ["col1", "col2"] with no ordering -> "col1, col2"
+//   - ["col1"] with opclass -> "col1 varchar_pattern_ops"
+//   - ["col1"] with collation -> "col1 COLLATE \"en_US\""
+//   - ["col1"] with all modifiers -> "col1 varchar_pattern_ops COLLATE \"C\" DESC NULLS LAST"
+func (p *Planner) formatColumnsWithOrdering(columns []string, ordering []schema.ColumnOrder) string {
+	if len(ordering) == 0 {
+		return strings.Join(columns, ", ")
+	}
+
+	// Build a map for quick lookup
+	orderMap := make(map[string]schema.ColumnOrder)
+	for _, ord := range ordering {
+		orderMap[ord.Column] = ord
+	}
+
+	var parts []string
+	for _, col := range columns {
+		part := col
+
+		if ord, ok := orderMap[col]; ok {
+			// Add operator class if specified
+			if ord.OpClass != "" {
+				part += " " + ord.OpClass
+			}
+
+			// Add collation if specified
+			if ord.Collation != "" {
+				part += fmt.Sprintf(` COLLATE "%s"`, ord.Collation)
+			}
+
+			// Add direction if it's not the default (ASC)
+			if ord.Direction == schema.Descending {
+				part += " DESC"
+			}
+
+			// Add NULLS ordering if specified
+			if ord.Nulls != "" {
+				part += " " + string(ord.Nulls)
+			}
+		}
+
+		parts = append(parts, part)
+	}
+
+	return strings.Join(parts, ", ")
 }
 
 // generateDropTable generates a DROP TABLE statement.

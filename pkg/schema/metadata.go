@@ -97,11 +97,47 @@ type ForeignKeyMetadata struct {
 
 // IndexMetadata represents a database index.
 type IndexMetadata struct {
-	Name    string   // Index name
-	Columns []string // Indexed columns
-	Unique  bool     // UNIQUE index
-	Type    string   // Index type (btree, hash, gin, etc.)
+	Name           string        // Index name
+	Columns        []string      // Indexed columns (empty for expression indexes)
+	Expression     string        // Expression for functional indexes: "lower(email)"
+	Unique         bool          // UNIQUE index
+	Type           string        // Index type (btree, hash, gin, gist, brin, etc.)
+	Where          string        // Partial index predicate: "deleted_at IS NULL"
+	Include        []string      // INCLUDE columns for covering indexes (PostgreSQL 11+)
+	ColumnOrdering []ColumnOrder // Column-level ordering (for multicolumn indexes)
+	OpClass        string        // Operator class: varchar_pattern_ops, etc.
+	Collation      string        // Collation: "en_US", "C", etc.
+	Concurrent     bool          // CREATE INDEX CONCURRENTLY (for existing tables)
 }
+
+// ColumnOrder represents ordering and modifiers for a column in an index.
+type ColumnOrder struct {
+	Column    string        // Column name
+	Direction SortDirection // ASC or DESC
+	Nulls     NullsOrder    // FIRST or LAST
+	OpClass   string        // Operator class (e.g., varchar_pattern_ops, text_pattern_ops)
+	Collation string        // Collation (e.g., "en_US", "C")
+}
+
+// SortDirection specifies the sort direction for an index column.
+type SortDirection string
+
+const (
+	// Ascending sorts values in ascending order.
+	Ascending SortDirection = "ASC"
+	// Descending sorts values in descending order.
+	Descending SortDirection = "DESC"
+)
+
+// NullsOrder specifies NULL placement for an index column.
+type NullsOrder string
+
+const (
+	// NullsFirst places NULL values first in the sort order.
+	NullsFirst NullsOrder = "NULLS FIRST"
+	// NullsLast places NULL values last in the sort order.
+	NullsLast NullsOrder = "NULLS LAST"
+)
 
 // ConstraintMetadata represents additional constraints (CHECK, UNIQUE, etc.).
 type ConstraintMetadata struct {

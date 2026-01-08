@@ -123,6 +123,11 @@ func (p *Parser) Parse(modelType reflect.Type) (*TableMetadata, error) {
 		}
 	}
 
+	// Parse column-level indexes from tags
+	if err := p.parseColumnIndexes(modelType, table); err != nil {
+		return nil, fmt.Errorf("failed to parse column indexes: %w", err)
+	}
+
 	// Collect enum types used by this table
 	// Build a map to deduplicate enum types (multiple columns can use same enum)
 	enumTypeMap := make(map[string]EnumType)
@@ -153,6 +158,12 @@ func (p *Parser) Parse(modelType reflect.Type) (*TableMetadata, error) {
 	if err := p.ParseRelationships(modelType, table); err != nil {
 		return nil, fmt.Errorf("failed to parse relationships: %w", err)
 	}
+
+	// Parse table-level indexes from source comments
+	if err := p.parseTableIndexes(modelType, table); err != nil {
+		return nil, fmt.Errorf("failed to parse table indexes: %w", err)
+	}
+
 	// Cache the result
 	p.cache[modelType] = table
 	return table, nil
@@ -510,6 +521,242 @@ func ParseTableNameFromComment(comment string) string {
 	return ""
 }
 
+// ParseIndexFromComment extracts index definition from a comment.
+// Format: // index: idx_name ON (columns) [USING type] [INCLUDE (cols)] [WHERE condition]
+// Examples:
+//   - // index: idx_email ON (email)
+//   - // index: idx_email_lower ON (lower(email))
+//   - // index: idx_active ON (email) WHERE deleted_at IS NULL
+//   - // index: idx_covering ON (email) INCLUDE (name, created_at)
+//   - // index: idx_multi ON (tenant_id, status, created_at DESC)
+func ParseIndexFromComment(comment string) *IndexMetadata {
+	// Match the index directive and name
+	prefixPattern := regexp.MustCompile(`index:\s*(\w+)\s+ON\s+\(`)
+	prefixMatches := prefixPattern.FindStringIndex(comment)
+	if prefixMatches == nil {
+		return nil
+	}
+
+	// Extract the index name
+	namePattern := regexp.MustCompile(`index:\s*(\w+)\s+ON`)
+	nameMatches := namePattern.FindStringSubmatch(comment)
+	if len(nameMatches) < 2 {
+		return nil
+	}
+
+	index := &IndexMetadata{
+		Name: strings.TrimSpace(nameMatches[1]),
+	}
+
+	// Find the content within parentheses (handling nested parens)
+	startIdx := prefixMatches[1] // Position after "ON ("
+	columnsOrExpr, remaining := extractBalancedParens(comment[startIdx:])
+	if columnsOrExpr == "" {
+		return nil
+	}
+
+	// Check if it's an expression (contains function calls or operators)
+	if strings.Contains(columnsOrExpr, "(") || strings.Contains(columnsOrExpr, "||") {
+		// It's an expression
+		index.Expression = columnsOrExpr
+	} else {
+		// It's column list - parse columns and ordering
+		index.Columns, index.ColumnOrdering = parseIndexColumns(columnsOrExpr)
+	}
+
+	// Parse USING clause
+	usingPattern := regexp.MustCompile(`USING\s+(\w+)`)
+	if usingMatches := usingPattern.FindStringSubmatch(remaining); len(usingMatches) > 1 {
+		index.Type = strings.ToLower(usingMatches[1])
+	} else {
+		index.Type = "btree" // default
+	}
+
+	// Parse INCLUDE clause
+	includePattern := regexp.MustCompile(`INCLUDE\s+\(([^)]+)\)`)
+	if includeMatches := includePattern.FindStringSubmatch(remaining); len(includeMatches) > 1 {
+		includeCols := strings.Split(includeMatches[1], ",")
+		for _, col := range includeCols {
+			index.Include = append(index.Include, strings.TrimSpace(col))
+		}
+	}
+
+	// Parse WHERE clause (stop before CONCURRENTLY if present)
+	wherePattern := regexp.MustCompile(`WHERE\s+(.+?)(?:\s+CONCURRENTLY|\s*$)`)
+	if whereMatches := wherePattern.FindStringSubmatch(remaining); len(whereMatches) > 1 {
+		index.Where = strings.TrimSpace(whereMatches[1])
+	}
+
+	// Parse CONCURRENTLY flag
+	if strings.Contains(strings.ToUpper(remaining), "CONCURRENTLY") {
+		index.Concurrent = true
+	}
+
+	return index
+}
+
+// parseIndexColumns parses a column list with optional modifiers.
+// Supports PostgreSQL syntax: column_name [opclass] [COLLATE "collation"] [ASC|DESC] [NULLS FIRST|LAST]
+// Examples:
+//   - "email" -> ["email"], []
+//   - "email varchar_pattern_ops" -> ["email"], [ColumnOrder{OpClass: "varchar_pattern_ops"}]
+//   - "name COLLATE \"en_US\"" -> ["name"], [ColumnOrder{Collation: "en_US"}]
+//   - "created_at DESC NULLS LAST" -> ["created_at"], [ColumnOrder{Direction: DESC, Nulls: NULLS LAST}]
+//   - "email varchar_pattern_ops COLLATE \"C\" DESC" -> complete example
+func parseIndexColumns(columnsStr string) ([]string, []ColumnOrder) {
+	parts := strings.Split(columnsStr, ",")
+	var columns []string
+	var ordering []ColumnOrder
+
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+
+		// Parse tokens with special handling for quoted strings
+		tokens := tokenizeIndexColumn(part)
+		if len(tokens) == 0 {
+			continue
+		}
+
+		columnName := tokens[0]
+		columns = append(columns, columnName)
+
+		// Parse modifiers if present
+		if len(tokens) > 1 {
+			order := ColumnOrder{
+				Column:    columnName,
+				Direction: Ascending, // default
+			}
+
+			i := 1
+			for i < len(tokens) {
+				token := tokens[i]
+				tokenUpper := strings.ToUpper(token)
+
+				switch tokenUpper {
+				case "ASC":
+					order.Direction = Ascending
+					i++
+				case "DESC":
+					order.Direction = Descending
+					i++
+				case "NULLS":
+					if i+1 < len(tokens) {
+						next := strings.ToUpper(tokens[i+1])
+						if next == "FIRST" {
+							order.Nulls = NullsFirst
+							i += 2
+						} else if next == "LAST" {
+							order.Nulls = NullsLast
+							i += 2
+						} else {
+							i++
+						}
+					} else {
+						i++
+					}
+				case "COLLATE":
+					// Next token should be the collation (possibly quoted)
+					if i+1 < len(tokens) {
+						collation := tokens[i+1]
+						// Remove quotes if present
+						collation = strings.Trim(collation, "\"'")
+						order.Collation = collation
+						i += 2
+					} else {
+						i++
+					}
+				default:
+					// If it's not a reserved word, it's an operator class
+					if !isReservedIndexKeyword(tokenUpper) {
+						order.OpClass = token
+					}
+					i++
+				}
+			}
+
+			ordering = append(ordering, order)
+		}
+	}
+
+	return columns, ordering
+}
+
+// tokenizeIndexColumn splits a column specification into tokens, handling quoted strings.
+// Example: 'name COLLATE "en_US" DESC' -> ["name", "COLLATE", "en_US", "DESC"]
+func tokenizeIndexColumn(s string) []string {
+	var tokens []string
+	var current strings.Builder
+	inQuote := false
+	quoteChar := rune(0)
+
+	for i, ch := range s {
+		switch {
+		case (ch == '"' || ch == '\'') && !inQuote:
+			// Start of quoted string
+			inQuote = true
+			quoteChar = ch
+		case ch == quoteChar && inQuote:
+			// End of quoted string
+			tokens = append(tokens, current.String())
+			current.Reset()
+			inQuote = false
+			quoteChar = 0
+		case ch == ' ' && !inQuote:
+			// Whitespace outside quotes
+			if current.Len() > 0 {
+				tokens = append(tokens, current.String())
+				current.Reset()
+			}
+		case inQuote || (ch != ' ' && ch != '"' && ch != '\''):
+			// Regular character or quoted content
+			current.WriteRune(ch)
+		}
+
+		// Handle end of string
+		if i == len(s)-1 && current.Len() > 0 {
+			tokens = append(tokens, current.String())
+		}
+	}
+
+	return tokens
+}
+
+// isReservedIndexKeyword checks if a token is a reserved index keyword.
+func isReservedIndexKeyword(token string) bool {
+	reserved := map[string]bool{
+		"ASC":     true,
+		"DESC":    true,
+		"NULLS":   true,
+		"FIRST":   true,
+		"LAST":    true,
+		"COLLATE": true,
+	}
+	return reserved[token]
+}
+
+// extractBalancedParens extracts content within balanced parentheses.
+// Returns the content and the remaining string after the closing paren.
+// Example: "lower(email)) WHERE ..." -> "lower(email)", " WHERE ..."
+func extractBalancedParens(s string) (content, remaining string) {
+	depth := 0
+	for i, ch := range s {
+		switch ch {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == -1 {
+				// Found the matching closing paren
+				return s[:i], s[i+1:]
+			}
+		}
+	}
+	return "", ""
+}
+
 // ParseSourceFile attempts to extract table name from source file comments.
 // This requires reading the source file, which is more complex.
 func ParseSourceFile(_ string, _ string) (string, error) {
@@ -604,4 +851,188 @@ func parseReferenceAction(action string) ReferenceAction {
 	default:
 		return NoAction
 	}
+}
+
+// parseColumnIndexes extracts index definitions from column tags.
+// Supports formats:
+//   - `po:"column,type,index"` - simple index with auto-generated name
+//   - `po:"column,type,index(name)"` - named index
+//   - `po:"column,type,index(name,gin)"` - named index with type
+//   - `po:"column,type,index(name,btree,desc)"` - with ordering
+func (p *Parser) parseColumnIndexes(modelType reflect.Type, table *TableMetadata) error {
+	for i := 0; i < modelType.NumField(); i++ {
+		field := modelType.Field(i)
+		if !field.IsExported() {
+			continue
+		}
+
+		tagValue := field.Tag.Get(StructTagKey)
+		if tagValue == "" {
+			continue
+		}
+
+		opts, err := p.parseTag(tagValue)
+		if err != nil {
+			continue
+		}
+
+		// Check for index option
+		indexValue := opts.Get("index")
+		if indexValue == "" && !opts.Has("index") {
+			continue
+		}
+
+		// Find the column name for this field
+		columnName := opts.Name
+		if columnName == "" || columnName == "-" {
+			continue
+		}
+
+		// Parse index parameters
+		indexName, indexType, direction := p.parseIndexParameters(indexValue, table.Name, columnName)
+
+		// Create index metadata
+		index := IndexMetadata{
+			Name:    indexName,
+			Columns: []string{columnName},
+			Type:    indexType,
+		}
+
+		// Add column ordering if specified
+		if direction == "desc" {
+			index.ColumnOrdering = []ColumnOrder{
+				{
+					Column:    columnName,
+					Direction: Descending,
+				},
+			}
+		}
+
+		table.Indexes = append(table.Indexes, index)
+	}
+
+	return nil
+}
+
+// parseIndexParameters parses the index tag value and returns name, type, and direction.
+// Supports:
+//   - "" or no value: auto-generated name, btree, asc
+//   - "name": custom name, btree, asc
+//   - "name,gin": custom name, gin, asc
+//   - "name,btree,desc": custom name, btree, desc
+func (p *Parser) parseIndexParameters(value, tableName, columnName string) (name, indexType, direction string) {
+	// Default values
+	name = fmt.Sprintf("idx_%s_%s", tableName, columnName)
+	indexType = "btree"
+	direction = "asc"
+
+	if value == "" {
+		return
+	}
+
+	// Split by comma
+	parts := strings.Split(value, ",")
+	if len(parts) == 0 {
+		return
+	}
+
+	// First part is the index name
+	if parts[0] != "" {
+		name = strings.TrimSpace(parts[0])
+	}
+
+	// Second part is the index type (if present)
+	if len(parts) > 1 && parts[1] != "" {
+		indexType = strings.ToLower(strings.TrimSpace(parts[1]))
+	}
+
+	// Third part is the direction (if present)
+	if len(parts) > 2 && parts[2] != "" {
+		direction = strings.ToLower(strings.TrimSpace(parts[2]))
+	}
+
+	return
+}
+
+// parseTableIndexes extracts index definitions from struct-level comments.
+// It looks for comments like: // index: idx_name ON (columns) ...
+func (p *Parser) parseTableIndexes(modelType reflect.Type, table *TableMetadata) error {
+	// Get the package path and struct name
+	pkgPath := modelType.PkgPath()
+	structName := modelType.Name()
+	if pkgPath == "" || structName == "" {
+		return nil // Not an error, just no source file available
+	}
+
+	// Find the source file
+	sourceFile, err := findSourceFile(pkgPath, structName)
+	if err != nil {
+		return nil // Silently fail - not critical
+	}
+
+	// Parse the source file and extract indexes
+	indexes, err := extractIndexesFromFile(sourceFile, structName)
+	if err != nil {
+		return nil // Silently fail - not critical
+	}
+
+	// Add indexes to table
+	table.Indexes = append(table.Indexes, indexes...)
+
+	return nil
+}
+
+// extractIndexesFromFile parses a Go source file and extracts index definitions from comments.
+func extractIndexesFromFile(filename, structName string) ([]IndexMetadata, error) {
+	fset := token.NewFileSet()
+	// Parse the file
+	file, err := parser.ParseFile(fset, filename, nil, parser.ParseComments)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse file: %w", err)
+	}
+
+	var indexes []IndexMetadata
+
+	// Find the struct declaration
+	for _, decl := range file.Decls {
+		genDecl, ok := decl.(*ast.GenDecl)
+		if !ok {
+			continue
+		}
+
+		// Check each spec in the declaration
+		for _, spec := range genDecl.Specs {
+			typeSpec, ok := spec.(*ast.TypeSpec)
+			if !ok || typeSpec.Name.Name != structName {
+				continue
+			}
+
+			// Check if it's a struct type
+			if _, ok := typeSpec.Type.(*ast.StructType); !ok {
+				continue
+			}
+
+			// Found the struct! Now check for index comments
+			if genDecl.Doc != nil {
+				for _, comment := range genDecl.Doc.List {
+					index := ParseIndexFromComment(comment.Text)
+					if index != nil {
+						indexes = append(indexes, *index)
+					}
+				}
+			}
+
+			// Also check line comments
+			if typeSpec.Comment != nil {
+				for _, comment := range typeSpec.Comment.List {
+					index := ParseIndexFromComment(comment.Text)
+					if index != nil {
+						indexes = append(indexes, *index)
+					}
+				}
+			}
+		}
+	}
+
+	return indexes, nil
 }
