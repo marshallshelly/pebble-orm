@@ -427,6 +427,93 @@ go run cmd/multi-tenancy/main.go
 
 ---
 
+### 10. **PostgreSQL Indexes** (`indexes/`) ⚡ COMPREHENSIVE
+
+**What it demonstrates:**
+
+- ✅ **All PostgreSQL Index Types**: btree, gin, gist, brin, hash
+- ✅ **Simple Column Indexes**: Auto-named and custom-named indexes
+- ✅ **Expression Indexes**: Indexes on computed values (e.g., `lower(email)`)
+- ✅ **Partial Indexes**: Conditional indexes with WHERE clauses
+- ✅ **Covering Indexes**: INCLUDE columns for index-only scans
+- ✅ **Operator Classes**: Pattern matching optimization (varchar_pattern_ops)
+- ✅ **Collations**: Locale-specific sorting (en_US, C, etc.)
+- ✅ **Column Ordering**: DESC/ASC with NULLS FIRST/LAST
+- ✅ **Multicolumn Indexes**: Composite indexes with mixed ordering
+- ✅ **CONCURRENTLY**: Production-safe index creation without blocking writes
+- ✅ **GIN Indexes**: JSONB and array queries
+- ✅ **BRIN Indexes**: Space-efficient time-series data
+- ✅ **Hash Indexes**: Equality-only lookups
+
+**12 Comprehensive Examples:**
+
+1. **Product** - Simple column-level indexes
+2. **User** - Expression and partial indexes
+3. **Order** - Covering indexes with INCLUDE
+4. **Event** - Multicolumn with mixed ordering
+5. **SearchTerm** - Operator classes for pattern matching
+6. **InternationalProduct** - Collations for locale-specific sorting
+7. **AnalyticsEvent** - CONCURRENTLY for production
+8. **Document** - Complex multi-feature indexes
+9. **SensorReading** - BRIN for time-series data
+10. **APIKey** - Hash indexes for equality-only
+11. **Task** - Advanced NULLS ordering
+12. **Article** - Composite with all features
+
+**Index Types:**
+
+```go
+// Simple column index
+Name string `po:"name,varchar(255),index"` // Auto-named: idx_table_name
+
+// Custom name with type and ordering
+CreatedAt time.Time `po:"created_at,timestamptz,index(idx_created,btree,desc)"`
+
+// GIN index for JSONB
+Metadata JSONB `po:"metadata,jsonb,index(idx_metadata,gin)"`
+
+// Table-level complex indexes
+// table_name: users
+// index: idx_email_lower ON (lower(email))
+// index: idx_active ON (email) WHERE deleted_at IS NULL
+// index: idx_complex ON (col1, col2 DESC) INCLUDE (col3) WHERE active = true CONCURRENTLY
+```
+
+**Run it:**
+
+```bash
+cd indexes
+
+# Generate migration
+pebble generate --name create_index_tables --db "$DATABASE_URL"
+
+# Apply migrations
+pebble migrate up --all --db "$DATABASE_URL"
+
+# Run examples
+go run cmd/indexes/main.go
+```
+
+**Key Takeaways:**
+
+- **btree**: Default, best for most queries (sorting, ranges, equality)
+- **gin**: JSONB, arrays, full-text search
+- **gist**: Geometric data, range types
+- **brin**: Very large tables, time-series (100-1000x smaller than btree)
+- **hash**: Fastest for equality-only lookups
+- **Partial indexes**: Only index filtered data (smaller, faster)
+- **Covering indexes**: INCLUDE enables index-only scans (huge performance boost)
+- **CONCURRENTLY**: Build indexes without blocking writes in production
+
+**Perfect for:**
+- 🏗️ Understanding PostgreSQL index types and when to use them
+- ⚡ Optimizing query performance
+- 📊 Time-series and analytics workloads
+- 🔍 Full-text and pattern matching searches
+- 🏢 Production deployments with CONCURRENTLY
+
+---
+
 ## 🎯 Common Patterns
 
 ### Environment Configuration

@@ -32,6 +32,7 @@ basic/
 - ✅ **Enum Types**: PostgreSQL ENUM types with automatic migrations
 - ✅ **JSONB Support**: Direct struct scanning for JSONB fields (no wrapper needed!)
 - ✅ **JSONB Queries**: Using JSONB operators for advanced queries
+- ✅ **Indexes**: Simple column-level indexes and partial indexes for performance
 - ✅ **Error Handling**: Proper error checking
 
 ## Prerequisites
@@ -177,7 +178,39 @@ Adding new enum values is automatic - just update the tag:
 // Migration generates: ALTER TYPE post_status ADD VALUE IF NOT EXISTS 'deleted';
 ```
 
-### 4. JSONB Support (Direct Struct Scanning)
+### 4. Index Support
+
+Pebble ORM supports comprehensive index features for query performance:
+
+```go
+// Simple column-level indexes
+type User struct {
+    Email     string    `po:"email,varchar(320),unique,notNull,index"` // Auto-named: idx_users_email
+    Age       int       `po:"age,integer,notNull,index"`                // Auto-named: idx_users_age
+    CreatedAt time.Time `po:"created_at,timestamptz,notNull,index(idx_users_created,btree,desc)"` // DESC for recent-first
+}
+
+// GIN index for JSONB queries
+type Post struct {
+    Metadata *PostMetadata `po:"metadata,jsonb,index(idx_posts_metadata,gin)"` // Fast JSONB searches
+}
+
+// Table-level complex indexes (via comment)
+// table_name: posts
+// index: idx_posts_status_created ON (status, created_at DESC) WHERE status = 'published'
+type Post struct {
+    // Partial index - only indexes published posts for efficient queries
+}
+```
+
+**Index Types:**
+- `btree` (default): Most queries - equality, ranges, sorting
+- `gin`: JSONB, arrays, full-text search
+- `gist`: Geometric data, range types
+- `brin`: Very large tables with natural ordering
+- `hash`: Equality-only queries
+
+### 5. JSONB Support (Direct Struct Scanning)
 
 Use JSONB fields without any wrapper types - pgx handles it natively:
 
@@ -219,7 +252,7 @@ fmt.Println(users[0].Preferences.Theme) // "dark"
 - ✅ **NULL handling** - use pointers for nullable JSONB
 - ✅ **Clean API** - works exactly like you'd expect
 
-### 5. Environment-Based Configuration
+### 6. Environment-Based Configuration
 
 ```go
 connStr := os.Getenv("DATABASE_URL")
