@@ -664,7 +664,7 @@ count, err := builder.Update[User](qb).
 
 ```bash
 # Run all examples in sequence
-for dir in basic relationships transactions migrations postgresql custom_table_names cascade_delete generated_columns multi-tenancy; do
+for dir in basic relationships transactions migrations postgresql indexes custom_table_names cascade_delete generated_columns multi-tenancy; do
     echo "Running $dir example..."
     cd $dir
     go mod tidy
@@ -684,10 +684,11 @@ Recommended order for learning:
 3. **relationships/** - Master data associations
 4. **transactions/** - Understand atomicity
 5. **postgresql/** - Explore advanced PostgreSQL features
-6. **migrations/** - Learn schema management
-7. **cascade_delete/** - Master foreign key constraints and cascade actions
-8. **generated_columns/** - Learn auto-computed column values
-9. **multi-tenancy/** - Master multi-tenant architecture patterns
+6. **indexes/** - Master index types and query optimization
+7. **migrations/** - Learn schema management
+8. **cascade_delete/** - Master foreign key constraints and cascade actions
+9. **generated_columns/** - Learn auto-computed column values
+10. **multi-tenancy/** - Master multi-tenant architecture patterns
 
 ---
 
@@ -750,6 +751,7 @@ pg_isready
 # Create missing databases
 createdb pebble_basic
 createdb pebble_relationships
+createdb pebble_indexes_example
 createdb pebble_multitenancy
 # ...etc
 ```
