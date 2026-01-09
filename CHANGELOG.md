@@ -5,6 +5,18 @@ All notable changes to Pebble ORM will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.0] - 2026-01-09
+
+### Added
+
+- Native JSONB auto-marshaling for custom types without requiring `driver.Valuer`/`sql.Scanner` implementations.
+- `IsJSONB` flag on `ColumnMetadata` to track JSONB columns for automatic serialization.
+- JSONB column detection in parser from `jsonb`/`json` tag options or SQL type.
+- `marshalJSONB()` helper for automatic JSON serialization of JSONB fields on insert/update.
+- `jsonbScanTarget` intermediate scanner for automatic JSON deserialization on select.
+- `implementsValuer()` and `implementsScanner()` helpers to check for existing interface implementations.
+- Backward compatibility with types that already implement `Value()`/`Scan()`.
+
 ## [1.12.0] - 2026-01-08
 
 ### Added
@@ -50,6 +62,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Implementation Details
 
 **Index Types and When to Use Them:**
+
 - **btree** (default): Most use cases - equality, ranges, sorting (B-tree skip scan in PostgreSQL 18+)
 - **gin**: Arrays, JSONB, full-text search
 - **gist**: Geometric data, range types, nearest-neighbor queries
@@ -57,6 +70,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **hash**: Equality-only queries (rarely needed, btree is usually better)
 
 **Design Philosophy:**
+
 - Default to simple single-column indexes
 - PostgreSQL automatically combines multiple indexes using bitmap scans
 - Add multicolumn indexes only after performance testing proves they're necessary
@@ -65,6 +79,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Use INCLUDE for covering indexes to enable index-only scans
 
 **Parser Implementation:**
+
 - `parseColumnIndexes()` - Parses column-level `index`, `index(name)`, `index(name,type)`, `index(name,type,desc)` tags
 - `ParseIndexFromComment()` - Parses table-level index comments with full PostgreSQL syntax
 - `parseIndexColumns()` - Tokenizes column definitions with operator classes, collations, and ordering
@@ -73,6 +88,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `isReservedIndexKeyword()` - Distinguishes operator classes from SQL keywords
 
 **Introspection Implementation:**
+
 - `getIndexes()` - Updated query to use `pg_get_indexdef()` for complete index definitions
 - `parseIndexDefinition()` - Parses CREATE INDEX output to extract all components
 - `parseIndexColumnList()` - Splits comma-separated columns respecting nested parentheses
@@ -80,12 +96,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `splitRespectingParens()` - Helper for comma splitting with balanced parentheses
 
 **Differ Enhancement:**
+
 - `compareIndexes()` - Now detects modified indexes (not just added/dropped)
 - `isSameIndex()` - Compares all index properties for equality
 - `isSameColumnOrdering()` - Compares operator classes, collations, direction, nulls ordering
 - Modified indexes are dropped and recreated in migrations
 
 **Files Changed:**
+
 - `pkg/schema/metadata.go` - Enhanced `IndexMetadata` with `Expression`, `Where`, `Include`, `ColumnOrdering`, `Concurrent`
 - `pkg/schema/parser.go` - Implemented comprehensive index parsing from tags and comments
 - `pkg/migration/introspector.go` - Added full index introspection with 250+ lines of parsing logic

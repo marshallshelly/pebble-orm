@@ -379,6 +379,14 @@ func (p *Parser) createColumnMetadata(field reflect.StructField, opts *TagOption
 		column.SQLType = column.EnumType
 	}
 
+	// Detect JSONB columns for automatic marshaling
+	// JSONB columns are detected by:
+	// 1. Explicit jsonb tag option
+	// 2. SQLType containing "json" or "jsonb"
+	sqlTypeLower := strings.ToLower(column.SQLType)
+	column.IsJSONB = opts.Has("jsonb") || opts.Has("json") ||
+		sqlTypeLower == "jsonb" || sqlTypeLower == "json"
+
 	return column
 }
 

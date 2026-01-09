@@ -39,6 +39,7 @@ type ColumnMetadata struct {
 	Generated     *GeneratedColumn // Generated column definition (nil if not generated)
 	EnumType      string           // PostgreSQL enum type name (e.g., "order_status"), empty if not enum
 	EnumValues    []string         // Enum values for this column (if enum type)
+	IsJSONB       bool             // Column is JSONB type (for automatic marshaling)
 }
 
 // IdentityColumn represents a PostgreSQL identity column (GENERATED AS IDENTITY).
