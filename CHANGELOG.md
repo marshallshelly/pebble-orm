@@ -5,6 +5,13 @@ All notable changes to Pebble ORM will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.1] - 2026-01-09
+
+### Fixed
+
+- Introspector `int2vector` scan error when fetching index metadata.
+- JSONB auto-marshaling now returns string instead of `[]byte` for proper pgx encoding.
+
 ## [1.13.0] - 2026-01-09
 
 ### Added

@@ -328,11 +328,11 @@ func (i *Introspector) getForeignKeys(ctx context.Context, tableName string) ([]
 // should not be dropped with DROP INDEX.
 func (i *Introspector) getIndexes(ctx context.Context, tableName string) ([]schema.IndexMetadata, error) {
 	// This query retrieves comprehensive index information including:
-	// - Operator classes and collations per column
-	// - Column ordering (DESC/ASC, NULLS FIRST/LAST)
 	// - Expression indexes
 	// - Partial indexes (WHERE clause)
 	// - INCLUDE columns (covering indexes)
+	// Note: We use pg_get_indexdef() to extract column info instead of indkey/indoption
+	// because int2vector types are problematic to scan with pgx.
 	query := `
 		SELECT
 			i.relname as index_name,
@@ -340,10 +340,6 @@ func (i *Introspector) getIndexes(ctx context.Context, tableName string) ([]sche
 			ix.indisunique as is_unique,
 			pg_get_indexdef(ix.indexrelid) as index_def,
 			pg_get_expr(ix.indpred, ix.indrelid) as predicate,
-			ix.indnatts as num_columns,
-			ix.indnkeyatts as num_key_columns,
-			ix.indkey as column_numbers,
-			ix.indoption as column_options,
 			ix.indexprs IS NOT NULL as is_expression
 		FROM pg_class t
 		JOIN pg_index ix ON t.oid = ix.indrelid
@@ -368,9 +364,6 @@ func (i *Introspector) getIndexes(ctx context.Context, tableName string) ([]sche
 		var indexName, indexType, indexDef string
 		var isUnique, isExpression bool
 		var predicate *string
-		var numColumns, numKeyColumns int16
-		var columnNumbers []int16
-		var columnOptions []int16
 
 		err := rows.Scan(
 			&indexName,
@@ -378,10 +371,6 @@ func (i *Introspector) getIndexes(ctx context.Context, tableName string) ([]sche
 			&isUnique,
 			&indexDef,
 			&predicate,
-			&numColumns,
-			&numKeyColumns,
-			&columnNumbers,
-			&columnOptions,
 			&isExpression,
 		)
 		if err != nil {
