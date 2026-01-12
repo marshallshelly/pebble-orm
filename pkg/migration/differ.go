@@ -285,15 +285,21 @@ func (d *Differ) isSameIndex(idx1, idx2 schema.IndexMetadata) bool {
 }
 
 // isSameColumnOrdering compares column ordering specifications.
+// Handles the case where empty/missing orderings are equivalent to explicit default ASC orderings.
 func (d *Differ) isSameColumnOrdering(ord1, ord2 []schema.ColumnOrder) bool {
+	// Filter out default orderings (ASC with no other modifiers) from both lists
+	// This allows empty lists to match lists with only default orderings
+	nonDefault1 := d.filterNonDefaultOrderings(ord1)
+	nonDefault2 := d.filterNonDefaultOrderings(ord2)
+
 	// Build maps for easier comparison (keyed by column name)
 	ord1Map := make(map[string]schema.ColumnOrder)
-	for _, o := range ord1 {
+	for _, o := range nonDefault1 {
 		ord1Map[o.Column] = o
 	}
 
 	ord2Map := make(map[string]schema.ColumnOrder)
-	for _, o := range ord2 {
+	for _, o := range nonDefault2 {
 		ord2Map[o.Column] = o
 	}
 
@@ -343,6 +349,32 @@ func (d *Differ) isSameColumnOrdering(ord1, ord2 []schema.ColumnOrder) bool {
 	}
 
 	return true
+}
+
+// filterNonDefaultOrderings filters out column orderings that are effectively defaults.
+// A default ordering is ASC with no nulls, opclass, or collation modifiers.
+// This allows empty orderings to be treated as equivalent to explicit ASC orderings.
+func (d *Differ) filterNonDefaultOrderings(orderings []schema.ColumnOrder) []schema.ColumnOrder {
+	var nonDefault []schema.ColumnOrder
+	for _, o := range orderings {
+		// Normalize direction
+		dir := o.Direction
+		if dir == "" {
+			dir = schema.Ascending
+		}
+
+		// Check if this is a non-default ordering
+		// (DESC, or has nulls/opclass/collation modifiers)
+		isNonDefault := dir == schema.Descending ||
+			o.Nulls != "" ||
+			strings.TrimSpace(o.OpClass) != "" ||
+			strings.TrimSpace(o.Collation) != ""
+
+		if isNonDefault {
+			nonDefault = append(nonDefault, o)
+		}
+	}
+	return nonDefault
 }
 
 // compareForeignKeys compares foreign keys.

@@ -5,6 +5,19 @@ All notable changes to Pebble ORM will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.1] - 2026-01-13
+
+### Fixed
+
+- **Index Recreation Bug**: Fixed schema differ incorrectly detecting indexes as different on every deployment
+  - The bug caused indexes to be both created and dropped in the same migration
+  - Root cause: `isSameColumnOrdering` function was comparing empty column orderings (default ASC)
+    as different from explicit ASC orderings returned by database introspection
+  - Solution: Added `filterNonDefaultOrderings` helper that treats empty orderings as equivalent
+    to explicit default ASC orderings
+  - This eliminates phantom migrations that recreated the same indexes on every application restart
+  - All 534 migration tests pass with the fix
+
 ## [1.14.0] - 2026-01-12
 
 ### Added
