@@ -5,6 +5,125 @@ All notable changes to Pebble ORM will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.0] - 2026-01-12
+
+### Added
+
+- **Nested Preload Support**: Full support for loading nested relationships using dot notation
+  - Load multi-level relationships in a single query chain: `Preload("Client.Route")`
+  - Support for deep nesting: `Preload("Client.Route.Assignments")`
+  - Efficient batched loading prevents N+1 query problems
+  - Works with BelongsTo, HasOne, and HasMany relationships
+  - Smart query optimization with automatic deduplication
+  - Recursive loading for arbitrarily deep relationship hierarchies
+
+### Implementation Details
+
+**How It Works:**
+
+The preload system now parses dot notation to identify parent and nested relationships:
+
+```go
+// Single-level preload (existing functionality)
+tasks, _ := builder.Select[ClientTask](db).
+    Preload("Client").
+    All(ctx)
+
+// Nested preload (new functionality)
+tasks, _ := builder.Select[ClientTask](db).
+    Preload("Client").
+    Preload("Client.Route").  // Loads Route on each Client
+    All(ctx)
+
+// Deep nesting also supported
+posts, _ := builder.Select[Post](db).
+    Preload("Author.Profile.Avatar").
+    All(ctx)
+```
+
+**Loading Strategy:**
+
+1. Direct relationships loaded first (e.g., "Client")
+2. Nested relationships loaded on parent objects (e.g., "Route" on "Client")
+3. Uses efficient batch queries with `ANY($1)` to minimize database round-trips
+4. Supports multiple nested paths on the same parent
+
+**Files Changed:**
+
+- `pkg/builder/relationships.go`:
+  - Enhanced `loadRelationships()` to parse dot notation and separate direct/nested preloads
+  - Added `loadNestedRelationships()` for recursive nested relationship loading
+  - Added `loadRelationshipOnCollection()` to load relationships on arbitrary object collections
+  - Added `loadBelongsToOnCollection()`, `loadHasOneOnCollection()`, `loadHasManyOnCollection()` for nested loading
+  - Added `strings` package import for path parsing
+
+**Performance Benefits:**
+
+- ✅ **N+1 Prevention**: Still uses batch loading for all nested relationships
+- ✅ **Minimal Queries**: Only adds one query per relationship level
+- ✅ **Efficient Memory**: Reuses existing loading infrastructure
+- ✅ **Type-Safe**: Full compile-time type checking via Go generics
+
+**Limitations:**
+
+- ManyToMany nested preloads not yet supported (will be added in future release)
+- Requires all intermediate relationships to be properly configured in struct tags
+
+### Examples
+
+**Basic Nested Preload:**
+
+```go
+// Load tasks with client and their route information
+tasks, err := builder.Select[models.ClientTask](db).
+    Where(builder.Eq(builder.Col[models.ClientTask]("Status"), "pending")).
+    Preload("Client").
+    Preload("Client.Route").
+    All(ctx)
+
+// Access nested data
+for _, task := range tasks {
+    fmt.Printf("Client: %s, Route: %s\n",
+        task.Client.FirstName,
+        task.Client.Route.Name)  // ✅ Route is loaded!
+}
+```
+
+**Multiple Nested Paths:**
+
+```go
+// Load multiple nested relationships on the same parent
+users, err := builder.Select[models.User](db).
+    Preload("Profile").
+    Preload("Profile.Avatar").
+    Preload("Profile.Settings").
+    All(ctx)
+```
+
+**Deep Nesting:**
+
+```go
+// Load 3 levels deep
+orders, err := builder.Select[models.Order](db).
+    Preload("Customer.Address.Country").
+    All(ctx)
+```
+
+### Use Cases
+
+- **Multi-tenant Applications**: Load client → route assignments efficiently
+- **Social Platforms**: Load user → profile → avatar chains
+- **E-commerce**: Load order → customer → address → country hierarchies
+- **CMS Systems**: Load post → author → profile relationships
+
+### Breaking Changes
+
+None. This is a backward-compatible addition to the existing Preload API.
+
+### Migration Guide
+
+No migration required. Existing code using `Preload()` continues to work as before. Simply add dot notation to load nested relationships when needed.
+
 ## [1.13.2] - 2026-01-10
 
 ### Fixed
