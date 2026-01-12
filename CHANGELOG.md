@@ -5,6 +5,15 @@ All notable changes to Pebble ORM will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.4] - 2026-01-13
+
+### Changed
+
+- **Removed debug logging**: Cleaned up debug output after verifying the index recreation bug fix
+  - Removed temporary debug logging from `introspector.go`
+  - Bug fix confirmed working in production
+  - This is the recommended stable version for production use
+
 ## [1.14.3] - 2026-01-13
 
 ### Fixed
