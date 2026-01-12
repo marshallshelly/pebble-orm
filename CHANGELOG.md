@@ -5,11 +5,27 @@ All notable changes to Pebble ORM will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.3] - 2026-01-13
+
+### Fixed
+
+- **Index Introspection Bug**: Fixed critical bug where schema-qualified table names prevented index column parsing
+  - The introspection was finding indexes but returning empty `Columns` arrays
+  - Root cause: `parseIndexDefinition` was searching for `" ON refresh_tokens"` but PostgreSQL's
+    `pg_get_indexdef()` returns `" ON public.refresh_tokens"` with schema qualifier
+  - This caused the parser to fail early and return indexes with empty Columns, making the differ
+    think they needed to be recreated (since code schema has Columns populated)
+  - Solution: Try schema-qualified name first (`" ON public.table_name"`), then fall back to unqualified
+  - Added comprehensive test suite in `introspector_schema_qualified_test.go`
+  - **This was the actual root cause of the index recreation issue** - previous fix (v1.14.1) addressed
+    a different symptom but not the core problem
+  - All 535+ migration tests pass
+
 ## [1.14.1] - 2026-01-13
 
 ### Fixed
 
-- **Index Recreation Bug**: Fixed schema differ incorrectly detecting indexes as different on every deployment
+- **Index Recreation Bug (Partial Fix)**: Fixed schema differ incorrectly detecting indexes as different on every deployment
   - The bug caused indexes to be both created and dropped in the same migration
   - Root cause: `isSameColumnOrdering` function was comparing empty column orderings (default ASC)
     as different from explicit ASC orderings returned by database introspection
@@ -17,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     to explicit default ASC orderings
   - This eliminates phantom migrations that recreated the same indexes on every application restart
   - All 534 migration tests pass with the fix
+  - **Note**: This fix addressed a real issue but wasn't the root cause - see v1.14.3 for the actual fix
 
 ## [1.14.0] - 2026-01-12
 

@@ -565,9 +565,16 @@ func (i *Introspector) parseIndexDefinition(ctx context.Context, tableName, inde
 	}
 
 	// Extract column list - find first '(' after table name and matching ')'
-	tableNamePos := strings.Index(indexDef, " ON "+tableName)
+	// Note: Index definition may include schema name (e.g., "ON public.refresh_tokens")
+	// Try with schema-qualified name first, then fall back to unqualified
+	tableNamePos := strings.Index(indexDef, " ON public."+tableName)
 	if tableNamePos == -1 {
-		return idx, nil // Fallback to basic index
+		// Try without schema qualifier
+		tableNamePos = strings.Index(indexDef, " ON "+tableName)
+		if tableNamePos == -1 {
+			fmt.Printf("🐛 DEBUG: parseIndexDefinition failed to find table name in: %s\n", indexDef)
+			return idx, nil // Fallback to basic index
+		}
 	}
 
 	// Find the column list start (after USING clause if present, or after table name)
