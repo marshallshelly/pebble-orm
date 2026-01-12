@@ -360,7 +360,9 @@ func (i *Introspector) getIndexes(ctx context.Context, tableName string) ([]sche
 	defer rows.Close()
 
 	var indexes []schema.IndexMetadata
+	rowCount := 0
 	for rows.Next() {
+		rowCount++
 		var indexName, indexType, indexDef string
 		var isUnique, isExpression bool
 		var predicate *string
@@ -374,12 +376,17 @@ func (i *Introspector) getIndexes(ctx context.Context, tableName string) ([]sche
 			&isExpression,
 		)
 		if err != nil {
+			fmt.Printf("🐛 DEBUG: Error scanning index row for table %s: %v\n", tableName, err)
 			return nil, err
 		}
+
+		fmt.Printf("🐛 DEBUG: Found index %s (type=%s, unique=%v, def=%s)\n",
+			indexName, indexType, isUnique, indexDef)
 
 		// Parse the index definition to extract detailed information
 		idx, err := i.parseIndexDefinition(ctx, tableName, indexName, indexType, isUnique, indexDef, predicate, isExpression)
 		if err != nil {
+			fmt.Printf("🐛 DEBUG: Error parsing index definition for %s: %v (using basic structure)\n", indexName, err)
 			// If parsing fails, create a basic index structure
 			idx = &schema.IndexMetadata{
 				Name:   indexName,
@@ -395,6 +402,9 @@ func (i *Introspector) getIndexes(ctx context.Context, tableName string) ([]sche
 
 		indexes = append(indexes, *idx)
 	}
+
+	fmt.Printf("🐛 DEBUG: getIndexes for table %s: scanned %d rows, returning %d indexes\n",
+		tableName, rowCount, len(indexes))
 
 	return indexes, rows.Err()
 }
