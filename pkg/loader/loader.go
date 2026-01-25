@@ -345,13 +345,17 @@ func getOptionValue(opts *tagOptions, option string) string {
 
 // getSQLTypeFromOptions extracts SQL type from tag options
 func getSQLTypeFromOptions(opts *tagOptions) string {
+	// IMPORTANT: Order matters! More specific types must come before their prefixes.
+	// - jsonb before json (jsonb starts with "json")
+	// - timestamptz before timestamp (timestamptz starts with "timestamp")
+	// - bigserial before serial (bigserial contains "serial")
 	pgTypes := []string{
 		"uuid", "varchar", "text", "char",
-		"smallint", "integer", "bigint", "serial", "bigserial",
-		"numeric", "decimal", "real",
+		"smallint", "integer", "bigint", "bigserial", "serial",
+		"numeric", "decimal", "real", "double precision",
 		"boolean", "bool",
-		"timestamp", "timestamptz", "date", "time",
-		"json", "jsonb",
+		"timestamptz", "timestamp", "date", "time", "interval",
+		"jsonb", "json",
 		"bytea",
 	}
 
