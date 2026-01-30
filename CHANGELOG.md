@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.6] - 2026-01-30
+
+### Added
+
+- Custom array types for PgBouncer/simple_protocol compatibility: `StringArray`, `Int32Array`, `Int64Array`, `Float64Array`, `BoolArray`.
+- PostgreSQL text format array parsing for `{value1,value2,value3}` syntax.
+- Full support for quoted elements, escaped characters, and NULL values in array parsing.
+- Comprehensive test suite for array types (50+ test cases).
+
 ## [1.14.5] - 2026-01-25
 
 ### Fixed
@@ -385,7 +394,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - golangci-lint integration.
 - GoReleaser configuration for multi-platform releases.
 
-[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.14.5...HEAD
+[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.14.6...HEAD
+[1.14.6]: https://github.com/marshallshelly/pebble-orm/compare/v1.14.5...v1.14.6
 [1.14.5]: https://github.com/marshallshelly/pebble-orm/compare/v1.14.4...v1.14.5
 [1.14.4]: https://github.com/marshallshelly/pebble-orm/compare/v1.14.3...v1.14.4
 [1.14.3]: https://github.com/marshallshelly/pebble-orm/compare/v1.14.1...v1.14.3
