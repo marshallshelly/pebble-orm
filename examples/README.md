@@ -150,6 +150,7 @@ go run cmd/migrations/main.go
 
 - ✅ **JSONB**: Store and query JSON data
 - ✅ **Arrays**: PostgreSQL array types
+- ✅ **PgBouncer Arrays**: `schema.StringArray` for simple_protocol compatibility
 - ✅ **CTEs**: Common Table Expressions (WITH queries)
 - ✅ **Subqueries**: Nested SELECT statements
 - ✅ **Window Functions**: OVER, PARTITION BY

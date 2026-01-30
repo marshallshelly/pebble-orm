@@ -14,9 +14,22 @@ type Document struct {
 	Title     string       `po:"title,varchar(255),notNull"`
 	Content   string       `po:"content,text,notNull"`
 	Metadata  schema.JSONB `po:"metadata,jsonb"`      // JSONB field
-	Tags      []string     `po:"tags,text[]"`         // Array field
+	Tags      []string     `po:"tags,text[]"`         // Array field (works in extended protocol)
 	SearchVec string       `po:"search_vec,tsvector"` // Full-text search
 	CreatedAt time.Time    `po:"created_at,timestamptz,default(NOW()),notNull"`
+}
+
+// Schedule demonstrates schema.StringArray for PgBouncer simple_protocol compatibility.
+//
+// When using PgBouncer with transaction pooling (default_query_exec_mode=simple_protocol),
+// native Go slices like []string fail to scan PostgreSQL text format arrays like {a,b,c}.
+// Use schema.StringArray (or Int32Array, Int64Array, Float64Array, BoolArray) instead.
+//
+// table_name: schedules
+type Schedule struct {
+	ID   int                `po:"id,primaryKey,serial"`
+	Name string             `po:"name,varchar(100),notNull"`
+	Days schema.StringArray `po:"days,text[]"` // Works with PgBouncer simple_protocol!
 }
 
 // table_name: locations

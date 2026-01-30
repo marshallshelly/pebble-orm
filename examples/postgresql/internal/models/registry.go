@@ -8,6 +8,7 @@ func RegisterAll() error {
 		Document{},
 		Location{},
 		Product{},
+		Schedule{}, // Demonstrates PgBouncer-compatible array types
 	}
 
 	for _, model := range models {

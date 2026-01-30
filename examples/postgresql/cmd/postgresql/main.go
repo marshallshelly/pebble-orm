@@ -36,6 +36,10 @@ func main() {
 	fmt.Println("\n--- Example 2: PostgreSQL Arrays ---")
 	exampleArrays(ctx, qb)
 
+	// Example 2b: PgBouncer-Compatible Arrays
+	fmt.Println("\n--- Example 2b: PgBouncer-Compatible Arrays ---")
+	examplePgBouncerArrays(ctx, qb)
+
 	// Example 3: Full-Text Search
 	fmt.Println("\n--- Example 3: Full-Text Search ---")
 	exampleFullTextSearch(ctx, qb)
@@ -119,6 +123,41 @@ func exampleArrays(ctx context.Context, qb *builder.DB) {
 
 	fmt.Println("✅ Created product with prices array")
 	fmt.Printf("  Prices: %v\n", product.Prices)
+}
+
+func examplePgBouncerArrays(ctx context.Context, qb *builder.DB) {
+	// When using PgBouncer with transaction pooling, you need simple_protocol mode.
+	// In simple_protocol, PostgreSQL returns arrays as text like {Monday,Tuesday,Wednesday}
+	// which native Go slices cannot parse. Use schema.StringArray instead!
+
+	schedule := models.Schedule{
+		Name: "Work Week",
+		Days: schema.StringArray{"Monday", "Tuesday", "Wednesday", "Thursday", "Friday"},
+	}
+
+	result, err := builder.Insert[models.Schedule](qb).
+		Values(schedule).
+		Returning("*").
+		ExecReturning(ctx)
+
+	if err != nil {
+		log.Printf("Insert failed: %v\n", err)
+		return
+	}
+
+	fmt.Println("✅ Created schedule with PgBouncer-compatible array")
+	if len(result) > 0 {
+		inserted := result[0]
+		fmt.Printf("  Name: %s\n", inserted.Name)
+		fmt.Printf("  Days: %v\n", inserted.Days)
+	}
+
+	fmt.Println("\n  Available types for simple_protocol mode:")
+	fmt.Println("  • schema.StringArray  → text[], varchar[]")
+	fmt.Println("  • schema.Int32Array   → integer[]")
+	fmt.Println("  • schema.Int64Array   → bigint[]")
+	fmt.Println("  • schema.Float64Array → double precision[]")
+	fmt.Println("  • schema.BoolArray    → boolean[]")
 }
 
 func exampleFullTextSearch(ctx context.Context, qb *builder.DB) {

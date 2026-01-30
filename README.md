@@ -440,7 +440,7 @@ products, err := builder.Select[Product](db).
 
 ```go
 type Post struct {
-    Tags []string `po:"tags,text[]"`
+    Tags []string `po:"tags,text[]"`  // Or schema.StringArray for PgBouncer
 }
 
 posts, err := builder.Select[Post](qb).
