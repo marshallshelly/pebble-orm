@@ -6,16 +6,16 @@ This example demonstrates a **production-ready, GDPR-compliant multi-tenant SaaS
 
 This example implements **strict GDPR compliance** with all major requirements:
 
-| GDPR Article | Feature | Implementation |
-|--------------|---------|----------------|
-| **Article 5** | Accountability & Storage Limitation | Audit trails, data retention policies |
-| **Article 6** | Lawful Processing | Processing basis tracking |
-| **Article 7** | Consent Management | Consent tracking with timestamps |
-| **Article 15** | Right to Access | Audit log access endpoints |
-| **Article 17** | Right to Erasure | Soft delete, anonymization, hard delete |
-| **Article 20** | Right to Data Portability | Data export in JSON format |
-| **Article 32** | Security | Tenant isolation, audit logging |
-| **Articles 44-50** | International Transfers | Data residency tracking |
+| GDPR Article       | Feature                             | Implementation                          |
+| ------------------ | ----------------------------------- | --------------------------------------- |
+| **Article 5**      | Accountability & Storage Limitation | Audit trails, data retention policies   |
+| **Article 6**      | Lawful Processing                   | Processing basis tracking               |
+| **Article 7**      | Consent Management                  | Consent tracking with timestamps        |
+| **Article 15**     | Right to Access                     | Audit log access endpoints              |
+| **Article 17**     | Right to Erasure                    | Soft delete, anonymization, hard delete |
+| **Article 20**     | Right to Data Portability           | Data export in JSON format              |
+| **Article 32**     | Security                            | Tenant isolation, audit logging         |
+| **Articles 44-50** | International Transfers             | Data residency tracking                 |
 
 ## 🏗️ Architecture
 
@@ -30,13 +30,13 @@ This example demonstrates **shared database with tenant_id** pattern:
 
 **Pattern Comparison:**
 
-| Feature | Shared DB (Implemented) | Database-per-Tenant |
-|---------|------------------------|---------------------|
-| **Tenant Limit** | 1000s+ | <100 |
-| **Resource Usage** | Efficient | Higher |
-| **Isolation** | Logical (row-level) | Physical (database-level) |
-| **GDPR Compliance** | Requires careful implementation | Easier (drop database) |
-| **Cost** | Lower | Higher |
+| Feature             | Shared DB (Implemented)         | Database-per-Tenant       |
+| ------------------- | ------------------------------- | ------------------------- |
+| **Tenant Limit**    | 1000s+                          | <100                      |
+| **Resource Usage**  | Efficient                       | Higher                    |
+| **Isolation**       | Logical (row-level)             | Physical (database-level) |
+| **GDPR Compliance** | Requires careful implementation | Easier (drop database)    |
+| **Cost**            | Lower                           | Higher                    |
 
 ## 📁 Project Structure
 
@@ -71,6 +71,7 @@ type GDPRMetadata struct {
 ```
 
 **API Endpoint:**
+
 ```bash
 DELETE /api/v1/tenants/:tenantId/users/:userId/soft
 ```
@@ -85,6 +86,7 @@ Removes personal data while keeping records for legal compliance:
 ```
 
 **API Endpoint:**
+
 ```bash
 DELETE /api/v1/tenants/:tenantId/users/:userId/anonymize
 ```
@@ -106,6 +108,7 @@ type AuditLog struct {
 ```
 
 **API Endpoint:**
+
 ```bash
 GET /api/v1/tenants/:tenantId/users/:userId/audit-logs
 ```
@@ -124,6 +127,7 @@ type User struct {
 ```
 
 **API Endpoint:**
+
 ```bash
 PUT /api/v1/tenants/:tenantId/users/:userId/consent
 {
@@ -148,6 +152,7 @@ Export all user data in structured JSON format:
 ```
 
 **API Endpoint:**
+
 ```bash
 POST /api/v1/tenants/:tenantId/users/:userId/export
 ```
@@ -190,7 +195,7 @@ type Tenant struct {
 
 ### Prerequisites
 
-- Go 1.24+
+- Go 1.26+
 - PostgreSQL 14+
 - Docker (optional)
 
@@ -221,6 +226,7 @@ go run cmd/multi-tenancy/main.go
 ```
 
 Output:
+
 ```
 🚀 GDPR-Compliant Multi-Tenant API Server starting on port 3000
 📋 API Documentation: http://localhost:3000/api/v1
@@ -347,6 +353,7 @@ curl -X POST http://localhost:3000/api/v1/tenants \
 ```
 
 Response:
+
 ```json
 {
   "id": "tenant-uuid",
@@ -382,14 +389,21 @@ curl -X POST http://localhost:3000/api/v1/tenants/tenant-uuid/users/user-uuid/ex
 ```
 
 Response:
+
 ```json
 {
   "request_id": "export-uuid",
   "status": "completed",
   "data": {
-    "user": { /* user profile */ },
-    "documents": [ /* all documents */ ],
-    "consent_history": [ /* consent changes */ ],
+    "user": {
+      /* user profile */
+    },
+    "documents": [
+      /* all documents */
+    ],
+    "consent_history": [
+      /* consent changes */
+    ],
     "exported_at": "2024-01-15T10:30:00Z"
   },
   "expires_at": "2024-02-14T10:30:00Z"
@@ -416,6 +430,7 @@ curl -X DELETE http://localhost:3000/api/v1/tenants/tenant-uuid/users/user-uuid/
 ```
 
 Response:
+
 ```json
 {
   "message": "User soft deleted successfully",
@@ -460,7 +475,7 @@ Every action is logged automatically:
 gdprService.LogAudit(ctx, tenantID, userID, "CREATE", "users", userID, ipAddress, userAgent, nil)
 
 // Automatically logged on updates with before/after changes
-changes := map[string]interface{}{
+changes := map[string]any{
     "name": map[string]string{"old": "John", "new": "Jane"}
 }
 gdprService.LogAudit(ctx, tenantID, userID, "UPDATE", "users", userID, ipAddress, userAgent, changes)

@@ -28,7 +28,7 @@ func TestBugReport_TableNameCommentDirective(t *testing.T) {
 
 	//Test 1: Parse BugReportTenant - should get "tenants" from comment, not "bug_report_tenant"
 	t.Run("BugReportTenant should parse to 'tenants' table", func(t *testing.T) {
-		table, err := parser.Parse(reflect.TypeOf(BugReportTenant{}))
+		table, err := parser.Parse(reflect.TypeFor[BugReportTenant]())
 		if err != nil {
 			t.Fatalf("Failed to parse: %v", err)
 		}
@@ -48,7 +48,7 @@ func TestBugReport_TableNameCommentDirective(t *testing.T) {
 
 	// Test 2: Parse BugReportTenantUser - should get "tenant_users" from comment
 	t.Run("BugReportTenantUser should parse to 'tenant_users' table", func(t *testing.T) {
-		table, err := parser.Parse(reflect.TypeOf(BugReportTenantUser{}))
+		table, err := parser.Parse(reflect.TypeFor[BugReportTenantUser]())
 		if err != nil {
 			t.Fatalf("Failed to parse: %v", err)
 		}
@@ -68,7 +68,7 @@ func TestBugReport_TableNameCommentDirective(t *testing.T) {
 
 	// Test 3: Verify column parsing still works
 	t.Run("Columns should be parsed correctly", func(t *testing.T) {
-		table, _ := parser.Parse(reflect.TypeOf(BugReportTenant{}))
+		table, _ := parser.Parse(reflect.TypeFor[BugReportTenant]())
 
 		if len(table.Columns) != 2 {
 			t.Errorf("Expected 2 columns, got %d", len(table.Columns))

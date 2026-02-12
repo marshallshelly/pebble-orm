@@ -37,7 +37,7 @@ basic/
 
 ## Prerequisites
 
-- Go 1.24+
+- Go 1.26+
 - PostgreSQL 12+
 
 ## Setup
@@ -173,6 +173,7 @@ posts, _ := builder.Select[Post](db).
 ```
 
 Adding new enum values is automatic - just update the tag:
+
 ```go
 // Change: enum(draft,published,archived,deleted)
 // Migration generates: ALTER TYPE post_status ADD VALUE IF NOT EXISTS 'deleted';
@@ -204,6 +205,7 @@ type Post struct {
 ```
 
 **Index Types:**
+
 - `btree` (default): Most queries - equality, ranges, sorting
 - `gin`: JSONB, arrays, full-text search
 - `gist`: Geometric data, range types
@@ -247,6 +249,7 @@ fmt.Println(users[0].Preferences.Theme) // "dark"
 ```
 
 **Why this is great:**
+
 - ✅ **No wrapper types** - just use your struct directly
 - ✅ **Type safety** - full compile-time checking
 - ✅ **NULL handling** - use pointers for nullable JSONB

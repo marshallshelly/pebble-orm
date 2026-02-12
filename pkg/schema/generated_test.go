@@ -15,7 +15,7 @@ func TestGeneratedColumns(t *testing.T) {
 	}
 
 	parser := NewParser()
-	table, err := parser.Parse(reflect.TypeOf(Person{}))
+	table, err := parser.Parse(reflect.TypeFor[Person]())
 	if err != nil {
 		t.Fatalf("Failed to parse struct: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestGeneratedColumnVirtual(t *testing.T) {
 	}
 
 	parser := NewParser()
-	table, err := parser.Parse(reflect.TypeOf(Product{}))
+	table, err := parser.Parse(reflect.TypeFor[Product]())
 	if err != nil {
 		t.Fatalf("Failed to parse struct: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestGeneratedColumnDefaultsToStored(t *testing.T) {
 	}
 
 	parser := NewParser()
-	table, err := parser.Parse(reflect.TypeOf(Test{}))
+	table, err := parser.Parse(reflect.TypeFor[Test]())
 	if err != nil {
 		t.Fatalf("Failed to parse struct: %v", err)
 	}

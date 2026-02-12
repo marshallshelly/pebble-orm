@@ -32,7 +32,7 @@ func (a StringArray) Value() (driver.Value, error) {
 
 // Scan implements sql.Scanner for database reads.
 // Handles both text format (simple_protocol) and native pgx array scanning.
-func (a *StringArray) Scan(src interface{}) error {
+func (a *StringArray) Scan(src any) error {
 	if src == nil {
 		*a = nil
 		return nil
@@ -77,7 +77,7 @@ func (a Int32Array) Value() (driver.Value, error) {
 }
 
 // Scan implements sql.Scanner for database reads.
-func (a *Int32Array) Scan(src interface{}) error {
+func (a *Int32Array) Scan(src any) error {
 	if src == nil {
 		*a = nil
 		return nil
@@ -130,7 +130,7 @@ func (a Int64Array) Value() (driver.Value, error) {
 }
 
 // Scan implements sql.Scanner for database reads.
-func (a *Int64Array) Scan(src interface{}) error {
+func (a *Int64Array) Scan(src any) error {
 	if src == nil {
 		*a = nil
 		return nil
@@ -183,7 +183,7 @@ func (a Float64Array) Value() (driver.Value, error) {
 }
 
 // Scan implements sql.Scanner for database reads.
-func (a *Float64Array) Scan(src interface{}) error {
+func (a *Float64Array) Scan(src any) error {
 	if src == nil {
 		*a = nil
 		return nil
@@ -240,7 +240,7 @@ func (a BoolArray) Value() (driver.Value, error) {
 }
 
 // Scan implements sql.Scanner for database reads.
-func (a *BoolArray) Scan(src interface{}) error {
+func (a *BoolArray) Scan(src any) error {
 	if src == nil {
 		*a = nil
 		return nil

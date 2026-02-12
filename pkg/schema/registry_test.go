@@ -1,6 +1,7 @@
 package schema
 
 import (
+	"maps"
 	"reflect"
 	"testing"
 )
@@ -9,9 +10,7 @@ import (
 func TestGlobalTableNameRegistry(t *testing.T) {
 	// Save original state
 	originalNames := make(map[string]string)
-	for k, v := range customTableNames {
-		originalNames[k] = v
-	}
+	maps.Copy(originalNames, customTableNames)
 
 	// Clear registry for clean test
 	customTableNames = make(map[string]string)
@@ -37,9 +36,7 @@ func TestGlobalTableNameRegistry(t *testing.T) {
 func TestExtractTableNameWithRegistry(t *testing.T) {
 	// Save and clear registry
 	originalNames := make(map[string]string)
-	for k, v := range customTableNames {
-		originalNames[k] = v
-	}
+	maps.Copy(originalNames, customTableNames)
 	customTableNames = make(map[string]string)
 	defer func() {
 		customTableNames = originalNames
@@ -61,7 +58,7 @@ func TestExtractTableNameWithRegistry(t *testing.T) {
 
 	// Test registered model
 	t.Run("Registered model uses custom name", func(t *testing.T) {
-		table, err := parser.Parse(reflect.TypeOf(RegisteredModel{}))
+		table, err := parser.Parse(reflect.TypeFor[RegisteredModel]())
 		if err != nil {
 			t.Fatalf("Failed to parse: %v", err)
 		}
@@ -73,7 +70,7 @@ func TestExtractTableNameWithRegistry(t *testing.T) {
 
 	// Test unregistered model
 	t.Run("Unregistered model uses snake_case", func(t *testing.T) {
-		table, err := parser.Parse(reflect.TypeOf(UnregisteredModel{}))
+		table, err := parser.Parse(reflect.TypeFor[UnregisteredModel]())
 		if err != nil {
 			t.Fatalf("Failed to parse: %v", err)
 		}
@@ -89,9 +86,7 @@ func TestExtractTableNameWithRegistry(t *testing.T) {
 func TestGeneratedCodeScenario(t *testing.T) {
 	// Save and clear registry
 	originalNames := make(map[string]string)
-	for k, v := range customTableNames {
-		originalNames[k] = v
-	}
+	maps.Copy(originalNames, customTableNames)
 	customTableNames = make(map[string]string)
 	defer func() {
 		customTableNames = originalNames
@@ -119,7 +114,7 @@ func TestGeneratedCodeScenario(t *testing.T) {
 
 	// Test that registered names are used
 	t.Run("Tenant uses registered name", func(t *testing.T) {
-		table, err := parser.Parse(reflect.TypeOf(Tenant{}))
+		table, err := parser.Parse(reflect.TypeFor[Tenant]())
 		if err != nil {
 			t.Fatalf("Failed to parse: %v", err)
 		}
@@ -133,7 +128,7 @@ func TestGeneratedCodeScenario(t *testing.T) {
 	})
 
 	t.Run("TenantUser uses registered name", func(t *testing.T) {
-		table, err := parser.Parse(reflect.TypeOf(TenantUser{}))
+		table, err := parser.Parse(reflect.TypeFor[TenantUser]())
 		if err != nil {
 			t.Fatalf("Failed to parse: %v", err)
 		}

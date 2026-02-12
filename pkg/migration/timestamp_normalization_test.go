@@ -74,7 +74,7 @@ func TestTimestampColumnNoPhantomAlter(t *testing.T) {
 		Name:     "created_at",
 		SQLType:  "timestamp",
 		Nullable: false,
-		Default:  strPtr("NOW()"),
+		Default:  new("NOW()"),
 	}
 
 	// DB column: timestamp without time zone (introspected from PostgreSQL)
@@ -82,7 +82,7 @@ func TestTimestampColumnNoPhantomAlter(t *testing.T) {
 		Name:     "created_at",
 		SQLType:  "timestamp without time zone",
 		Nullable: false,
-		Default:  strPtr("now()"),
+		Default:  new("now()"),
 	}
 
 	colDiff := differ.compareColumn(codeCol, dbCol)
@@ -112,7 +112,7 @@ func TestTimestampTzColumnNoPhantomAlter(t *testing.T) {
 		Name:     "updated_at",
 		SQLType:  "timestamptz",
 		Nullable: false,
-		Default:  strPtr("NOW()"),
+		Default:  new("NOW()"),
 	}
 
 	// DB column: timestamp with time zone (introspected)
@@ -120,7 +120,7 @@ func TestTimestampTzColumnNoPhantomAlter(t *testing.T) {
 		Name:     "updated_at",
 		SQLType:  "timestamp with time zone",
 		Nullable: false,
-		Default:  strPtr("now()"),
+		Default:  new("now()"),
 	}
 
 	colDiff := differ.compareColumn(codeCol, dbCol)
@@ -155,7 +155,7 @@ func TestFullTableWithTimestampNoPhantomAlter(t *testing.T) {
 				Name:     "created_at",
 				SQLType:  "timestamp",
 				Nullable: false,
-				Default:  strPtr("NOW()"),
+				Default:  new("NOW()"),
 			},
 		},
 	}
@@ -168,14 +168,14 @@ func TestFullTableWithTimestampNoPhantomAlter(t *testing.T) {
 				Name:          "id",
 				SQLType:       "integer",
 				Nullable:      false,
-				Default:       strPtr("nextval('users_id_seq'::regclass)"),
+				Default:       new("nextval('users_id_seq'::regclass)"),
 				AutoIncrement: true,
 			},
 			{
 				Name:     "created_at",
 				SQLType:  "timestamp without time zone",
 				Nullable: false,
-				Default:  strPtr("now()"),
+				Default:  new("now()"),
 			},
 		},
 	}

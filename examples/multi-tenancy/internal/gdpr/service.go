@@ -22,7 +22,7 @@ func NewService(db *builder.DB) *Service {
 }
 
 // LogAudit creates an audit log entry for GDPR compliance
-func (s *Service) LogAudit(ctx context.Context, tenantID, userID, action, resource, resourceID, ipAddress, userAgent string, changes interface{}) error {
+func (s *Service) LogAudit(ctx context.Context, tenantID, userID, action, resource, resourceID, ipAddress, userAgent string, changes any) error {
 	log := models.AuditLog{
 		TenantID:   tenantID,
 		UserID:     userID,
@@ -39,7 +39,7 @@ func (s *Service) LogAudit(ctx context.Context, tenantID, userID, action, resour
 		if err != nil {
 			return fmt.Errorf("failed to marshal changes: %w", err)
 		}
-		var jsonbData map[string]interface{}
+		var jsonbData map[string]any
 		if err := json.Unmarshal(changesJSON, &jsonbData); err != nil {
 			return fmt.Errorf("failed to unmarshal to JSONB: %w", err)
 		}
@@ -87,7 +87,7 @@ func (s *Service) SoftDeleteUser(ctx context.Context, tenantID, userID, deletedB
 	}
 
 	// Log the deletion
-	changes := map[string]interface{}{
+	changes := map[string]any{
 		"deleted_at": now,
 		"deleted_by": deletedBy,
 	}
@@ -116,7 +116,7 @@ func (s *Service) AnonymizeUser(ctx context.Context, tenantID, userID, anonymize
 	user := users[0]
 
 	// Store original data in changes
-	changes := map[string]interface{}{
+	changes := map[string]any{
 		"original_name":  user.Name,
 		"original_email": user.Email,
 		"anonymized_at":  time.Now(),
@@ -195,8 +195,8 @@ func (s *Service) HardDeleteUser(ctx context.Context, tenantID, userID string) e
 
 // ExportUserData exports all user data in structured format
 // (GDPR Article 20 - Right to Data Portability)
-func (s *Service) ExportUserData(ctx context.Context, tenantID, userID string) (map[string]interface{}, error) {
-	export := make(map[string]interface{})
+func (s *Service) ExportUserData(ctx context.Context, tenantID, userID string) (map[string]any, error) {
+	export := make(map[string]any)
 
 	// Export user profile
 	users, err := builder.Select[models.User](s.db).
@@ -333,7 +333,7 @@ func (s *Service) UpdateConsent(ctx context.Context, tenantID, userID, consentTy
 	}
 
 	// Log consent change
-	changes := map[string]interface{}{
+	changes := map[string]any{
 		"consent_type": consentType,
 		"granted":      granted,
 		"timestamp":    now.Format(time.RFC3339),
@@ -373,7 +373,7 @@ func (s *Service) CleanupExpiredData(ctx context.Context, tenantID string) error
 	}
 
 	// Log cleanup action
-	changes := map[string]interface{}{
+	changes := map[string]any{
 		"cutoff_date":       cutoffDate.Format(time.RFC3339),
 		"retention_days":    tenant.DataRetentionDays,
 		"cleanup_timestamp": time.Now().Format(time.RFC3339),

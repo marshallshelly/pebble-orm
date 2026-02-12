@@ -19,7 +19,7 @@ type DefaultTableTest struct {
 func TestExtractTableNameFromComment(t *testing.T) {
 	tests := []struct {
 		name     string
-		model    interface{}
+		model    any
 		expected string
 	}{
 		{
@@ -95,7 +95,7 @@ func TestFullParseWithCustomTableName(t *testing.T) {
 	parser := NewParser()
 
 	// Parse the CustomTableTest struct
-	table, err := parser.Parse(reflect.TypeOf(CustomTableTest{}))
+	table, err := parser.Parse(reflect.TypeFor[CustomTableTest]())
 	if err != nil {
 		t.Fatalf("Failed to parse CustomTableTest: %v", err)
 	}

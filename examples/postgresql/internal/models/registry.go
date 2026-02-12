@@ -4,7 +4,7 @@ import "github.com/marshallshelly/pebble-orm/pkg/registry"
 
 // RegisterAll registers all models with Pebble ORM
 func RegisterAll() error {
-	models := []interface{}{
+	models := []any{
 		Document{},
 		Location{},
 		Product{},

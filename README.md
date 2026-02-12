@@ -9,7 +9,7 @@
 A production-ready ORM leveraging Go generics for type-safe queries, struct-tag schemas, and zero-overhead performance with native pgx integration.
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/marshallshelly/pebble-orm.svg)](https://pkg.go.dev/github.com/marshallshelly/pebble-orm)
-[![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go)](https://go.dev/)
+[![Go Version](https://img.shields.io/badge/Go-1.26+-00ADD8?style=flat&logo=go)](https://go.dev/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-14+-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![CI](https://github.com/marshallshelly/pebble-orm/actions/workflows/ci.yml/badge.svg)](https://github.com/marshallshelly/pebble-orm/actions)
@@ -25,6 +25,7 @@ A production-ready ORM leveraging Go generics for type-safe queries, struct-tag 
 - **CASCADE DELETE**: Database-level foreign key constraints via tags
 - **Transactions**: Full transaction support with proper error handling
 - **PostgreSQL Features**: JSONB, arrays, enum types, UUID, geometric types, full-text search
+- **Go 1.26 Optimized**: Use `new(expr)` for concise optional fields: `Active: new(true)`
 
 ## Quick Start
 
@@ -406,11 +407,11 @@ type Product struct {
 
 product := Product{
     Name: "T-Shirt",
-    Attributes: &Attributes{
+    Attributes: new(Attributes{
         Color:   "red",
         Sizes:   []string{"S", "M", "L"},
         InStock: true,
-    },
+    }),
 }
 
 // 2. Generic map (flexible schema)
@@ -549,7 +550,7 @@ go run cmd/basic/main.go
 
 ### Prerequisites
 
-- Go 1.24 or higher
+- Go 1.26 or higher
 - PostgreSQL 12 or higher
 - golangci-lint (for linting)
 

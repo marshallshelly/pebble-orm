@@ -24,7 +24,7 @@ func TestTimestampDefaultSQLSyntax(t *testing.T) {
 				Name:     "created_at",
 				SQLType:  "timestamp",
 				Nullable: false,
-				Default:  strPtr("CURRENT_TIMESTAMP"),
+				Default:  new("CURRENT_TIMESTAMP"),
 			},
 			expectedSQL:    "created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP",
 			shouldNotMatch: "DEFAULT CURRENT TIMESTAMP", // Bug: space between words
@@ -35,7 +35,7 @@ func TestTimestampDefaultSQLSyntax(t *testing.T) {
 				Name:     "updated_at",
 				SQLType:  "timestamptz",
 				Nullable: false,
-				Default:  strPtr("NOW()"),
+				Default:  new("NOW()"),
 			},
 			expectedSQL:    "updated_at timestamptz NOT NULL DEFAULT NOW()",
 			shouldNotMatch: "",
@@ -46,7 +46,7 @@ func TestTimestampDefaultSQLSyntax(t *testing.T) {
 				Name:     "id",
 				SQLType:  "uuid",
 				Nullable: false,
-				Default:  strPtr("gen_random_uuid()"),
+				Default:  new("gen_random_uuid()"),
 			},
 			expectedSQL:    "id uuid NOT NULL DEFAULT gen_random_uuid()",
 			shouldNotMatch: "",
@@ -68,6 +68,7 @@ func TestTimestampDefaultSQLSyntax(t *testing.T) {
 	}
 }
 
+//go:fix inline
 func strPtr(s string) *string {
-	return &s
+	return new(s)
 }

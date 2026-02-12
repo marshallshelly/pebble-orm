@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.15.0] - 2026-02-13
+
+### Changed
+
+- **BREAKING**: Minimum Go version bumped from 1.24 to 1.26.
+- Modernized struct field iteration to use Go 1.26 `reflect.Type.Fields()` iterators in `parser.go` and `relationships.go`.
+- Users benefit from Go 1.26 runtime improvements: Green Tea GC (10-40% lower GC overhead), faster `fmt.Errorf` allocations, improved slice stack allocation, and `io.ReadAll` performance.
+
 ## [1.14.6] - 2026-01-30
 
 ### Added
@@ -394,7 +402,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - golangci-lint integration.
 - GoReleaser configuration for multi-platform releases.
 
-[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.14.6...HEAD
+[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.15.0...HEAD
+[1.15.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.14.6...v1.15.0
 [1.14.6]: https://github.com/marshallshelly/pebble-orm/compare/v1.14.5...v1.14.6
 [1.14.5]: https://github.com/marshallshelly/pebble-orm/compare/v1.14.4...v1.14.5
 [1.14.4]: https://github.com/marshallshelly/pebble-orm/compare/v1.14.3...v1.14.4

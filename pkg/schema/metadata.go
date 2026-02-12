@@ -1,6 +1,8 @@
 // Package schema provides schema definition and metadata structures for the ORM.
 package schema
 
+import "slices"
+
 import "reflect"
 
 // EnumType represents a PostgreSQL ENUM type.
@@ -237,10 +239,5 @@ func (t *TableMetadata) IsPrimaryKey(columnName string) bool {
 	if t.PrimaryKey == nil {
 		return false
 	}
-	for _, col := range t.PrimaryKey.Columns {
-		if col == columnName {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(t.PrimaryKey.Columns, columnName)
 }

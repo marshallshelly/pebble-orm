@@ -32,7 +32,7 @@ func (tm *TypeMapper) GoTypeToPostgreSQL(t reflect.Type) string {
 	}
 
 	// Handle pointer types
-	if t.Kind() == reflect.Ptr {
+	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 
@@ -81,23 +81,23 @@ func (tm *TypeMapper) GoTypeToPostgreSQL(t reflect.Type) string {
 
 	// Handle special types
 	switch t {
-	case reflect.TypeOf(time.Time{}):
+	case reflect.TypeFor[time.Time]():
 		return "timestamp with time zone"
-	case reflect.TypeOf(JSONB{}):
+	case reflect.TypeFor[JSONB]():
 		return "jsonb"
-	case reflect.TypeOf(JSONBArray{}):
+	case reflect.TypeFor[JSONBArray]():
 		return "jsonb"
-	case reflect.TypeOf(sql.NullString{}):
+	case reflect.TypeFor[sql.NullString]():
 		return "text"
-	case reflect.TypeOf(sql.NullInt64{}):
+	case reflect.TypeFor[sql.NullInt64]():
 		return "bigint"
-	case reflect.TypeOf(sql.NullInt32{}):
+	case reflect.TypeFor[sql.NullInt32]():
 		return "integer"
-	case reflect.TypeOf(sql.NullFloat64{}):
+	case reflect.TypeFor[sql.NullFloat64]():
 		return "double precision"
-	case reflect.TypeOf(sql.NullBool{}):
+	case reflect.TypeFor[sql.NullBool]():
 		return "boolean"
-	case reflect.TypeOf(sql.NullTime{}):
+	case reflect.TypeFor[sql.NullTime]():
 		return "timestamp with time zone"
 	}
 
@@ -108,18 +108,18 @@ func (tm *TypeMapper) GoTypeToPostgreSQL(t reflect.Type) string {
 // IsNullable checks if a Go type is nullable.
 func IsNullable(t reflect.Type) bool {
 	// Pointer types are nullable
-	if t.Kind() == reflect.Ptr {
+	if t.Kind() == reflect.Pointer {
 		return true
 	}
 
 	// sql.Null* types are nullable
 	switch t {
-	case reflect.TypeOf(sql.NullString{}),
-		reflect.TypeOf(sql.NullInt64{}),
-		reflect.TypeOf(sql.NullInt32{}),
-		reflect.TypeOf(sql.NullFloat64{}),
-		reflect.TypeOf(sql.NullBool{}),
-		reflect.TypeOf(sql.NullTime{}):
+	case reflect.TypeFor[sql.NullString](),
+		reflect.TypeFor[sql.NullInt64](),
+		reflect.TypeFor[sql.NullInt32](),
+		reflect.TypeFor[sql.NullFloat64](),
+		reflect.TypeFor[sql.NullBool](),
+		reflect.TypeFor[sql.NullTime]():
 		return true
 	}
 

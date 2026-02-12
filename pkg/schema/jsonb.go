@@ -11,28 +11,28 @@ import (
 //
 // pebble-orm supports three ways to work with JSONB fields:
 //
-// 1. Direct struct scanning (Recommended - uses pgx native support):
-//    type Metadata struct {
-//        Premium bool     `json:"premium"`
-//        Tags    []string `json:"tags"`
-//    }
-//    type User struct {
-//        ID       int       `po:"id,primaryKey,serial"`
-//        Metadata *Metadata `po:"metadata,jsonb"` // Use pointer for NULL handling
-//    }
+//  1. Direct struct scanning (Recommended - uses pgx native support):
+//     type Metadata struct {
+//     Premium bool     `json:"premium"`
+//     Tags    []string `json:"tags"`
+//     }
+//     type User struct {
+//     ID       int       `po:"id,primaryKey,serial"`
+//     Metadata *Metadata `po:"metadata,jsonb"` // Use pointer for NULL handling
+//     }
 //
-// 2. Generic map (flexible schema):
-//    type User struct {
-//        ID       int          `po:"id,primaryKey,serial"`
-//        Metadata schema.JSONB `po:"metadata,jsonb"` // map[string]interface{}
-//    }
+//  2. Generic map (flexible schema):
+//     type User struct {
+//     ID       int          `po:"id,primaryKey,serial"`
+//     Metadata schema.JSONB `po:"metadata,jsonb"` // map[string]interface{}
+//     }
 //
-// 3. Typed wrapper (for backward compatibility):
-//    type User struct {
-//        ID       int                              `po:"id,primaryKey,serial"`
-//        Metadata schema.JSONBStruct[MyStructType] `po:"metadata,jsonb"`
-//    }
-type JSONB map[string]interface{}
+//  3. Typed wrapper (for backward compatibility):
+//     type User struct {
+//     ID       int                              `po:"id,primaryKey,serial"`
+//     Metadata schema.JSONBStruct[MyStructType] `po:"metadata,jsonb"`
+//     }
+type JSONB map[string]any
 
 // Value implements the driver.Valuer interface for database writes
 func (j JSONB) Value() (driver.Value, error) {
@@ -43,7 +43,7 @@ func (j JSONB) Value() (driver.Value, error) {
 }
 
 // Scan implements the sql.Scanner interface for database reads
-func (j *JSONB) Scan(value interface{}) error {
+func (j *JSONB) Scan(value any) error {
 	if value == nil {
 		*j = nil
 		return nil
@@ -53,7 +53,7 @@ func (j *JSONB) Scan(value interface{}) error {
 	switch v := value.(type) {
 	case []byte:
 		// Raw JSON bytes from database
-		var result map[string]interface{}
+		var result map[string]any
 		if err := json.Unmarshal(v, &result); err != nil {
 			return err
 		}
@@ -61,13 +61,13 @@ func (j *JSONB) Scan(value interface{}) error {
 		return nil
 	case string:
 		// JSON as string
-		var result map[string]interface{}
+		var result map[string]any
 		if err := json.Unmarshal([]byte(v), &result); err != nil {
 			return err
 		}
 		*j = result
 		return nil
-	case map[string]interface{}:
+	case map[string]any:
 		// Already decoded by pgx
 		*j = v
 		return nil
@@ -77,7 +77,7 @@ func (j *JSONB) Scan(value interface{}) error {
 }
 
 // JSONBArray represents a PostgreSQL JSONB array
-type JSONBArray []interface{}
+type JSONBArray []any
 
 // Value implements the driver.Valuer interface for database writes
 func (j JSONBArray) Value() (driver.Value, error) {
@@ -88,7 +88,7 @@ func (j JSONBArray) Value() (driver.Value, error) {
 }
 
 // Scan implements the sql.Scanner interface for database reads
-func (j *JSONBArray) Scan(value interface{}) error {
+func (j *JSONBArray) Scan(value any) error {
 	if value == nil {
 		*j = nil
 		return nil
@@ -98,7 +98,7 @@ func (j *JSONBArray) Scan(value interface{}) error {
 	switch v := value.(type) {
 	case []byte:
 		// Raw JSON bytes from database
-		var result []interface{}
+		var result []any
 		if err := json.Unmarshal(v, &result); err != nil {
 			return err
 		}
@@ -106,13 +106,13 @@ func (j *JSONBArray) Scan(value interface{}) error {
 		return nil
 	case string:
 		// JSON as string
-		var result []interface{}
+		var result []any
 		if err := json.Unmarshal([]byte(v), &result); err != nil {
 			return err
 		}
 		*j = result
 		return nil
-	case []interface{}:
+	case []any:
 		// Already decoded by pgx
 		*j = v
 		return nil
@@ -126,14 +126,16 @@ func (j *JSONBArray) Scan(value interface{}) error {
 // direct struct scanning instead (just use *YourStruct for the field type).
 //
 // Example using JSONBStruct (old approach):
-//    type User struct {
-//        Metadata schema.JSONBStruct[MyMetadata] `po:"metadata,jsonb"`
-//    }
+//
+//	type User struct {
+//	    Metadata schema.JSONBStruct[MyMetadata] `po:"metadata,jsonb"`
+//	}
 //
 // Recommended alternative (direct struct scanning):
-//    type User struct {
-//        Metadata *MyMetadata `po:"metadata,jsonb"` // Cleaner, no wrapper needed
-//    }
+//
+//	type User struct {
+//	    Metadata *MyMetadata `po:"metadata,jsonb"` // Cleaner, no wrapper needed
+//	}
 type JSONBStruct[T any] struct {
 	Data T
 }
@@ -144,7 +146,7 @@ func (j JSONBStruct[T]) Value() (driver.Value, error) {
 }
 
 // Scan implements the sql.Scanner interface for database reads
-func (j *JSONBStruct[T]) Scan(value interface{}) error {
+func (j *JSONBStruct[T]) Scan(value any) error {
 	if value == nil {
 		return nil
 	}

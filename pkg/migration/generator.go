@@ -116,14 +116,14 @@ func (g *Generator) ListMigrations() ([]MigrationFile, error) {
 		rest := parts[1]
 
 		// Extract name and direction
-		if strings.HasSuffix(rest, ".up.sql") {
-			name := strings.TrimSuffix(rest, ".up.sql")
+		if before, ok := strings.CutSuffix(rest, ".up.sql"); ok {
+			name := before
 			if _, exists := fileMap[version]; !exists {
 				fileMap[version] = &MigrationFile{Version: version, Name: name}
 			}
 			fileMap[version].UpPath = filepath.Join(g.migrationsDir, fileName)
-		} else if strings.HasSuffix(rest, ".down.sql") {
-			name := strings.TrimSuffix(rest, ".down.sql")
+		} else if before, ok := strings.CutSuffix(rest, ".down.sql"); ok {
+			name := before
 			if _, exists := fileMap[version]; !exists {
 				fileMap[version] = &MigrationFile{Version: version, Name: name}
 			}

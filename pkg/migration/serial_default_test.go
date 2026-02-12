@@ -274,27 +274,27 @@ func TestIsSequenceDefault(t *testing.T) {
 		},
 		{
 			name:       "empty string",
-			defaultVal: stringPtr(""),
+			defaultVal: new(""),
 			expected:   false,
 		},
 		{
 			name:       "standard nextval",
-			defaultVal: stringPtr("nextval('table_id_seq'::regclass)"),
+			defaultVal: new("nextval('table_id_seq'::regclass)"),
 			expected:   true,
 		},
 		{
 			name:       "uppercase NEXTVAL",
-			defaultVal: stringPtr("NEXTVAL('TABLE_ID_SEQ'::REGCLASS)"),
+			defaultVal: new("NEXTVAL('TABLE_ID_SEQ'::REGCLASS)"),
 			expected:   true,
 		},
 		{
 			name:       "numeric default",
-			defaultVal: stringPtr("0"),
+			defaultVal: new("0"),
 			expected:   false,
 		},
 		{
 			name:       "CURRENT_TIMESTAMP",
-			defaultVal: stringPtr("CURRENT_TIMESTAMP"),
+			defaultVal: new("CURRENT_TIMESTAMP"),
 			expected:   false,
 		},
 	}
@@ -314,6 +314,8 @@ func TestIsSequenceDefault(t *testing.T) {
 }
 
 // Helper function
+//
+//go:fix inline
 func stringPtr(s string) *string {
-	return &s
+	return new(s)
 }

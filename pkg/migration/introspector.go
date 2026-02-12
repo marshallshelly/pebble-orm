@@ -21,7 +21,7 @@ func NewIntrospector(pool *pgxpool.Pool) *Introspector {
 }
 
 // query executes a query using simple query protocol to avoid prepared statement caching.
-func (i *Introspector) query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error) {
+func (i *Introspector) query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
 	conn, err := i.pool.Acquire(ctx)
 	if err != nil {
 		return nil, err
@@ -581,13 +581,13 @@ func (i *Introspector) parseIndexDefinition(ctx context.Context, tableName, inde
 
 	// Check for INCLUDE clause in remaining string
 	if strings.Contains(remaining, "INCLUDE") {
-		includeStart := strings.Index(remaining, "INCLUDE")
-		includeRest := remaining[includeStart+7:] // Skip "INCLUDE"
+		_, after, _ := strings.Cut(remaining, "INCLUDE")
+		includeRest := after // Skip "INCLUDE"
 		includeRest = strings.TrimSpace(includeRest)
 		if strings.HasPrefix(includeRest, "(") {
 			includeCols, _ := extractBalancedParens(includeRest[1:])
 			// Split include columns by comma
-			for _, col := range strings.Split(includeCols, ",") {
+			for col := range strings.SplitSeq(includeCols, ",") {
 				col = strings.TrimSpace(col)
 				if col != "" {
 					idx.Include = append(idx.Include, col)

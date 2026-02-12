@@ -25,7 +25,7 @@ func TestRegistry_Register(t *testing.T) {
 			t.Fatalf("Register failed: %v", err)
 		}
 
-		if !registry.Has(reflect.TypeOf(User{})) {
+		if !registry.Has(reflect.TypeFor[User]()) {
 			t.Error("expected model to be registered")
 		}
 	})
@@ -50,7 +50,7 @@ func TestRegistry_Register(t *testing.T) {
 		}
 
 		// Should dereference and register the underlying type
-		if !registry.Has(reflect.TypeOf(User{})) {
+		if !registry.Has(reflect.TypeFor[User]()) {
 			t.Error("expected model to be registered")
 		}
 	})
@@ -71,7 +71,7 @@ func TestRegistry_Get(t *testing.T) {
 			t.Fatalf("Register failed: %v", err)
 		}
 
-		table, err := registry.Get(reflect.TypeOf(User{}))
+		table, err := registry.Get(reflect.TypeFor[User]())
 		if err != nil {
 			t.Fatalf("Get failed: %v", err)
 		}
@@ -82,7 +82,7 @@ func TestRegistry_Get(t *testing.T) {
 	})
 
 	t.Run("get unregistered model", func(t *testing.T) {
-		_, err := registry.Get(reflect.TypeOf(Product{}))
+		_, err := registry.Get(reflect.TypeFor[Product]())
 		if err == nil {
 			t.Error("expected error for unregistered model")
 		}
@@ -93,7 +93,7 @@ func TestRegistry_Get(t *testing.T) {
 			t.Fatalf("Register failed: %v", err)
 		}
 
-		table, err := registry.Get(reflect.TypeOf(&User{}))
+		table, err := registry.Get(reflect.TypeFor[*User]())
 		if err != nil {
 			t.Fatalf("Get with pointer failed: %v", err)
 		}
@@ -142,7 +142,7 @@ func TestRegistry_GetOrRegister(t *testing.T) {
 			t.Errorf("expected table name 'user', got '%s'", table.Name)
 		}
 
-		if !registry.Has(reflect.TypeOf(User{})) {
+		if !registry.Has(reflect.TypeFor[User]()) {
 			t.Error("expected model to be registered")
 		}
 	})
@@ -235,7 +235,7 @@ func TestRegistry_Clear(t *testing.T) {
 		t.Error("expected 0 models after clear")
 	}
 
-	if registry.Has(reflect.TypeOf(User{})) {
+	if registry.Has(reflect.TypeFor[User]()) {
 		t.Error("expected user model to be cleared")
 	}
 }
@@ -246,11 +246,11 @@ func TestRegistry_Has(t *testing.T) {
 		t.Fatalf("Register failed: %v", err)
 	}
 
-	if !registry.Has(reflect.TypeOf(User{})) {
+	if !registry.Has(reflect.TypeFor[User]()) {
 		t.Error("expected Has to return true for registered model")
 	}
 
-	if registry.Has(reflect.TypeOf(Product{})) {
+	if registry.Has(reflect.TypeFor[Product]()) {
 		t.Error("expected Has to return false for unregistered model")
 	}
 }
@@ -280,7 +280,7 @@ func TestGlobalRegistry(t *testing.T) {
 			t.Fatalf("Register failed: %v", err)
 		}
 
-		table, err := Get(reflect.TypeOf(User{}))
+		table, err := Get(reflect.TypeFor[User]())
 		if err != nil {
 			t.Fatalf("Get failed: %v", err)
 		}

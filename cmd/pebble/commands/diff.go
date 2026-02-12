@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/marshallshelly/pebble-orm/cmd/pebble/output"
@@ -212,12 +213,12 @@ func runDiff() error {
 }
 
 func joinStrings(strs []string, sep string) string {
-	result := ""
+	var result strings.Builder
 	for i, s := range strs {
 		if i > 0 {
-			result += sep
+			result.WriteString(sep)
 		}
-		result += s
+		result.WriteString(s)
 	}
-	return result
+	return result.String()
 }

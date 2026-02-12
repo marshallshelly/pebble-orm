@@ -23,7 +23,7 @@ func TestParser_Parse(t *testing.T) {
 	parser := NewParser()
 
 	t.Run("basic struct parsing", func(t *testing.T) {
-		table, err := parser.Parse(reflect.TypeOf(TestUser{}))
+		table, err := parser.Parse(reflect.TypeFor[TestUser]())
 		if err != nil {
 			t.Fatalf("Parse failed: %v", err)
 		}
@@ -46,7 +46,7 @@ func TestParser_Parse(t *testing.T) {
 	})
 
 	t.Run("column metadata", func(t *testing.T) {
-		table, err := parser.Parse(reflect.TypeOf(TestUser{}))
+		table, err := parser.Parse(reflect.TypeFor[TestUser]())
 		if err != nil {
 			t.Fatalf("Parse failed: %v", err)
 		}
@@ -115,7 +115,7 @@ func TestParser_Parse(t *testing.T) {
 	})
 
 	t.Run("unique column without separate index", func(t *testing.T) {
-		table, err := parser.Parse(reflect.TypeOf(TestUser{}))
+		table, err := parser.Parse(reflect.TypeFor[TestUser]())
 		if err != nil {
 			t.Fatalf("Parse failed: %v", err)
 		}
@@ -140,8 +140,8 @@ func TestParser_Parse(t *testing.T) {
 	})
 
 	t.Run("cache test", func(t *testing.T) {
-		table1, _ := parser.Parse(reflect.TypeOf(TestUser{}))
-		table2, _ := parser.Parse(reflect.TypeOf(TestUser{}))
+		table1, _ := parser.Parse(reflect.TypeFor[TestUser]())
+		table2, _ := parser.Parse(reflect.TypeFor[TestUser]())
 
 		if table1 != table2 {
 			t.Error("expected cached result to be the same instance")
@@ -317,7 +317,7 @@ func TestEnumParsing(t *testing.T) {
 	}
 
 	t.Run("enum column parsing", func(t *testing.T) {
-		table, err := parser.Parse(reflect.TypeOf(TestOrder{}))
+		table, err := parser.Parse(reflect.TypeFor[TestOrder]())
 		if err != nil {
 			t.Fatalf("Parse failed: %v", err)
 		}
@@ -357,7 +357,7 @@ func TestEnumParsing(t *testing.T) {
 	})
 
 	t.Run("enum types collected at table level", func(t *testing.T) {
-		table, err := parser.Parse(reflect.TypeOf(TestOrder{}))
+		table, err := parser.Parse(reflect.TypeFor[TestOrder]())
 		if err != nil {
 			t.Fatalf("Parse failed: %v", err)
 		}
@@ -391,7 +391,7 @@ func TestEnumParsing(t *testing.T) {
 			PrevStatus    OrderStatus `po:"prev_status,enum(pending,active,completed)"`
 		}
 
-		table, err := parser.Parse(reflect.TypeOf(TestShipment{}))
+		table, err := parser.Parse(reflect.TypeFor[TestShipment]())
 		if err != nil {
 			t.Fatalf("Parse failed: %v", err)
 		}

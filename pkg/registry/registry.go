@@ -3,6 +3,7 @@ package registry
 
 import (
 	"fmt"
+	"maps"
 	"reflect"
 	"sync"
 
@@ -27,11 +28,11 @@ func NewRegistry() *Registry {
 }
 
 // Register registers a model type and extracts its metadata.
-func (r *Registry) Register(model interface{}) error {
+func (r *Registry) Register(model any) error {
 	modelType := reflect.TypeOf(model)
 
 	// Dereference pointer
-	for modelType.Kind() == reflect.Ptr {
+	for modelType.Kind() == reflect.Pointer {
 		modelType = modelType.Elem()
 	}
 
@@ -83,7 +84,7 @@ func (r *Registry) RegisterMetadata(table *schema.TableMetadata) error {
 // Get retrieves TableMetadata by Go type.
 func (r *Registry) Get(modelType reflect.Type) (*schema.TableMetadata, error) {
 	// Dereference pointer
-	for modelType.Kind() == reflect.Ptr {
+	for modelType.Kind() == reflect.Pointer {
 		modelType = modelType.Elem()
 	}
 
@@ -112,11 +113,11 @@ func (r *Registry) GetByName(tableName string) (*schema.TableMetadata, error) {
 }
 
 // GetOrRegister retrieves TableMetadata or registers it if not found.
-func (r *Registry) GetOrRegister(model interface{}) (*schema.TableMetadata, error) {
+func (r *Registry) GetOrRegister(model any) (*schema.TableMetadata, error) {
 	modelType := reflect.TypeOf(model)
 
 	// Dereference pointer
-	for modelType.Kind() == reflect.Ptr {
+	for modelType.Kind() == reflect.Pointer {
 		modelType = modelType.Elem()
 	}
 
@@ -176,7 +177,7 @@ func (r *Registry) Clear() {
 // Has checks if a model type is registered.
 func (r *Registry) Has(modelType reflect.Type) bool {
 	// Dereference pointer
-	for modelType.Kind() == reflect.Ptr {
+	for modelType.Kind() == reflect.Pointer {
 		modelType = modelType.Elem()
 	}
 
@@ -200,7 +201,7 @@ func (r *Registry) HasTable(tableName string) bool {
 var globalRegistry = NewRegistry()
 
 // Register registers a model in the global registry.
-func Register(model interface{}) error {
+func Register(model any) error {
 	return globalRegistry.Register(model)
 }
 
@@ -220,7 +221,7 @@ func GetByName(tableName string) (*schema.TableMetadata, error) {
 }
 
 // GetOrRegister retrieves or registers a model in the global registry.
-func GetOrRegister(model interface{}) (*schema.TableMetadata, error) {
+func GetOrRegister(model any) (*schema.TableMetadata, error) {
 	return globalRegistry.GetOrRegister(model)
 }
 
@@ -246,9 +247,7 @@ func (r *Registry) GetAllTables() map[string]*schema.TableMetadata {
 	defer r.mu.RUnlock()
 
 	tables := make(map[string]*schema.TableMetadata)
-	for name, table := range r.names {
-		tables[name] = table
-	}
+	maps.Copy(tables, r.names)
 
 	return tables
 }

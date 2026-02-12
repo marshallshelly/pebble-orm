@@ -7,7 +7,7 @@ import (
 
 // ParseRelationships extracts relationship metadata from struct fields.
 func (p *Parser) ParseRelationships(modelType reflect.Type, table *TableMetadata) error {
-	for modelType.Kind() == reflect.Ptr {
+	for modelType.Kind() == reflect.Pointer {
 		modelType = modelType.Elem()
 	}
 
@@ -15,8 +15,7 @@ func (p *Parser) ParseRelationships(modelType reflect.Type, table *TableMetadata
 		return fmt.Errorf("model must be a struct")
 	}
 
-	for i := 0; i < modelType.NumField(); i++ {
-		field := modelType.Field(i)
+	for field := range modelType.Fields() {
 
 		if !field.IsExported() {
 			continue
@@ -93,7 +92,7 @@ func (p *Parser) parseRelationship(field reflect.StructField, opts *TagOptions, 
 	}
 
 	// Handle pointer types
-	for fieldType.Kind() == reflect.Ptr {
+	for fieldType.Kind() == reflect.Pointer {
 		fieldType = fieldType.Elem()
 	}
 

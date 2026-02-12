@@ -21,7 +21,7 @@ func main() {
 	}
 	defer cleanup()
 
-	log.Println("=== Pebble ORM Index Examples ===\n")
+	log.Println("=== Pebble ORM Index Examples ===")
 
 	// Example 1: Simple Column-Level Indexes
 	log.Println("--- Example 1: Simple Column-Level Indexes ---")
@@ -218,8 +218,8 @@ func main() {
 	log.Println("--- Example 7: DESC Ordering with NULLS LAST ---")
 	task := models.Task{
 		Title:    "Implement PostgreSQL indexes",
-		Priority: intPtr(1),
-		DueDate:  timePtr(time.Now().Add(7 * 24 * time.Hour)),
+		Priority: new(1),
+		DueDate:  new(time.Now().Add(7 * 24 * time.Hour)),
 	}
 	insertedTasks, err := builder.Insert[models.Task](qb).
 		Values(task).
@@ -236,7 +236,7 @@ func main() {
 	tasks, err := builder.Select[models.Task](qb).
 		Where(builder.IsNull(builder.Col[models.Task]("CompletedAt"))).
 		OrderByDesc(builder.Col[models.Task]("Priority")).
-		OrderBy(builder.Col[models.Task]("DueDate")).
+		OrderBy(builder.Col[models.Task]("DueDate"), builder.Asc).
 		All(ctx)
 	if err != nil {
 		log.Printf("Query failed: %v", err)
@@ -383,7 +383,7 @@ func main() {
 	// This index provides locale-specific sorting
 	intlProducts, err := builder.Select[models.InternationalProduct](qb).
 		Where(builder.Eq(builder.Col[models.InternationalProduct]("CountryCode"), "FR")).
-		OrderBy(builder.Col[models.InternationalProduct]("Name")).
+		OrderBy(builder.Col[models.InternationalProduct]("Name"), builder.Asc).
 		All(ctx)
 	if err != nil {
 		log.Printf("Query failed: %v", err)
@@ -445,13 +445,4 @@ func main() {
 	log.Println("• BRIN indexes are space-efficient for time-series data")
 	log.Println("• Hash indexes are fastest for equality-only lookups")
 	log.Println("• CONCURRENTLY creates indexes without blocking writes in production")
-}
-
-// Helper functions
-func intPtr(i int) *int {
-	return &i
-}
-
-func timePtr(t time.Time) *time.Time {
-	return &t
 }

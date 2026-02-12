@@ -15,7 +15,7 @@ func TestTimestampParsing(t *testing.T) {
 	}
 
 	parser := NewParser()
-	metadata, err := parser.Parse(reflect.TypeOf(TestModel{}))
+	metadata, err := parser.Parse(reflect.TypeFor[TestModel]())
 	if err != nil {
 		t.Fatalf("Failed to parse struct: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestTimeTypeMapping(t *testing.T) {
 	}
 
 	parser := NewParser()
-	metadata, err := parser.Parse(reflect.TypeOf(TestModel{}))
+	metadata, err := parser.Parse(reflect.TypeFor[TestModel]())
 	if err != nil {
 		t.Fatalf("Failed to parse struct: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestTimestampDefaults(t *testing.T) {
 	}
 
 	parser := NewParser()
-	metadata, err := parser.Parse(reflect.TypeOf(TestModel{}))
+	metadata, err := parser.Parse(reflect.TypeFor[TestModel]())
 	if err != nil {
 		t.Fatalf("Failed to parse struct: %v", err)
 	}

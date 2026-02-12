@@ -14,7 +14,7 @@ type CompositeType interface {
 	SQLValue() string
 
 	// Scan scans a PostgreSQL composite type into the Go struct
-	Scan(value interface{}) error
+	Scan(value any) error
 }
 
 // BaseComposite provides helper methods for composite types
@@ -63,7 +63,7 @@ func ParseComposite(s string) []string {
 }
 
 // FormatComposite formats values into a PostgreSQL composite type string
-func FormatComposite(values ...interface{}) string {
+func FormatComposite(values ...any) string {
 	parts := make([]string, len(values))
 	for i, v := range values {
 		if v == nil {
@@ -146,7 +146,7 @@ func (p Point) Value() (driver.Value, error) {
 }
 
 // Scan implements sql.Scanner
-func (p *Point) Scan(value interface{}) error {
+func (p *Point) Scan(value any) error {
 	if value == nil {
 		return nil
 	}
@@ -186,7 +186,7 @@ func (c Circle) Value() (driver.Value, error) {
 }
 
 // Scan implements sql.Scanner
-func (c *Circle) Scan(value interface{}) error {
+func (c *Circle) Scan(value any) error {
 	if value == nil {
 		return nil
 	}

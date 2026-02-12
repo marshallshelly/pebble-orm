@@ -1,6 +1,6 @@
 module github.com/marshallshelly/pebble-orm/examples/generated_columns
 
-go 1.24.0
+go 1.26.0
 
 replace github.com/marshallshelly/pebble-orm => ../..
 

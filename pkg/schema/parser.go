@@ -51,7 +51,7 @@ func RegisterTableName(structName, tableName string) {
 // Parse extracts TableMetadata from a Go struct type.
 func (p *Parser) Parse(modelType reflect.Type) (*TableMetadata, error) {
 	// Dereference pointer types
-	for modelType.Kind() == reflect.Ptr {
+	for modelType.Kind() == reflect.Pointer {
 		modelType = modelType.Elem()
 	}
 	if modelType.Kind() != reflect.Struct {
@@ -70,8 +70,7 @@ func (p *Parser) Parse(modelType reflect.Type) (*TableMetadata, error) {
 		Constraints: make([]ConstraintMetadata, 0),
 	}
 	// Parse fields
-	for i := 0; i < modelType.NumField(); i++ {
-		field := modelType.Field(i)
+	for field := range modelType.Fields() {
 		// Skip unexported fields
 		if !field.IsExported() {
 			continue
@@ -93,7 +92,7 @@ func (p *Parser) Parse(modelType reflect.Type) (*TableMetadata, error) {
 			continue
 		}
 		// Create column metadata
-		column := p.createColumnMetadata(field, tagOpts, i)
+		column := p.createColumnMetadata(field, tagOpts, field.Index[0])
 		// Handle primary key
 		if tagOpts.Has("primaryKey") {
 			if table.PrimaryKey == nil {
@@ -424,10 +423,10 @@ func (p *Parser) parseTag(tag string) (*TagOptions, error) {
 			key := opt[:idx]
 			value := opt[idx+1 : len(opt)-1]
 			opts.Options[key] = value
-		} else if idx := strings.Index(opt, ":"); idx != -1 {
+		} else if before, after, ok := strings.Cut(opt, ":"); ok {
 			// Support colon format: key:value
-			key := opt[:idx]
-			value := opt[idx+1:]
+			key := before
+			value := after
 			opts.Options[key] = value
 		} else {
 			// Boolean option
@@ -583,8 +582,8 @@ func ParseIndexFromComment(comment string) *IndexMetadata {
 	// Parse INCLUDE clause
 	includePattern := regexp.MustCompile(`INCLUDE\s+\(([^)]+)\)`)
 	if includeMatches := includePattern.FindStringSubmatch(remaining); len(includeMatches) > 1 {
-		includeCols := strings.Split(includeMatches[1], ",")
-		for _, col := range includeCols {
+		includeCols := strings.SplitSeq(includeMatches[1], ",")
+		for col := range includeCols {
 			index.Include = append(index.Include, strings.TrimSpace(col))
 		}
 	}
@@ -779,8 +778,7 @@ func ParseSourceFile(_ string, _ string) (string, error) {
 
 // parseForeignKeys extracts foreign key constraints from struct tags.
 func (p *Parser) parseForeignKeys(modelType reflect.Type, table *TableMetadata) error {
-	for i := 0; i < modelType.NumField(); i++ {
-		field := modelType.Field(i)
+	for field := range modelType.Fields() {
 		tag := field.Tag.Get("db")
 		if tag == "" || tag == "-" {
 			continue
@@ -868,8 +866,7 @@ func parseReferenceAction(action string) ReferenceAction {
 //   - `po:"column,type,index(name,gin)"` - named index with type
 //   - `po:"column,type,index(name,btree,desc)"` - with ordering
 func (p *Parser) parseColumnIndexes(modelType reflect.Type, table *TableMetadata) error {
-	for i := 0; i < modelType.NumField(); i++ {
-		field := modelType.Field(i)
+	for field := range modelType.Fields() {
 		if !field.IsExported() {
 			continue
 		}

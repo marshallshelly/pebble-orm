@@ -42,7 +42,7 @@ func GetTableNames() map[string]string {
 	}
 }
 
-func getTableName(model interface{}) string {
+func getTableName(model any) string {
 	table, err := registry.Get(reflect.TypeOf(model))
 	if err != nil {
 		return "unknown"

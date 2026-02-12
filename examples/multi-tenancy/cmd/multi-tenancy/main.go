@@ -321,7 +321,7 @@ func (app *App) updateUser(c *fiber.Ctx) error {
 		And(builder.Eq("tenant_id", tenantID)).
 		And(builder.IsNull("deleted_at"))
 
-	changes := make(map[string]interface{})
+	changes := make(map[string]any)
 
 	if req.Name != nil {
 		query = query.Set("name", *req.Name)

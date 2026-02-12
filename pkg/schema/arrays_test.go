@@ -8,7 +8,7 @@ import (
 func TestStringArray_Scan(t *testing.T) {
 	tests := []struct {
 		name     string
-		input    interface{}
+		input    any
 		expected StringArray
 		wantErr  bool
 	}{
@@ -214,7 +214,7 @@ func TestStringArray_RoundTrip(t *testing.T) {
 func TestInt32Array_Scan(t *testing.T) {
 	tests := []struct {
 		name     string
-		input    interface{}
+		input    any
 		expected Int32Array
 		wantErr  bool
 	}{
@@ -289,7 +289,7 @@ func TestInt32Array_Value(t *testing.T) {
 func TestInt64Array_Scan(t *testing.T) {
 	tests := []struct {
 		name     string
-		input    interface{}
+		input    any
 		expected Int64Array
 		wantErr  bool
 	}{
@@ -337,7 +337,7 @@ func TestInt64Array_Scan(t *testing.T) {
 func TestFloat64Array_Scan(t *testing.T) {
 	tests := []struct {
 		name     string
-		input    interface{}
+		input    any
 		expected Float64Array
 		wantErr  bool
 	}{
@@ -395,7 +395,7 @@ func TestFloat64Array_Scan(t *testing.T) {
 func TestBoolArray_Scan(t *testing.T) {
 	tests := []struct {
 		name     string
-		input    interface{}
+		input    any
 		expected BoolArray
 		wantErr  bool
 	}{

@@ -24,37 +24,37 @@ var (
 )
 
 // Success prints a success message
-func Success(format string, args ...interface{}) {
+func Success(format string, args ...any) {
 	fmt.Print(successStyle.Render("✓ "))
 	fmt.Printf(format+"\n", args...)
 }
 
 // Warning prints a warning message
-func Warning(format string, args ...interface{}) {
+func Warning(format string, args ...any) {
 	fmt.Print(warningStyle.Render("⚠ "))
 	fmt.Printf(format+"\n", args...)
 }
 
 // Error prints an error message
-func Error(format string, args ...interface{}) {
+func Error(format string, args ...any) {
 	fmt.Print(errorStyle.Render("✗ "))
 	fmt.Printf(format+"\n", args...)
 }
 
 // Info prints an info message
-func Info(format string, args ...interface{}) {
+func Info(format string, args ...any) {
 	fmt.Print(infoStyle.Render("ℹ "))
 	fmt.Printf(format+"\n", args...)
 }
 
 // Muted prints a muted message
-func Muted(format string, args ...interface{}) {
+func Muted(format string, args ...any) {
 	fmt.Print(mutedStyle.Render(fmt.Sprintf(format, args...)))
 	fmt.Println()
 }
 
 // Primary prints a primary message
-func Primary(format string, args ...interface{}) {
+func Primary(format string, args ...any) {
 	fmt.Print(primaryStyle.Render(fmt.Sprintf(format, args...)))
 	fmt.Println()
 }

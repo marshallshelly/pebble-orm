@@ -120,7 +120,7 @@ func (db *DB) BeginTx(ctx context.Context, txOptions pgx.TxOptions) (pgx.Tx, err
 }
 
 // Exec executes a query without returning any rows.
-func (db *DB) Exec(ctx context.Context, sql string, args ...interface{}) (int64, error) {
+func (db *DB) Exec(ctx context.Context, sql string, args ...any) (int64, error) {
 	result, err := db.pool.Exec(ctx, sql, args...)
 	if err != nil {
 		return 0, &QueryError{Query: sql, Err: err}
@@ -129,7 +129,7 @@ func (db *DB) Exec(ctx context.Context, sql string, args ...interface{}) (int64,
 }
 
 // Query executes a query that returns rows.
-func (db *DB) Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error) {
+func (db *DB) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
 	rows, err := db.pool.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, &QueryError{Query: sql, Err: err}
@@ -138,7 +138,7 @@ func (db *DB) Query(ctx context.Context, sql string, args ...interface{}) (pgx.R
 }
 
 // QueryRow executes a query that returns at most one row.
-func (db *DB) QueryRow(ctx context.Context, sql string, args ...interface{}) pgx.Row {
+func (db *DB) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
 	return db.pool.QueryRow(ctx, sql, args...)
 }
 

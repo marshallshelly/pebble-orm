@@ -2,6 +2,7 @@ package migration
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/marshallshelly/pebble-orm/pkg/schema"
@@ -214,13 +215,7 @@ func (d *Differ) compareIndexes(codeTable, dbTable *schema.TableMetadata, diff *
 	for idxName := range dbIndexes {
 		if _, exists := codeIndexes[idxName]; !exists {
 			// Check if not already in IndexesDropped (from modification case)
-			alreadyDropped := false
-			for _, dropped := range diff.IndexesDropped {
-				if dropped == idxName {
-					alreadyDropped = true
-					break
-				}
-			}
+			alreadyDropped := slices.Contains(diff.IndexesDropped, idxName)
 			if !alreadyDropped {
 				diff.IndexesDropped = append(diff.IndexesDropped, idxName)
 			}

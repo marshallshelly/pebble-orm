@@ -23,6 +23,7 @@ indexes/
 This example covers **all** PostgreSQL index features supported by Pebble ORM:
 
 ### ✅ Basic Index Features
+
 - **Column-Level Indexes**: Simple syntax for common indexes
 - **Custom Index Names**: Explicit naming for clarity
 - **Index Types**: btree, gin, gist, brin, hash
@@ -30,6 +31,7 @@ This example covers **all** PostgreSQL index features supported by Pebble ORM:
 - **Multicolumn Indexes**: Composite indexes on multiple columns
 
 ### ✅ Advanced Index Features
+
 - **Expression Indexes**: Indexes on computed values (e.g., `lower(email)`)
 - **Partial Indexes**: Conditional indexes with WHERE clauses
 - **Covering Indexes**: INCLUDE columns for index-only scans
@@ -40,13 +42,14 @@ This example covers **all** PostgreSQL index features supported by Pebble ORM:
 - **BRIN Indexes**: Space-efficient time-series data
 
 ### ✅ Table-Level Complex Indexes
+
 - Full PostgreSQL CREATE INDEX syntax via table comments
 - All features combinable in a single index
 - Automatic migration generation
 
 ## Prerequisites
 
-- Go 1.24+
+- Go 1.26+
 - PostgreSQL 12+
 
 ## Setup
@@ -101,11 +104,13 @@ type Product struct {
 ```
 
 **Use Cases**:
+
 - Basic WHERE filtering on indexed columns (name, category, price)
 - Sorting by created_at DESC (most recent first)
 - Array searches using GIN index (find products by tags)
 
 **Migrations Generated**:
+
 ```sql
 CREATE INDEX IF NOT EXISTS idx_products_name ON products (name);
 CREATE INDEX IF NOT EXISTS idx_product_sku ON products (sku);
@@ -134,11 +139,13 @@ type User struct {
 ```
 
 **Use Cases**:
+
 - **Expression Index**: Case-insensitive email lookups (`WHERE lower(email) = lower(?)`)
 - **Partial Indexes**: Index only relevant rows (active users, premium users)
 - Reduces index size and improves performance
 
 **Migrations Generated**:
+
 ```sql
 CREATE INDEX IF NOT EXISTS idx_email_lower ON users (lower(email));
 CREATE INDEX IF NOT EXISTS idx_active_users ON users (email) WHERE deleted_at IS NULL;
@@ -146,6 +153,7 @@ CREATE INDEX IF NOT EXISTS idx_premium_users ON users (user_id) WHERE subscripti
 ```
 
 **Why Partial Indexes?**
+
 - Smaller index size (only indexes filtered rows)
 - Faster queries on filtered data
 - Ideal for soft-delete patterns or status-based filtering
@@ -168,11 +176,13 @@ type Order struct {
 ```
 
 **Use Cases**:
+
 - **Index-Only Scans**: Query satisfied entirely from the index (no table access needed!)
 - Perfect for dashboard queries that need a few specific columns
 - Significantly faster for common queries
 
 **Migrations Generated**:
+
 ```sql
 CREATE INDEX IF NOT EXISTS idx_orders_customer_status
     ON orders (customer_id, status) INCLUDE (total_amount, created_at);
@@ -182,6 +192,7 @@ CREATE INDEX IF NOT EXISTS idx_orders_created_covering
 ```
 
 **Query Example**:
+
 ```go
 // This query uses index-only scan (never touches the table!)
 orders, _ := builder.Select[Order](db).
@@ -211,11 +222,13 @@ type Event struct {
 ```
 
 **Use Cases**:
+
 - Multi-tenant queries (filter by tenant_id, order by created_at DESC)
 - Perfect for paginated recent event lists
 - GIN index enables complex JSONB queries
 
 **Migrations Generated**:
+
 ```sql
 CREATE INDEX IF NOT EXISTS idx_events_tenant_created
     ON events (tenant_id, created_at DESC NULLS LAST);
@@ -244,11 +257,13 @@ type SearchTerm struct {
 ```
 
 **Use Cases**:
+
 - **Operator Classes**: Optimize LIKE queries with leading wildcards
 - `varchar_pattern_ops` and `text_pattern_ops` enable efficient pattern matching
 - Essential for search features
 
 **Migrations Generated**:
+
 ```sql
 CREATE INDEX IF NOT EXISTS idx_search_term_pattern
     ON search_terms (term varchar_pattern_ops);
@@ -261,6 +276,7 @@ CREATE INDEX IF NOT EXISTS idx_search_count
 ```
 
 **Why Operator Classes?**
+
 - Standard indexes don't optimize `LIKE 'pattern%'` queries well in non-C locales
 - Pattern operator classes ensure efficient prefix searches
 - Critical for autocomplete and search features
@@ -283,11 +299,13 @@ type InternationalProduct struct {
 ```
 
 **Use Cases**:
+
 - Locale-specific alphabetical sorting
 - Case-sensitive vs case-insensitive sorting
 - Multi-language product catalogs
 
 **Migrations Generated**:
+
 ```sql
 CREATE INDEX IF NOT EXISTS idx_intl_name_en
     ON international_products (name COLLATE "en_US");
@@ -297,6 +315,7 @@ CREATE INDEX IF NOT EXISTS idx_intl_name_case_sensitive
 ```
 
 **Collation Options**:
+
 - `en_US`: English (US) locale sorting
 - `C`: Byte-order (case-sensitive, fastest)
 - `en_US.utf8`: UTF-8 aware English sorting
@@ -324,11 +343,13 @@ type AnalyticsEvent struct {
 ```
 
 **Use Cases**:
+
 - **Production-Safe Index Creation**: Build indexes without blocking writes
 - Critical for large, high-traffic tables
 - Prevents downtime during index creation
 
 **Migrations Generated**:
+
 ```sql
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_analytics_timestamp
     ON analytics_events (event_timestamp DESC);
@@ -344,6 +365,7 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_analytics_props
 ```
 
 **CONCURRENTLY Benefits**:
+
 - Index builds without blocking table writes
 - Takes longer to build, but no downtime
 - Essential for production databases
@@ -373,6 +395,7 @@ type Document struct {
 ```
 
 **Use Cases**:
+
 - **Ultimate Index**: Combines multiple features (multicolumn, ordering, INCLUDE, WHERE)
 - Perfect for user document dashboards
 - Index-only scans for common queries
@@ -380,6 +403,7 @@ type Document struct {
 - Array search with GIN index
 
 **Migrations Generated**:
+
 ```sql
 CREATE INDEX IF NOT EXISTS idx_documents_complex
     ON documents (owner_id, status, updated_at DESC NULLS LAST)
@@ -412,12 +436,14 @@ type SensorReading struct {
 ```
 
 **Use Cases**:
+
 - **BRIN (Block Range Index)**: Extremely space-efficient for naturally-ordered data
 - Perfect for time-series, log data, append-only tables
 - 100-1000x smaller than btree indexes
 - Ideal for range queries on sequential data
 
 **Migrations Generated**:
+
 ```sql
 CREATE INDEX IF NOT EXISTS idx_sensor_timestamp
     ON sensor_readings USING brin (recorded_at);
@@ -427,6 +453,7 @@ CREATE INDEX IF NOT EXISTS idx_sensor_device_timestamp
 ```
 
 **BRIN Benefits**:
+
 - **Tiny size**: Stores min/max per block range (128 pages by default)
 - **Fast for sequential scans**: Ideal for time-range queries
 - **Low maintenance**: Minimal update overhead
@@ -449,17 +476,20 @@ type APIKey struct {
 ```
 
 **Use Cases**:
+
 - **Hash Index**: Fastest for exact equality checks (`WHERE key_hash = ?`)
 - Perfect for API key lookups, hash-based authentication
 - Smaller than btree for high-cardinality data
 
 **Migrations Generated**:
+
 ```sql
 CREATE INDEX IF NOT EXISTS idx_api_key_hash
     ON api_keys USING hash (key_hash);
 ```
 
 **Hash Index Limitations**:
+
 - ⚠️ Only supports `=` operator (no `<`, `>`, `LIKE`, etc.)
 - ⚠️ Cannot be used for sorting
 - ✅ Faster than btree for equality
@@ -485,12 +515,14 @@ type Task struct {
 ```
 
 **Use Cases**:
+
 - **NULLS Ordering**: Control where NULL values appear in sorted results
 - `NULLS LAST`: Show prioritized tasks first, unprioritized last
 - `NULLS FIRST`: Show tasks without due dates first
 - Essential for task management, priority queues
 
 **Migrations Generated**:
+
 ```sql
 CREATE INDEX IF NOT EXISTS idx_tasks_priority
     ON tasks (priority DESC NULLS LAST, due_date ASC NULLS FIRST);
@@ -520,11 +552,13 @@ type Article struct {
 ```
 
 **Use Cases**:
+
 - **Ultimate Example**: Combines operator class, collation, ordering, INCLUDE, WHERE, and CONCURRENTLY
 - Demonstrates all index features working together
 - Production-ready for high-traffic content sites
 
 **Migrations Generated**:
+
 ```sql
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_articles_advanced
     ON articles (author varchar_pattern_ops COLLATE "C" DESC, published_at DESC NULLS LAST)
@@ -606,32 +640,32 @@ Key Takeaways:
 
 ## Index Types Reference
 
-| Type | Best For | Operators | Size | Speed |
-|------|----------|-----------|------|-------|
-| **btree** | General purpose, sorting | `=`, `<`, `>`, `<=`, `>=`, `BETWEEN`, `IN`, `IS NULL` | Medium | Fast |
-| **gin** | JSONB, arrays, full-text | `@>`, `<@`, `?`, `?|`, `?&`, `@@` | Large | Very Fast |
-| **gist** | Geometric, ranges, full-text | Spatial operators, range operators | Large | Fast |
-| **brin** | Time-series, sequential data | `=`, `<`, `>`, `<=`, `>=`, `BETWEEN` | Tiny | Medium |
-| **hash** | Equality-only lookups | `=` only | Small | Very Fast |
+| Type      | Best For                     | Operators                                             | Size          | Speed     |
+| --------- | ---------------------------- | ----------------------------------------------------- | ------------- | --------- | --------- |
+| **btree** | General purpose, sorting     | `=`, `<`, `>`, `<=`, `>=`, `BETWEEN`, `IN`, `IS NULL` | Medium        | Fast      |
+| **gin**   | JSONB, arrays, full-text     | `@>`, `<@`, `?`, `?                                   | `, `?&`, `@@` | Large     | Very Fast |
+| **gist**  | Geometric, ranges, full-text | Spatial operators, range operators                    | Large         | Fast      |
+| **brin**  | Time-series, sequential data | `=`, `<`, `>`, `<=`, `>=`, `BETWEEN`                  | Tiny          | Medium    |
+| **hash**  | Equality-only lookups        | `=` only                                              | Small         | Very Fast |
 
 ## Operator Classes Reference
 
-| Operator Class | Column Type | Use Case |
-|----------------|-------------|----------|
-| `varchar_pattern_ops` | varchar | LIKE patterns with leading wildcards |
-| `text_pattern_ops` | text | LIKE patterns with leading wildcards |
-| `varchar_ops` | varchar | Standard operations (default) |
-| `text_ops` | text | Standard operations (default) |
+| Operator Class        | Column Type | Use Case                             |
+| --------------------- | ----------- | ------------------------------------ |
+| `varchar_pattern_ops` | varchar     | LIKE patterns with leading wildcards |
+| `text_pattern_ops`    | text        | LIKE patterns with leading wildcards |
+| `varchar_ops`         | varchar     | Standard operations (default)        |
+| `text_ops`            | text        | Standard operations (default)        |
 
 ## Collations Reference
 
-| Collation | Description |
-|-----------|-------------|
-| `en_US` | English (US) locale sorting |
-| `C` | Byte-order (case-sensitive, fastest) |
-| `POSIX` | Same as C |
-| `en_US.utf8` | UTF-8 aware English sorting |
-| `fr_FR`, `de_DE`, etc. | Language-specific sorting |
+| Collation              | Description                          |
+| ---------------------- | ------------------------------------ |
+| `en_US`                | English (US) locale sorting          |
+| `C`                    | Byte-order (case-sensitive, fastest) |
+| `POSIX`                | Same as C                            |
+| `en_US.utf8`           | UTF-8 aware English sorting          |
+| `fr_FR`, `de_DE`, etc. | Language-specific sorting            |
 
 ## Key Takeaways
 
@@ -664,28 +698,33 @@ type User struct {
 ### 3. Index Selection Guidelines
 
 **Use btree when:**
+
 - General purpose queries (90% of cases)
 - Range queries (`<`, `>`, `BETWEEN`)
 - Sorting (`ORDER BY`)
 - Unique constraints
 
 **Use gin when:**
+
 - JSONB queries (`@>`, `?`, etc.)
 - Array containment (`@>`, `&&`)
 - Full-text search
 
 **Use gist when:**
+
 - Geometric data (PostGIS)
 - Range types
 - Full-text search (alternative to gin)
 
 **Use brin when:**
+
 - Very large tables (billions of rows)
 - Naturally ordered data (timestamps, sequential IDs)
 - Append-only workloads
 - Space is critical
 
 **Use hash when:**
+
 - Only equality checks (`=`)
 - High-cardinality data
 - No sorting needed
@@ -702,24 +741,28 @@ type User struct {
 ### 5. Common Patterns
 
 **User Authentication:**
+
 ```go
 // Expression index for case-insensitive email lookup
 // index: idx_email_lower ON (lower(email))
 ```
 
 **Multi-Tenant SaaS:**
+
 ```go
 // Compound index with tenant isolation
 // index: idx_tenant_created ON (tenant_id, created_at DESC)
 ```
 
 **E-Commerce Products:**
+
 ```go
 // Partial index for in-stock products
 // index: idx_available_products ON (category, price) WHERE in_stock = true
 ```
 
 **Analytics/Logging:**
+
 ```go
 // BRIN index for time-series data
 // index: idx_timestamp ON (created_at) USING brin

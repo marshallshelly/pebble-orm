@@ -16,7 +16,7 @@ func TestIdentityColumnParsing(t *testing.T) {
 	}
 
 	parser := NewParser()
-	table, err := parser.Parse(reflect.TypeOf(TestModel{}))
+	table, err := parser.Parse(reflect.TypeFor[TestModel]())
 	if err != nil {
 		t.Fatalf("Failed to parse model: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestIdentityAndSerialMutualExclusive(t *testing.T) {
 	}
 
 	parser := NewParser()
-	table, err := parser.Parse(reflect.TypeOf(TestModel{}))
+	table, err := parser.Parse(reflect.TypeFor[TestModel]())
 	if err != nil {
 		t.Fatalf("Failed to parse model: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestIdentityColumnTypes(t *testing.T) {
 	}
 
 	parser := NewParser()
-	table, err := parser.Parse(reflect.TypeOf(TestModel{}))
+	table, err := parser.Parse(reflect.TypeFor[TestModel]())
 	if err != nil {
 		t.Fatalf("Failed to parse model: %v", err)
 	}

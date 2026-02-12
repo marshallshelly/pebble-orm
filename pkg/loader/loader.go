@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/marshallshelly/pebble-orm/pkg/schema"
@@ -363,7 +364,7 @@ func getSQLTypeFromOptions(opts *tagOptions) string {
 		for _, pgType := range pgTypes {
 			if strings.HasPrefix(opt, pgType) {
 				// Check for type with size: varchar(255)
-				if idx := strings.Index(opt, "("); idx != -1 {
+				if found := strings.Contains(opt, "("); found {
 					return opt
 				}
 				return pgType
@@ -378,10 +379,8 @@ func getSQLTypeFromOptions(opts *tagOptions) string {
 func isRelationshipTag(opts *tagOptions) bool {
 	relationships := []string{"belongsTo", "hasOne", "hasMany", "manyToMany"}
 	for _, opt := range opts.options {
-		for _, rel := range relationships {
-			if opt == rel {
-				return true
-			}
+		if slices.Contains(relationships, opt) {
+			return true
 		}
 	}
 	return false

@@ -23,7 +23,7 @@ example_name/
 
 ## 🚀 Prerequisites
 
-- **Go 1.24+**
+- **Go 1.26+**
 - **PostgreSQL 14+**
 - **Docker** (optional, for running PostgreSQL)
 
@@ -307,14 +307,14 @@ go run cmd/cascade_delete/main.go
 
 **GDPR Articles Implemented:**
 
-| GDPR Article | Feature | Endpoint |
-|--------------|---------|----------|
-| **Article 5** | Accountability & Storage | Audit logs, retention policies |
-| **Article 7** | Consent Management | `PUT /users/:id/consent` |
-| **Article 15** | Right to Access | `GET /users/:id/audit-logs` |
-| **Article 17** | Right to Erasure | `DELETE /users/:id/soft` |
-| **Article 20** | Data Portability | `POST /users/:id/export` |
-| **Article 32** | Security | Tenant isolation, audit logging |
+| GDPR Article   | Feature                  | Endpoint                        |
+| -------------- | ------------------------ | ------------------------------- |
+| **Article 5**  | Accountability & Storage | Audit logs, retention policies  |
+| **Article 7**  | Consent Management       | `PUT /users/:id/consent`        |
+| **Article 15** | Right to Access          | `GET /users/:id/audit-logs`     |
+| **Article 17** | Right to Erasure         | `DELETE /users/:id/soft`        |
+| **Article 20** | Data Portability         | `POST /users/:id/export`        |
+| **Article 32** | Security                 | Tenant isolation, audit logging |
 
 **Models with GDPR Compliance:**
 
@@ -507,6 +507,7 @@ go run cmd/indexes/main.go
 - **CONCURRENTLY**: Build indexes without blocking writes in production
 
 **Perfect for:**
+
 - 🏗️ Understanding PostgreSQL index types and when to use them
 - ⚡ Optimizing query performance
 - 📊 Time-series and analytics workloads
@@ -534,7 +535,7 @@ Every example has centralized registration:
 ```go
 // internal/models/registry.go
 func RegisterAll() error {
-    models := []interface{}{
+    models := []any{
         User{},
         Post{},
         // ... more models

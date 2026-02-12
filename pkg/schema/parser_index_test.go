@@ -14,7 +14,7 @@ func TestParseColumnIndex_Simple(t *testing.T) {
 	}
 
 	parser := NewParser()
-	table, err := parser.Parse(reflect.TypeOf(TestModel{}))
+	table, err := parser.Parse(reflect.TypeFor[TestModel]())
 	if err != nil {
 		t.Fatalf("failed to parse: %v", err)
 	}
@@ -42,7 +42,7 @@ func TestParseColumnIndex_Named(t *testing.T) {
 	}
 
 	parser := NewParser()
-	table, err := parser.Parse(reflect.TypeOf(TestModel{}))
+	table, err := parser.Parse(reflect.TypeFor[TestModel]())
 	if err != nil {
 		t.Fatalf("failed to parse: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestParseColumnIndex_WithType(t *testing.T) {
 	}
 
 	parser := NewParser()
-	table, err := parser.Parse(reflect.TypeOf(TestModel{}))
+	table, err := parser.Parse(reflect.TypeFor[TestModel]())
 	if err != nil {
 		t.Fatalf("failed to parse: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestParseColumnIndex_WithOrdering(t *testing.T) {
 	}
 
 	parser := NewParser()
-	table, err := parser.Parse(reflect.TypeOf(TestModel{}))
+	table, err := parser.Parse(reflect.TypeFor[TestModel]())
 	if err != nil {
 		t.Fatalf("failed to parse: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestParseColumnIndex_MultipleIndexes(t *testing.T) {
 	}
 
 	parser := NewParser()
-	table, err := parser.Parse(reflect.TypeOf(TestModel{}))
+	table, err := parser.Parse(reflect.TypeFor[TestModel]())
 	if err != nil {
 		t.Fatalf("failed to parse: %v", err)
 	}

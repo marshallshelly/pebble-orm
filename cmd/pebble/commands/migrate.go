@@ -287,10 +287,7 @@ func runMigrateDown() error {
 	}
 
 	// Rollback last N migrations
-	toRollback := steps
-	if toRollback > len(applied) {
-		toRollback = len(applied)
-	}
+	toRollback := min(steps, len(applied))
 
 	// Preview
 	if dryRun {
@@ -309,7 +306,7 @@ func runMigrateDown() error {
 		migrationMap[m.Version] = m
 	}
 
-	for i := 0; i < toRollback; i++ {
+	for i := range toRollback {
 		idx := len(applied) - 1 - i
 		record := applied[idx]
 
