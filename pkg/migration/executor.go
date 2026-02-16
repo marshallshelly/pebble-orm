@@ -64,8 +64,7 @@ func (e *Executor) Initialize(ctx context.Context) error {
 
 // Lock acquires an advisory lock to prevent concurrent migrations.
 func (e *Executor) Lock(ctx context.Context) error {
-	var acquired bool
-	err := e.pool.QueryRow(ctx, "SELECT pg_advisory_lock($1)", e.lockID).Scan(&acquired)
+	_, err := e.pool.Exec(ctx, "SELECT pg_advisory_lock($1)", e.lockID)
 	if err != nil {
 		return fmt.Errorf("failed to acquire migration lock: %w", err)
 	}

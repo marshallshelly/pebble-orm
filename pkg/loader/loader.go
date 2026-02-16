@@ -236,6 +236,19 @@ func buildTableMetadataFromAST(tableName string, structType *ast.StructType) *sc
 		}
 	}
 
+	// Create UNIQUE constraints for columns marked as unique
+	// This allows the migration system to detect and manage UNIQUE constraints
+	for _, col := range table.Columns {
+		if col.Unique {
+			constraint := schema.ConstraintMetadata{
+				Name:    fmt.Sprintf("%s_%s_key", table.Name, col.Name),
+				Type:    schema.UniqueConstraint,
+				Columns: []string{col.Name},
+			}
+			table.Constraints = append(table.Constraints, constraint)
+		}
+	}
+
 	return table
 }
 

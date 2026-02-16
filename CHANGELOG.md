@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.15.1] - 2026-02-16
+
+### Fixed
+
+- AST loader missing UNIQUE constraint metadata, causing spurious `DROP CONSTRAINT` in diff migrations.
+- `pg_advisory_lock()` scan error from scanning `void` return into `*bool` in migration executor.
+
+### Added
+
+- Loader now generates `ConstraintMetadata` for `unique` columns, matching the reflection-based parser.
+- Tests for UNIQUE constraint generation in AST loader.
+
 ## [1.15.0] - 2026-02-13
 
 ### Changed
@@ -402,7 +414,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - golangci-lint integration.
 - GoReleaser configuration for multi-platform releases.
 
-[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.15.0...HEAD
+[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.15.1...HEAD
+[1.15.1]: https://github.com/marshallshelly/pebble-orm/compare/v1.15.0...v1.15.1
 [1.15.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.14.6...v1.15.0
 [1.14.6]: https://github.com/marshallshelly/pebble-orm/compare/v1.14.5...v1.14.6
 [1.14.5]: https://github.com/marshallshelly/pebble-orm/compare/v1.14.4...v1.14.5

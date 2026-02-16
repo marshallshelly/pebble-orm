@@ -1,8 +1,94 @@
 package loader
 
 import (
+	"go/ast"
+	"go/token"
 	"testing"
+
+	"github.com/marshallshelly/pebble-orm/pkg/schema"
 )
+
+func TestBuildTableMetadataFromAST_UniqueConstraints(t *testing.T) {
+	// Build a struct AST with a unique column: `po:"email,varchar(320),unique,notNull"`
+	fields := &ast.FieldList{
+		List: []*ast.Field{
+			{
+				Names: []*ast.Ident{{Name: "ID"}},
+				Type:  &ast.Ident{Name: "string"},
+				Tag:   &ast.BasicLit{Kind: token.STRING, Value: "`po:\"id,primaryKey,uuid\"`"},
+			},
+			{
+				Names: []*ast.Ident{{Name: "Email"}},
+				Type:  &ast.Ident{Name: "string"},
+				Tag:   &ast.BasicLit{Kind: token.STRING, Value: "`po:\"email,varchar(320),unique,notNull\"`"},
+			},
+			{
+				Names: []*ast.Ident{{Name: "Name"}},
+				Type:  &ast.Ident{Name: "string"},
+				Tag:   &ast.BasicLit{Kind: token.STRING, Value: "`po:\"name,varchar(255),notNull\"`"},
+			},
+		},
+	}
+	structType := &ast.StructType{Fields: fields}
+
+	table := buildTableMetadataFromAST("users", structType)
+
+	// Verify the email column is marked unique
+	var emailCol *schema.ColumnMetadata
+	for i, col := range table.Columns {
+		if col.Name == "email" {
+			emailCol = &table.Columns[i]
+			break
+		}
+	}
+	if emailCol == nil {
+		t.Fatal("email column not found")
+	}
+	if !emailCol.Unique {
+		t.Error("email column should be marked unique")
+	}
+
+	// Verify a UNIQUE constraint was created
+	if len(table.Constraints) != 1 {
+		t.Fatalf("expected 1 constraint, got %d", len(table.Constraints))
+	}
+
+	c := table.Constraints[0]
+	if c.Name != "users_email_key" {
+		t.Errorf("constraint name = %q, want %q", c.Name, "users_email_key")
+	}
+	if c.Type != schema.UniqueConstraint {
+		t.Errorf("constraint type = %q, want %q", c.Type, schema.UniqueConstraint)
+	}
+	if len(c.Columns) != 1 || c.Columns[0] != "email" {
+		t.Errorf("constraint columns = %v, want [email]", c.Columns)
+	}
+}
+
+func TestBuildTableMetadataFromAST_NoUniqueNoConstraint(t *testing.T) {
+	// A struct with no unique columns should produce no constraints
+	fields := &ast.FieldList{
+		List: []*ast.Field{
+			{
+				Names: []*ast.Ident{{Name: "ID"}},
+				Type:  &ast.Ident{Name: "int"},
+				Tag:   &ast.BasicLit{Kind: token.STRING, Value: "`po:\"id,primaryKey,serial\"`"},
+			},
+			{
+				Names: []*ast.Ident{{Name: "Name"}},
+				Type:  &ast.Ident{Name: "string"},
+				Tag:   &ast.BasicLit{Kind: token.STRING, Value: "`po:\"name,varchar(255),notNull\"`"},
+			},
+		},
+	}
+	structType := &ast.StructType{Fields: fields}
+
+	table := buildTableMetadataFromAST("items", structType)
+
+	if len(table.Constraints) != 0 {
+		t.Errorf("expected 0 constraints, got %d", len(table.Constraints))
+	}
+}
 
 func TestGetSQLTypeFromOptions_JSONB(t *testing.T) {
 	tests := []struct {
