@@ -29,7 +29,7 @@ Features:
   - Interactive TUI and non-interactive CLI modes
   - Full transaction support with savepoints
   - Relationship loading (belongsTo, hasOne, hasMany, manyToMany)`,
-	Version: "1.0.0",
+	Version: "1.16.1",
 }
 
 // Execute runs the root command
