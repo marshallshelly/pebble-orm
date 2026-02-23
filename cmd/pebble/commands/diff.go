@@ -106,7 +106,7 @@ func runDiff() error {
 	if len(diff.TablesDropped) > 0 {
 		output.Warning("Tables to drop (%d):", len(diff.TablesDropped))
 		for _, tableName := range diff.TablesDropped {
-			fmt.Printf("  - %s\n", tableName)
+			fmt.Printf("  - %s\n", tableName.Name)
 		}
 		fmt.Println()
 	}
@@ -124,7 +124,7 @@ func runDiff() error {
 
 			if len(tableDiff.ColumnsDropped) > 0 {
 				for _, colName := range tableDiff.ColumnsDropped {
-					fmt.Printf("      - column: %s\n", colName)
+					fmt.Printf("      - column: %s\n", colName.Name)
 				}
 			}
 
@@ -168,7 +168,7 @@ func runDiff() error {
 
 			if len(tableDiff.IndexesDropped) > 0 {
 				for _, idxName := range tableDiff.IndexesDropped {
-					fmt.Printf("      - index: %s\n", idxName)
+					fmt.Printf("      - index: %s\n", idxName.Name)
 				}
 			}
 
