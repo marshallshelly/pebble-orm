@@ -61,8 +61,8 @@ func (p *Planner) GenerateMigration(diff *SchemaDiff) (upSQL, downSQL string) {
 	for _, enumDiff := range diff.EnumTypesModified {
 		alterSQL := p.generateAlterEnumType(enumDiff)
 		upStatements = append(upStatements, alterSQL...)
-		// Note: PostgreSQL doesn't support removing enum values
-		downStatements = append(downStatements, fmt.Sprintf("-- TODO: Cannot automatically remove enum values from %s", enumDiff.Name))
+		// Note: PostgreSQL does not support removing enum values — down migration is a no-op for value additions
+		downStatements = append(downStatements, fmt.Sprintf("-- NOTE: Cannot automatically remove enum values from type %s (PostgreSQL limitation)", enumDiff.Name))
 	}
 
 	// 3. CREATE TABLE statements
@@ -79,18 +79,16 @@ func (p *Planner) GenerateMigration(diff *SchemaDiff) (upSQL, downSQL string) {
 	}
 
 	// 5. DROP TABLE statements
-	// Note: For dropped tables, we can't recreate them perfectly in down migration
-	// without storing the schema, so we just generate comments
-	for _, tableName := range diff.TablesDropped {
-		upStatements = append(upStatements, p.generateDropTable(tableName))
-		downStatements = append(downStatements, fmt.Sprintf("-- TODO: Recreate table %s", tableName))
+	for _, table := range diff.TablesDropped {
+		upStatements = append(upStatements, p.generateDropTable(table.Name))
+		downStatements = append(downStatements, p.generateCreateTable(&table))
 	}
 
 	// 6. DROP TYPE for enum types that are no longer used
 	// This should come AFTER dropping tables that use them
-	for _, enumName := range diff.EnumTypesDropped {
-		upStatements = append(upStatements, p.generateDropEnumType(enumName))
-		downStatements = append(downStatements, fmt.Sprintf("-- TODO: Recreate enum type %s", enumName))
+	for _, enumType := range diff.EnumTypesDropped {
+		upStatements = append(upStatements, p.generateDropEnumType(enumType.Name))
+		downStatements = append(downStatements, p.generateCreateEnumType(enumType))
 	}
 
 	// Join statements
@@ -357,10 +355,11 @@ func (p *Planner) generateAlterTable(diff TableDiff) (upSQL, downSQL []string) {
 	}
 
 	// Drop columns
-	for _, colName := range diff.ColumnsDropped {
+	for _, col := range diff.ColumnsDropped {
 		upSQL = append(upSQL, fmt.Sprintf("ALTER TABLE %s DROP COLUMN IF EXISTS %s;",
-			tableName, colName))
-		downSQL = append(downSQL, fmt.Sprintf("-- TODO: Re-add column %s to table %s", colName, tableName))
+			tableName, col.Name))
+		downSQL = append(downSQL, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s;",
+			tableName, p.generateColumnDefinition(col)))
 	}
 
 	// Modify columns
@@ -384,9 +383,9 @@ func (p *Planner) generateAlterTable(diff TableDiff) (upSQL, downSQL []string) {
 	}
 
 	// Drop indexes
-	for _, idxName := range diff.IndexesDropped {
-		upSQL = append(upSQL, fmt.Sprintf("DROP INDEX IF EXISTS %s;", idxName))
-		downSQL = append(downSQL, fmt.Sprintf("-- TODO: Recreate index %s", idxName))
+	for _, idx := range diff.IndexesDropped {
+		upSQL = append(upSQL, fmt.Sprintf("DROP INDEX IF EXISTS %s;", idx.Name))
+		downSQL = append(downSQL, p.generateCreateIndex(tableName, idx))
 	}
 
 	// Add foreign keys
@@ -398,10 +397,11 @@ func (p *Planner) generateAlterTable(diff TableDiff) (upSQL, downSQL []string) {
 	}
 
 	// Drop foreign keys
-	for _, fkName := range diff.ForeignKeysDropped {
+	for _, fk := range diff.ForeignKeysDropped {
 		upSQL = append(upSQL, fmt.Sprintf("ALTER TABLE %s DROP CONSTRAINT IF EXISTS %s;",
-			tableName, fkName))
-		downSQL = append(downSQL, fmt.Sprintf("-- TODO: Re-add foreign key %s", fkName))
+			tableName, fk.Name))
+		downSQL = append(downSQL, fmt.Sprintf("ALTER TABLE %s ADD %s;",
+			tableName, p.generateForeignKeyDefinition(fk)))
 	}
 
 	// Add constraints
@@ -412,10 +412,10 @@ func (p *Planner) generateAlterTable(diff TableDiff) (upSQL, downSQL []string) {
 	}
 
 	// Drop constraints
-	for _, cName := range diff.ConstraintsDropped {
+	for _, c := range diff.ConstraintsDropped {
 		upSQL = append(upSQL, fmt.Sprintf("ALTER TABLE %s DROP CONSTRAINT IF EXISTS %s;",
-			tableName, cName))
-		downSQL = append(downSQL, fmt.Sprintf("-- TODO: Re-add constraint %s", cName))
+			tableName, c.Name))
+		downSQL = append(downSQL, p.generateAddConstraintSQL(tableName, c))
 	}
 
 	return upSQL, downSQL
@@ -440,7 +440,7 @@ func (p *Planner) generateColumnModification(tableName string, colDiff ColumnDif
 				// No safe automatic conversion - require manual intervention
 				upSQL = append(upSQL, fmt.Sprintf("-- MANUAL MIGRATION REQUIRED: Cannot auto-convert %s from %s to %s",
 					colName, colDiff.OldColumn.SQLType, colDiff.NewColumn.SQLType))
-				upSQL = append(upSQL, fmt.Sprintf("-- Please review and uncomment/modify the following statement:"))
+				upSQL = append(upSQL, "-- Please review and uncomment/modify the following statement:")
 				upSQL = append(upSQL, fmt.Sprintf("-- ALTER TABLE %s ALTER COLUMN %s TYPE %s USING <expression>;",
 					tableName, colName, colDiff.NewColumn.SQLType))
 			}

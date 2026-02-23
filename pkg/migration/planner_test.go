@@ -155,8 +155,10 @@ func TestGenerateAlterTableDropColumn(t *testing.T) {
 	planner := NewPlanner()
 
 	diff := TableDiff{
-		TableName:      "users",
-		ColumnsDropped: []string{"phone"},
+		TableName: "users",
+		ColumnsDropped: []schema.ColumnMetadata{
+			{Name: "phone", SQLType: "varchar(20)", Nullable: true},
+		},
 	}
 
 	upSQL, downSQL := planner.generateAlterTable(diff)
@@ -169,12 +171,12 @@ func TestGenerateAlterTableDropColumn(t *testing.T) {
 		t.Errorf("Expected DROP COLUMN statement, got: %s", upSQL[0])
 	}
 
-	// Check down migration (should have TODO comment)
+	// Check down migration (should ADD COLUMN back with original definition)
 	if len(downSQL) != 1 {
 		t.Fatalf("Expected 1 down statement, got %d", len(downSQL))
 	}
-	if !strings.Contains(downSQL[0], "TODO") {
-		t.Errorf("Expected TODO comment, got: %s", downSQL[0])
+	if !strings.Contains(downSQL[0], "ALTER TABLE users ADD COLUMN phone varchar(20)") {
+		t.Errorf("Expected ADD COLUMN statement, got: %s", downSQL[0])
 	}
 }
 
@@ -292,7 +294,14 @@ func TestGenerateMigration(t *testing.T) {
 				},
 			},
 		},
-		TablesDropped: []string{"old_table"},
+		TablesDropped: []schema.TableMetadata{
+			{
+				Name: "old_table",
+				Columns: []schema.ColumnMetadata{
+					{Name: "id", SQLType: "serial", Nullable: false},
+				},
+			},
+		},
 		TablesModified: []TableDiff{
 			{
 				TableName: "posts",
@@ -320,8 +329,8 @@ func TestGenerateMigration(t *testing.T) {
 	if !strings.Contains(downSQL, `DROP TABLE IF EXISTS "users"`) {
 		t.Errorf("Expected DROP TABLE in down migration, got: %s", downSQL)
 	}
-	if !strings.Contains(downSQL, "TODO: Recreate table old_table") {
-		t.Errorf("Expected TODO comment in down migration, got: %s", downSQL)
+	if !strings.Contains(downSQL, "CREATE TABLE IF NOT EXISTS old_table") {
+		t.Errorf("Expected CREATE TABLE in down migration, got: %s", downSQL)
 	}
 	if !strings.Contains(downSQL, "ALTER TABLE posts DROP COLUMN IF EXISTS status") {
 		t.Errorf("Expected ALTER TABLE in down migration, got: %s", downSQL)

@@ -59,8 +59,8 @@ func TestCompareTablesDropped(t *testing.T) {
 	if len(diff.TablesDropped) != 1 {
 		t.Errorf("Expected 1 table dropped, got %d", len(diff.TablesDropped))
 	}
-	if diff.TablesDropped[0] != "old_users" {
-		t.Errorf("Expected old_users table, got %s", diff.TablesDropped[0])
+	if diff.TablesDropped[0].Name != "old_users" {
+		t.Errorf("Expected old_users table, got %s", diff.TablesDropped[0].Name)
 	}
 	if len(diff.TablesModified) != 0 {
 		t.Errorf("Expected 0 tables modified, got %d", len(diff.TablesModified))
@@ -122,8 +122,8 @@ func TestCompareColumnsDropped(t *testing.T) {
 	if len(diff.ColumnsDropped) != 1 {
 		t.Fatalf("Expected 1 column dropped, got %d", len(diff.ColumnsDropped))
 	}
-	if diff.ColumnsDropped[0] != "phone" {
-		t.Errorf("Expected phone column, got %s", diff.ColumnsDropped[0])
+	if diff.ColumnsDropped[0].Name != "phone" {
+		t.Errorf("Expected phone column, got %s", diff.ColumnsDropped[0].Name)
 	}
 }
 
@@ -412,8 +412,8 @@ func TestCompareIndexes(t *testing.T) {
 	if len(diff.IndexesDropped) != 1 {
 		t.Errorf("Expected 1 index dropped, got %d", len(diff.IndexesDropped))
 	}
-	if len(diff.IndexesDropped) > 0 && diff.IndexesDropped[0] != "idx_old" {
-		t.Errorf("Expected idx_old to be dropped, got %s", diff.IndexesDropped[0])
+	if len(diff.IndexesDropped) > 0 && diff.IndexesDropped[0].Name != "idx_old" {
+		t.Errorf("Expected idx_old to be dropped, got %s", diff.IndexesDropped[0].Name)
 	}
 }
 

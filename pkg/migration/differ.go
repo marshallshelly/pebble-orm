@@ -22,10 +22,10 @@ func NewDiffer() *Differ {
 func (d *Differ) Compare(codeSchema, dbSchema map[string]*schema.TableMetadata) *SchemaDiff {
 	diff := &SchemaDiff{
 		TablesAdded:       make([]schema.TableMetadata, 0),
-		TablesDropped:     make([]string, 0),
+		TablesDropped:     make([]schema.TableMetadata, 0),
 		TablesModified:    make([]TableDiff, 0),
 		EnumTypesAdded:    make([]schema.EnumType, 0),
-		EnumTypesDropped:  make([]string, 0),
+		EnumTypesDropped:  make([]schema.EnumType, 0),
 		EnumTypesModified: make([]EnumTypeDiff, 0),
 	}
 
@@ -37,9 +37,9 @@ func (d *Differ) Compare(codeSchema, dbSchema map[string]*schema.TableMetadata) 
 	}
 
 	// Find tables that exist in DB but not in code (need to drop)
-	for tableName := range dbSchema {
+	for tableName, dbTable := range dbSchema {
 		if _, exists := codeSchema[tableName]; !exists {
-			diff.TablesDropped = append(diff.TablesDropped, tableName)
+			diff.TablesDropped = append(diff.TablesDropped, *dbTable)
 		}
 	}
 
@@ -64,14 +64,14 @@ func (d *Differ) compareTable(codeTable, dbTable *schema.TableMetadata) TableDif
 	diff := TableDiff{
 		TableName:          codeTable.Name,
 		ColumnsAdded:       make([]schema.ColumnMetadata, 0),
-		ColumnsDropped:     make([]string, 0),
+		ColumnsDropped:     make([]schema.ColumnMetadata, 0),
 		ColumnsModified:    make([]ColumnDiff, 0),
 		IndexesAdded:       make([]schema.IndexMetadata, 0),
-		IndexesDropped:     make([]string, 0),
+		IndexesDropped:     make([]schema.IndexMetadata, 0),
 		ForeignKeysAdded:   make([]schema.ForeignKeyMetadata, 0),
-		ForeignKeysDropped: make([]string, 0),
+		ForeignKeysDropped: make([]schema.ForeignKeyMetadata, 0),
 		ConstraintsAdded:   make([]schema.ConstraintMetadata, 0),
-		ConstraintsDropped: make([]string, 0),
+		ConstraintsDropped: make([]schema.ConstraintMetadata, 0),
 	}
 
 	// Compare columns
@@ -113,9 +113,9 @@ func (d *Differ) compareColumns(codeTable, dbTable *schema.TableMetadata, diff *
 	}
 
 	// Find columns to drop (in DB but not in code)
-	for colName := range dbColumns {
+	for colName, dbCol := range dbColumns {
 		if _, exists := codeColumns[colName]; !exists {
-			diff.ColumnsDropped = append(diff.ColumnsDropped, colName)
+			diff.ColumnsDropped = append(diff.ColumnsDropped, dbCol)
 		}
 	}
 
@@ -204,20 +204,22 @@ func (d *Differ) compareIndexes(codeTable, dbTable *schema.TableMetadata, diff *
 		} else {
 			// Index exists - check if it's different
 			if !d.isSameIndex(codeIdx, dbIdx) {
-				// Index is different - drop and recreate
-				diff.IndexesDropped = append(diff.IndexesDropped, idxName)
+				// Index is different - drop old and recreate with new definition
+				diff.IndexesDropped = append(diff.IndexesDropped, dbIdx)
 				diff.IndexesAdded = append(diff.IndexesAdded, codeIdx)
 			}
 		}
 	}
 
 	// Find indexes to drop (only those that don't exist in code and weren't already marked for drop)
-	for idxName := range dbIndexes {
+	for idxName, dbIdx := range dbIndexes {
 		if _, exists := codeIndexes[idxName]; !exists {
 			// Check if not already in IndexesDropped (from modification case)
-			alreadyDropped := slices.Contains(diff.IndexesDropped, idxName)
+			alreadyDropped := slices.ContainsFunc(diff.IndexesDropped, func(idx schema.IndexMetadata) bool {
+				return idx.Name == idxName
+			})
 			if !alreadyDropped {
-				diff.IndexesDropped = append(diff.IndexesDropped, idxName)
+				diff.IndexesDropped = append(diff.IndexesDropped, dbIdx)
 			}
 		}
 	}
@@ -393,9 +395,9 @@ func (d *Differ) compareForeignKeys(codeTable, dbTable *schema.TableMetadata, di
 	}
 
 	// Find foreign keys to drop
-	for fkName := range dbFKs {
+	for fkName, dbFk := range dbFKs {
 		if _, exists := codeFKs[fkName]; !exists {
-			diff.ForeignKeysDropped = append(diff.ForeignKeysDropped, fkName)
+			diff.ForeignKeysDropped = append(diff.ForeignKeysDropped, dbFk)
 		}
 	}
 }
@@ -426,7 +428,7 @@ func (d *Differ) compareConstraints(codeTable, dbTable *schema.TableMetadata, di
 	// Find constraints to drop (in DB but not in code)
 	for key, dbC := range dbConstraints {
 		if _, exists := codeConstraints[key]; !exists {
-			diff.ConstraintsDropped = append(diff.ConstraintsDropped, dbC.Name)
+			diff.ConstraintsDropped = append(diff.ConstraintsDropped, dbC)
 		}
 	}
 }
@@ -625,9 +627,9 @@ func (d *Differ) compareEnumTypes(codeSchema, dbSchema map[string]*schema.TableM
 	}
 
 	// Find enum types to drop (in DB but not in code)
-	for enumName := range dbEnums {
+	for enumName, dbEnum := range dbEnums {
 		if _, exists := codeEnums[enumName]; !exists {
-			diff.EnumTypesDropped = append(diff.EnumTypesDropped, enumName)
+			diff.EnumTypesDropped = append(diff.EnumTypesDropped, dbEnum)
 		}
 	}
 

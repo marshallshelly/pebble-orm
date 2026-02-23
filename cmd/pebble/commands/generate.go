@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/marshallshelly/pebble-orm/cmd/pebble/output"
@@ -139,10 +140,23 @@ func runGenerate() error {
 		output.Success("  ✓ Found %d table(s) in database", len(dbSchema))
 		fmt.Println()
 	} else {
-		// No database connection - treat as empty database
-		output.Info("🔄 Generating initial migration (no database connection)")
-		fmt.Println()
-		dbSchema = make(map[string]*schema.TableMetadata)
+		// No database connection — reconstruct the baseline by replaying the
+		// existing *.up.sql migration files in version order.
+		reconstructed, rerr := migration.ReconstructSchemaFromMigrations(migrationsDir)
+		if rerr != nil {
+			output.Warning("Could not reconstruct schema from migrations: %v", rerr)
+			reconstructed = nil
+		}
+		if len(reconstructed) > 0 {
+			output.Info("🔄 Reconstructing schema from existing migration files...")
+			output.Success("  ✓ Replayed %d migration file(s), found %d table(s)", countMigrationFiles(migrationsDir), len(reconstructed))
+			fmt.Println()
+			dbSchema = reconstructed
+		} else {
+			output.Info("🔄 Generating initial migration (no previous schema found)")
+			fmt.Println()
+			dbSchema = make(map[string]*schema.TableMetadata)
+		}
 	}
 
 	// Compare schemas
@@ -151,7 +165,7 @@ func runGenerate() error {
 
 	// Check if there are changes
 	if !diff.HasChanges() {
-		output.Success("✓ No schema changes detected. Database is in sync with models.")
+		output.Success("✓ No schema changes detected. Models are already in sync.")
 		return nil
 	}
 
@@ -177,8 +191,8 @@ func runGenerate() error {
 		}
 	}
 	if len(diff.TablesDropped) > 0 {
-		for _, tableName := range diff.TablesDropped {
-			output.Warning("  - %s (dropped)", tableName)
+		for _, table := range diff.TablesDropped {
+			output.Warning("  - %s (dropped)", table.Name)
 		}
 	}
 	fmt.Println()
@@ -193,7 +207,17 @@ func runGenerate() error {
 	output.Muted("  ↑ Up:   %s", migrationFile.UpPath)
 	output.Muted("  ↓ Down: %s", migrationFile.DownPath)
 	fmt.Println()
+
 	output.Info("💡 Review the generated SQL files before applying the migration.")
 
 	return nil
+}
+
+func countMigrationFiles(dir string) int {
+	ok, _ := migration.HasMigrationFiles(dir)
+	if !ok {
+		return 0
+	}
+	matches, _ := filepath.Glob(filepath.Join(dir, "*.up.sql"))
+	return len(matches)
 }

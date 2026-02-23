@@ -764,18 +764,6 @@ func extractBalancedParens(s string) (content, remaining string) {
 	return "", ""
 }
 
-// ParseSourceFile attempts to extract table name from source file comments.
-// This requires reading the source file, which is more complex.
-func ParseSourceFile(_ string, _ string) (string, error) {
-	// TODO: Implement source file parsing to extract table_name from comments
-	// This would involve:
-	// 1. Reading the source file
-	// 2. Finding the struct definition
-	// 3. Looking for the comment above it
-	// 4. Parsing the table_name directive
-	return "", fmt.Errorf("source file parsing not implemented")
-}
-
 // parseForeignKeys extracts foreign key constraints from struct tags.
 func (p *Parser) parseForeignKeys(modelType reflect.Type, table *TableMetadata) error {
 	for field := range modelType.Fields() {

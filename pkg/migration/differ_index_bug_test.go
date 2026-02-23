@@ -92,8 +92,8 @@ func TestIndexComparisonBug(t *testing.T) {
 				idx.Name, idx.Type, idx.Columns, idx.Unique, idx.Expression, idx.Where, idx.Include, idx.ColumnOrdering)
 		}
 		t.Logf("Indexes Dropped: %d", len(tableDiff.IndexesDropped))
-		for _, idxName := range tableDiff.IndexesDropped {
-			t.Logf("  - Dropped: %s", idxName)
+		for _, idx := range tableDiff.IndexesDropped {
+			t.Logf("  - Dropped: %s", idx.Name)
 		}
 	}
 
@@ -110,9 +110,9 @@ func TestIndexComparisonBug(t *testing.T) {
 			addedMap[idx.Name] = true
 		}
 
-		for _, idxName := range tableDiff.IndexesDropped {
-			if addedMap[idxName] {
-				t.Errorf("BUG DETECTED: Index %s is in BOTH IndexesAdded and IndexesDropped", idxName)
+		for _, idx := range tableDiff.IndexesDropped {
+			if addedMap[idx.Name] {
+				t.Errorf("BUG DETECTED: Index %s is in BOTH IndexesAdded and IndexesDropped", idx.Name)
 			}
 		}
 

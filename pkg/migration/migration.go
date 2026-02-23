@@ -27,10 +27,10 @@ type MigrationFile struct {
 // SchemaDiff represents differences between two schemas.
 type SchemaDiff struct {
 	TablesAdded    []schema.TableMetadata // Tables to create
-	TablesDropped  []string               // Table names to drop
+	TablesDropped  []schema.TableMetadata // Tables to drop (full metadata for down migration)
 	TablesModified []TableDiff            // Tables with changes
 	EnumTypesAdded []schema.EnumType      // Enum types to create
-	EnumTypesDropped []string             // Enum type names to drop
+	EnumTypesDropped []schema.EnumType    // Enum types to drop (full metadata for down migration)
 	EnumTypesModified []EnumTypeDiff      // Enum types with new values
 }
 
@@ -38,14 +38,14 @@ type SchemaDiff struct {
 type TableDiff struct {
 	TableName          string                      // Name of the table
 	ColumnsAdded       []schema.ColumnMetadata     // Columns to add
-	ColumnsDropped     []string                    // Column names to drop
+	ColumnsDropped     []schema.ColumnMetadata     // Columns to drop (full metadata for down migration)
 	ColumnsModified    []ColumnDiff                // Columns with changes
 	IndexesAdded       []schema.IndexMetadata      // Indexes to create
-	IndexesDropped     []string                    // Index names to drop
+	IndexesDropped     []schema.IndexMetadata      // Indexes to drop (full metadata for down migration)
 	ForeignKeysAdded   []schema.ForeignKeyMetadata // Foreign keys to add
-	ForeignKeysDropped []string                    // Foreign key names to drop
+	ForeignKeysDropped []schema.ForeignKeyMetadata // Foreign keys to drop (full metadata for down migration)
 	ConstraintsAdded   []schema.ConstraintMetadata // Constraints to add
-	ConstraintsDropped []string                    // Constraint names to drop
+	ConstraintsDropped []schema.ConstraintMetadata // Constraints to drop (full metadata for down migration)
 	PrimaryKeyChanged  *PrimaryKeyChange           // Primary key modification
 }
 

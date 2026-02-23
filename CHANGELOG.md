@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.16.0] - 2026-02-23
+
+### Added
+
+- Schema reconstruction from existing migration files as the offline baseline for `pebble generate`, eliminating the need for a separate schema snapshot JSON file. The CLI now replays all up-migration files in chronological order to determine the current schema state without a database connection.
+
+### Fixed
+
+- Down migrations now generate complete, executable SQL for all dropped items instead of placeholder comments:
+  - Dropped tables → full `CREATE TABLE` statement reconstructed from original schema
+  - Dropped columns → `ALTER TABLE ... ADD COLUMN` with original type and constraints
+  - Dropped indexes → full `CREATE INDEX` with original definition
+  - Dropped foreign keys → `ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY`
+  - Dropped constraints → `ALTER TABLE ... ADD CONSTRAINT ... UNIQUE`
+  - Dropped enum types → `CREATE TYPE ... AS ENUM` with original values
+- Enum type modification down migrations now correctly describe the PostgreSQL limitation (values cannot be removed) rather than emitting a misleading TODO comment.
+
 ## [1.15.1] - 2026-02-16
 
 ### Fixed
@@ -414,7 +431,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - golangci-lint integration.
 - GoReleaser configuration for multi-platform releases.
 
-[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.15.1...HEAD
+[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.16.0...HEAD
+[1.16.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.15.1...v1.16.0
 [1.15.1]: https://github.com/marshallshelly/pebble-orm/compare/v1.15.0...v1.15.1
 [1.15.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.14.6...v1.15.0
 [1.14.6]: https://github.com/marshallshelly/pebble-orm/compare/v1.14.5...v1.14.6

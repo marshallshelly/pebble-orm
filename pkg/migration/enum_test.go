@@ -109,8 +109,8 @@ func TestEnumTypeDetection(t *testing.T) {
 			t.Fatalf("Expected 1 enum type to be dropped, got %d", len(diff.EnumTypesDropped))
 		}
 
-		if diff.EnumTypesDropped[0] != "order_status" {
-			t.Errorf("Expected 'order_status' to be dropped, got '%s'", diff.EnumTypesDropped[0])
+		if diff.EnumTypesDropped[0].Name != "order_status" {
+			t.Errorf("Expected 'order_status' to be dropped, got '%s'", diff.EnumTypesDropped[0].Name)
 		}
 
 		planner := NewPlanner()
@@ -401,8 +401,8 @@ func TestEnumMigrationOrdering(t *testing.T) {
 
 	t.Run("enums dropped after tables", func(t *testing.T) {
 		diff := &SchemaDiff{
-			TablesDropped: []string{"orders"},
-			EnumTypesDropped: []string{"order_status"},
+			TablesDropped: []schema.TableMetadata{{Name: "orders"}},
+			EnumTypesDropped: []schema.EnumType{{Name: "order_status", Values: []string{"pending", "processing", "completed", "cancelled"}}},
 		}
 
 		planner := NewPlanner()
