@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.16.1] - 2026-02-23
+
+### Fixed
+
+- `pebble diff` build failure: dropped tables, columns, and indexes were passed as struct types to `%s` format verbs instead of their `.Name` fields.
+
 ## [1.16.0] - 2026-02-23
 
 ### Added
@@ -431,7 +437,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - golangci-lint integration.
 - GoReleaser configuration for multi-platform releases.
 
-[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.16.0...HEAD
+[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.16.1...HEAD
+[1.16.1]: https://github.com/marshallshelly/pebble-orm/compare/v1.16.0...v1.16.1
 [1.16.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.15.1...v1.16.0
 [1.15.1]: https://github.com/marshallshelly/pebble-orm/compare/v1.15.0...v1.15.1
 [1.15.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.14.6...v1.15.0
