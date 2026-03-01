@@ -378,7 +378,7 @@ func (i *Introspector) getIndexes(ctx context.Context, tableName string) ([]sche
 		}
 
 		// Parse the index definition to extract detailed information
-		idx, err := i.parseIndexDefinition(ctx, tableName, indexName, indexType, isUnique, indexDef, predicate, isExpression)
+		idx, err := i.parseIndexDefinition(tableName, indexName, indexType, isUnique, indexDef, predicate, isExpression)
 		if err != nil {
 			// If parsing fails, create a basic index structure
 			idx = &schema.IndexMetadata{
@@ -547,7 +547,7 @@ func (i *Introspector) getEnumTypes(ctx context.Context, tableName string) ([]sc
 
 // parseIndexDefinition parses the output of pg_get_indexdef() to extract index components.
 // Example input: "CREATE INDEX idx_email ON users USING btree (email varchar_pattern_ops COLLATE \"C\" DESC NULLS LAST)"
-func (i *Introspector) parseIndexDefinition(ctx context.Context, tableName, indexName, indexType string, isUnique bool, indexDef string, predicate *string, isExpression bool) (*schema.IndexMetadata, error) {
+func (i *Introspector) parseIndexDefinition(tableName, indexName, indexType string, isUnique bool, indexDef string, predicate *string, isExpression bool) (*schema.IndexMetadata, error) {
 	idx := &schema.IndexMetadata{
 		Name:   indexName,
 		Type:   indexType,
@@ -723,8 +723,8 @@ func tokenizeIndexColumn(s string) []string {
 	quoteChar := rune(0)
 
 	for _, ch := range s {
-		switch {
-		case ch == '"' || ch == '\'':
+		switch ch {
+		case '"', '\'':
 			if inQuotes && ch == quoteChar {
 				current.WriteRune(ch)
 				tokens = append(tokens, current.String())
@@ -738,7 +738,7 @@ func tokenizeIndexColumn(s string) []string {
 			} else {
 				current.WriteRune(ch)
 			}
-		case ch == ' ' || ch == '\t' || ch == '\n':
+		case ' ', '\t', '\n':
 			if inQuotes {
 				current.WriteRune(ch)
 			} else if current.Len() > 0 {

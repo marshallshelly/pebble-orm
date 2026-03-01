@@ -767,7 +767,7 @@ func extractBalancedParens(s string) (content, remaining string) {
 // parseForeignKeys extracts foreign key constraints from struct tags.
 func (p *Parser) parseForeignKeys(modelType reflect.Type, table *TableMetadata) error {
 	for field := range modelType.Fields() {
-		tag := field.Tag.Get("db")
+		tag := field.Tag.Get(StructTagKey)
 		if tag == "" || tag == "-" {
 			continue
 		}

@@ -17,6 +17,8 @@ var (
 	reAlterTableParts = regexp.MustCompile(`(?i)^\s*ALTER\s+TABLE\s+(\w+)\s+(.+)`)
 	reAlterColType    = regexp.MustCompile(`(?i)^ALTER\s+COLUMN\s+(\w+)\s+TYPE\s+(.+)$`)
 	reAddConstraint   = regexp.MustCompile(`(?i)^ADD\s+CONSTRAINT\s+\w+\s+UNIQUE\s*\((\w+)\)$`)
+	reFKConstraint    = regexp.MustCompile(`(?i)CONSTRAINT\s+(\w+)\s+FOREIGN\s+KEY\s*\(([^)]+)\)\s+REFERENCES\s+(\w+)\s*\(([^)]+)\)(?:\s+ON\s+DELETE\s+([\w\s]+?))?$`)
+	reAddFKConstraint = regexp.MustCompile(`(?i)^ADD\s+CONSTRAINT\s+(\w+)\s+FOREIGN\s+KEY\s*\(([^)]+)\)\s+REFERENCES\s+(\w+)\s*\(([^)]+)\)(?:\s+ON\s+DELETE\s+([\w\s]+?))?$`)
 )
 
 // HasMigrationFiles reports whether any *.up.sql files exist in dir.
@@ -111,11 +113,12 @@ func applyCreateTable(tables map[string]*schema.TableMetadata, stmt string) {
 		return
 	}
 
-	cols, pkCols := parseColumnList(tableName, stmt[open+1:close])
+	cols, pkCols, fks := parseColumnList(stmt[open+1 : close])
 
 	table := &schema.TableMetadata{
 		Name:        tableName,
 		Columns:     cols,
+		ForeignKeys: fks,
 		Constraints: make([]schema.ConstraintMetadata, 0),
 	}
 	if len(pkCols) > 0 {
@@ -195,22 +198,37 @@ func applyAlterTable(tables map[string]*schema.TableMetadata, stmt string) {
 		}
 
 	case strings.HasPrefix(upper, "ADD CONSTRAINT"):
-		cm := reAddConstraint.FindStringSubmatch(rest)
-		if cm != nil {
-			colName := strings.ToLower(cm[1])
-			for i, col := range table.Columns {
-				if col.Name == colName {
-					table.Columns[i].Unique = true
-					break
+		if strings.Contains(upper, "FOREIGN KEY") {
+			// ADD CONSTRAINT name FOREIGN KEY (cols) REFERENCES table (cols) [ON DELETE action]
+			fkm := reAddFKConstraint.FindStringSubmatch(rest)
+			if fkm != nil {
+				fk := schema.ForeignKeyMetadata{
+					Name:              fkm[1],
+					Columns:           splitCSV(fkm[2]),
+					ReferencedTable:   strings.ToLower(strings.TrimSpace(fkm[3])),
+					ReferencedColumns: splitCSV(fkm[4]),
+					OnDelete:          reconstructParseReferenceAction(strings.TrimSpace(fkm[5])),
 				}
+				table.ForeignKeys = append(table.ForeignKeys, fk)
 			}
-			// Also add to the Constraints slice so the differ sees it.
-			constraintName := tableName + "_" + colName + "_key"
-			table.Constraints = append(table.Constraints, schema.ConstraintMetadata{
-				Type:    schema.UniqueConstraint,
-				Columns: []string{colName},
-				Name:    constraintName,
-			})
+		} else {
+			cm := reAddConstraint.FindStringSubmatch(rest)
+			if cm != nil {
+				colName := strings.ToLower(cm[1])
+				for i, col := range table.Columns {
+					if col.Name == colName {
+						table.Columns[i].Unique = true
+						break
+					}
+				}
+				// Also add to the Constraints slice so the differ sees it.
+				constraintName := tableName + "_" + colName + "_key"
+				table.Constraints = append(table.Constraints, schema.ConstraintMetadata{
+					Type:    schema.UniqueConstraint,
+					Columns: []string{colName},
+					Name:    constraintName,
+				})
+			}
 		}
 	}
 }
@@ -244,11 +262,12 @@ func findMatchingCloseParen(s string, pos int) int {
 }
 
 // parseColumnList splits a CREATE TABLE column list into ColumnMetadata and
-// returns the primary key column names detected from column-level PRIMARY KEY
-// attributes or table-level PRIMARY KEY constraints.
-func parseColumnList(tableName, colList string) ([]schema.ColumnMetadata, []string) {
+// returns the primary key column names and foreign keys detected from column-level
+// PRIMARY KEY attributes or table-level constraints.
+func parseColumnList(colList string) ([]schema.ColumnMetadata, []string, []schema.ForeignKeyMetadata) {
 	var cols []schema.ColumnMetadata
 	var pkCols []string
+	var fks []schema.ForeignKeyMetadata
 	pos := 0
 
 	for _, part := range splitTopLevelCommas(colList) {
@@ -263,11 +282,20 @@ func parseColumnList(tableName, colList string) ([]schema.ColumnMetadata, []stri
 			pkCols = extractParenList(part)
 			continue
 		}
-		// Skip other table-level constraints.
+		// Table-level CONSTRAINT: check for FOREIGN KEY or UNIQUE.
+		if strings.HasPrefix(upper, "CONSTRAINT") {
+			if strings.Contains(upper, "FOREIGN KEY") {
+				if fk := parseReconstructFKConstraint(part); fk != nil {
+					fks = append(fks, *fk)
+				}
+			}
+			// UNIQUE and CHECK constraints are handled elsewhere.
+			continue
+		}
+		// Bare FOREIGN KEY (no CONSTRAINT prefix) — skip.
 		if strings.HasPrefix(upper, "FOREIGN KEY") ||
 			strings.HasPrefix(upper, "UNIQUE") ||
-			strings.HasPrefix(upper, "CHECK") ||
-			strings.HasPrefix(upper, "CONSTRAINT") {
+			strings.HasPrefix(upper, "CHECK") {
 			continue
 		}
 
@@ -283,7 +311,50 @@ func parseColumnList(tableName, colList string) ([]schema.ColumnMetadata, []stri
 		cols = append(cols, col)
 		pos++
 	}
-	return cols, pkCols
+	return cols, pkCols, fks
+}
+
+// parseReconstructFKConstraint parses a CONSTRAINT ... FOREIGN KEY ... REFERENCES ... line.
+func parseReconstructFKConstraint(s string) *schema.ForeignKeyMetadata {
+	m := reFKConstraint.FindStringSubmatch(s)
+	if m == nil {
+		return nil
+	}
+	return &schema.ForeignKeyMetadata{
+		Name:              m[1],
+		Columns:           splitCSV(m[2]),
+		ReferencedTable:   strings.ToLower(strings.TrimSpace(m[3])),
+		ReferencedColumns: splitCSV(m[4]),
+		OnDelete:          reconstructParseReferenceAction(strings.TrimSpace(m[5])),
+	}
+}
+
+// splitCSV trims and splits a comma-separated identifier list.
+func splitCSV(s string) []string {
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, strings.ToLower(p))
+		}
+	}
+	return out
+}
+
+// reconstructParseReferenceAction converts a string to schema.ReferenceAction.
+func reconstructParseReferenceAction(action string) schema.ReferenceAction {
+	switch strings.ToUpper(action) {
+	case "CASCADE":
+		return schema.Cascade
+	case "RESTRICT":
+		return schema.Restrict
+	case "SET NULL", "SETNULL":
+		return schema.SetNull
+	case "SET DEFAULT", "SETDEFAULT":
+		return schema.SetDefault
+	default:
+		return schema.NoAction
+	}
 }
 
 // extractParenList extracts a comma-separated list from the first parenthesised
@@ -338,13 +409,13 @@ func parseColDef(def string, position int) schema.ColumnMetadata {
 	def = strings.TrimSpace(def)
 	col := schema.ColumnMetadata{Position: position}
 
-	spaceIdx := strings.IndexByte(def, ' ')
-	if spaceIdx < 0 {
+	name, rest, ok := strings.Cut(def, " ")
+	if !ok {
 		col.Name = strings.ToLower(def)
 		return col
 	}
-	col.Name = strings.ToLower(def[:spaceIdx])
-	rest := strings.TrimSpace(def[spaceIdx+1:])
+	col.Name = strings.ToLower(name)
+	rest = strings.TrimSpace(rest)
 	restUpper := strings.ToUpper(rest)
 
 	// SQL type: everything up to the first space that is outside parentheses.
@@ -380,9 +451,10 @@ func typeTokenEnd(s string) int {
 		case '(':
 			depth := 0
 			for i < len(s) {
-				if s[i] == '(' {
+				switch s[i] {
+				case '(':
 					depth++
-				} else if s[i] == ')' {
+				case ')':
 					depth--
 					if depth == 0 {
 						i++

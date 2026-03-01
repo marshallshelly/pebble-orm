@@ -1,7 +1,6 @@
 package migration
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -13,52 +12,52 @@ func TestParseIndexDefinitionWithSchemaQualifier(t *testing.T) {
 	introspector := &Introspector{}
 
 	tests := []struct {
-		name        string
-		indexDef    string
-		tableName   string
-		indexName   string
-		indexType   string
-		isUnique    bool
+		name         string
+		indexDef     string
+		tableName    string
+		indexName    string
+		indexType    string
+		isUnique     bool
 		isExpression bool
 		expectedCols []string
 	}{
 		{
-			name:        "schema-qualified table name (public.refresh_tokens)",
-			indexDef:    "CREATE INDEX idx_refresh_tokens_user ON public.refresh_tokens USING btree (user_id)",
-			tableName:   "refresh_tokens",
-			indexName:   "idx_refresh_tokens_user",
-			indexType:   "btree",
-			isUnique:    false,
+			name:         "schema-qualified table name (public.refresh_tokens)",
+			indexDef:     "CREATE INDEX idx_refresh_tokens_user ON public.refresh_tokens USING btree (user_id)",
+			tableName:    "refresh_tokens",
+			indexName:    "idx_refresh_tokens_user",
+			indexType:    "btree",
+			isUnique:     false,
 			isExpression: false,
 			expectedCols: []string{"user_id"},
 		},
 		{
-			name:        "unqualified table name (refresh_tokens)",
-			indexDef:    "CREATE INDEX idx_refresh_tokens_user ON refresh_tokens USING btree (user_id)",
-			tableName:   "refresh_tokens",
-			indexName:   "idx_refresh_tokens_user",
-			indexType:   "btree",
-			isUnique:    false,
+			name:         "unqualified table name (refresh_tokens)",
+			indexDef:     "CREATE INDEX idx_refresh_tokens_user ON refresh_tokens USING btree (user_id)",
+			tableName:    "refresh_tokens",
+			indexName:    "idx_refresh_tokens_user",
+			indexType:    "btree",
+			isUnique:     false,
 			isExpression: false,
 			expectedCols: []string{"user_id"},
 		},
 		{
-			name:        "schema-qualified with token_hash column",
-			indexDef:    "CREATE INDEX idx_refresh_tokens_token ON public.refresh_tokens USING btree (token_hash)",
-			tableName:   "refresh_tokens",
-			indexName:   "idx_refresh_tokens_token",
-			indexType:   "btree",
-			isUnique:    false,
+			name:         "schema-qualified with token_hash column",
+			indexDef:     "CREATE INDEX idx_refresh_tokens_token ON public.refresh_tokens USING btree (token_hash)",
+			tableName:    "refresh_tokens",
+			indexName:    "idx_refresh_tokens_token",
+			indexType:    "btree",
+			isUnique:     false,
 			isExpression: false,
 			expectedCols: []string{"token_hash"},
 		},
 		{
-			name:        "schema-qualified with expires_at column",
-			indexDef:    "CREATE INDEX idx_refresh_tokens_expires ON public.refresh_tokens USING btree (expires_at)",
-			tableName:   "refresh_tokens",
-			indexName:   "idx_refresh_tokens_expires",
-			indexType:   "btree",
-			isUnique:    false,
+			name:         "schema-qualified with expires_at column",
+			indexDef:     "CREATE INDEX idx_refresh_tokens_expires ON public.refresh_tokens USING btree (expires_at)",
+			tableName:    "refresh_tokens",
+			indexName:    "idx_refresh_tokens_expires",
+			indexType:    "btree",
+			isUnique:     false,
 			isExpression: false,
 			expectedCols: []string{"expires_at"},
 		},
@@ -67,7 +66,6 @@ func TestParseIndexDefinitionWithSchemaQualifier(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			idx, err := introspector.parseIndexDefinition(
-				context.Background(),
 				tt.tableName,
 				tt.indexName,
 				tt.indexType,

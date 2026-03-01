@@ -249,7 +249,81 @@ func buildTableMetadataFromAST(tableName string, structType *ast.StructType) *sc
 		}
 	}
 
+	// Parse foreign keys from column tags (fk:table(column) / onDelete:action)
+	for _, field := range structType.Fields.List {
+		if len(field.Names) == 0 || field.Tag == nil {
+			continue
+		}
+		tagValue := strings.Trim(field.Tag.Value, "`")
+		tag := parseStructTag(tagValue)
+		poTag := tag.Get("po")
+		if poTag == "" || poTag == "-" {
+			continue
+		}
+		opts := parseTag(poTag)
+		if opts == nil || isRelationshipTag(opts) {
+			continue
+		}
+
+		fkStr := getColonValue(opts, "fk")
+		if fkStr == "" {
+			continue
+		}
+
+		// Parse "table(column)" format
+		var refTable, refColumn string
+		if idx := strings.Index(fkStr, "("); idx > 0 && strings.HasSuffix(fkStr, ")") {
+			refTable = fkStr[:idx]
+			refColumn = fkStr[idx+1 : len(fkStr)-1]
+		} else if strings.Contains(fkStr, ".") {
+			parts := strings.SplitN(fkStr, ".", 2)
+			if len(parts) == 2 {
+				refTable, refColumn = parts[0], parts[1]
+			}
+		}
+		if refTable == "" || refColumn == "" {
+			continue
+		}
+
+		fk := schema.ForeignKeyMetadata{
+			Name:              fmt.Sprintf("fk_%s_%s_%s", tableName, opts.name, refTable),
+			Columns:           []string{opts.name},
+			ReferencedTable:   refTable,
+			ReferencedColumns: []string{refColumn},
+			OnDelete:          loaderParseReferenceAction(getColonValue(opts, "onDelete")),
+			OnUpdate:          loaderParseReferenceAction(getColonValue(opts, "onUpdate")),
+		}
+		table.ForeignKeys = append(table.ForeignKeys, fk)
+	}
+
 	return table
+}
+
+// getColonValue extracts the value from a colon-format option like "fk:table(col)" -> "table(col)".
+func getColonValue(opts *tagOptions, key string) string {
+	prefix := key + ":"
+	for _, opt := range opts.options {
+		if strings.HasPrefix(opt, prefix) {
+			return opt[len(prefix):]
+		}
+	}
+	return ""
+}
+
+// loaderParseReferenceAction converts an onDelete/onUpdate string to a ReferenceAction.
+func loaderParseReferenceAction(action string) schema.ReferenceAction {
+	switch strings.ToUpper(strings.TrimSpace(action)) {
+	case "CASCADE":
+		return schema.Cascade
+	case "RESTRICT":
+		return schema.Restrict
+	case "SETNULL", "SET NULL":
+		return schema.SetNull
+	case "SETDEFAULT", "SET DEFAULT":
+		return schema.SetDefault
+	default:
+		return schema.NoAction
+	}
 }
 
 // Simple tag option struct

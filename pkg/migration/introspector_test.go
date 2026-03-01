@@ -8,39 +8,39 @@ import (
 
 func TestExtractBalancedParens(t *testing.T) {
 	tests := []struct {
-		name      string
-		input     string
-		wantContent string
+		name          string
+		input         string
+		wantContent   string
 		wantRemaining string
 	}{
 		{
-			name:      "simple",
-			input:     "email)",
-			wantContent: "email",
+			name:          "simple",
+			input:         "email)",
+			wantContent:   "email",
 			wantRemaining: "",
 		},
 		{
-			name:      "nested parentheses",
-			input:     "lower(email))",
-			wantContent: "lower(email)",
+			name:          "nested parentheses",
+			input:         "lower(email))",
+			wantContent:   "lower(email)",
 			wantRemaining: "",
 		},
 		{
-			name:      "with remaining",
-			input:     "email) INCLUDE (name)",
-			wantContent: "email",
+			name:          "with remaining",
+			input:         "email) INCLUDE (name)",
+			wantContent:   "email",
 			wantRemaining: " INCLUDE (name)",
 		},
 		{
-			name:      "nested with remaining",
-			input:     "lower(email)) WHERE active = true",
-			wantContent: "lower(email)",
+			name:          "nested with remaining",
+			input:         "lower(email)) WHERE active = true",
+			wantContent:   "lower(email)",
 			wantRemaining: " WHERE active = true",
 		},
 		{
-			name:      "multiple nested",
-			input:     "COALESCE(lower(email), 'default'))",
-			wantContent: "COALESCE(lower(email), 'default')",
+			name:          "multiple nested",
+			input:         "COALESCE(lower(email), 'default'))",
+			wantContent:   "COALESCE(lower(email), 'default')",
 			wantRemaining: "",
 		},
 	}
@@ -163,9 +163,9 @@ func TestTokenizeIndexColumn(t *testing.T) {
 
 func TestParseIndexColumn(t *testing.T) {
 	tests := []struct {
-		name        string
-		input       string
-		wantColumn  string
+		name         string
+		input        string
+		wantColumn   string
 		wantOrdering schema.ColumnOrder
 	}{
 		{
@@ -407,7 +407,7 @@ func TestIsReservedIndexKeyword(t *testing.T) {
 		{"USING", true},
 		{"WHERE", true},
 		{"INCLUDE", true},
-		{"asc", true},    // Case insensitive
+		{"asc", true}, // Case insensitive
 		{"desc", true},
 		{"varchar_pattern_ops", false},
 		{"text_pattern_ops", false},
@@ -600,7 +600,7 @@ func TestParseIndexDefinition(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := i.parseIndexDefinition(nil, tt.tableName, tt.indexName, tt.indexType, tt.isUnique, tt.indexDef, tt.predicate, tt.isExpression)
+			got, err := i.parseIndexDefinition(tt.tableName, tt.indexName, tt.indexType, tt.isUnique, tt.indexDef, tt.predicate, tt.isExpression)
 			if err != nil {
 				t.Fatalf("parseIndexDefinition() error = %v", err)
 			}

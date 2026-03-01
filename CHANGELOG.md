@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.16.2] - 2026-03-01
+
+### Fixed
+
+- Foreign key constraints missing from all generated migrations. Three separate bugs:
+  - AST loader (`pkg/loader`) never parsed `fk:table(column)` tag options — `ForeignKeys` was always empty.
+  - Runtime parser (`pkg/schema`) read from `"db"` struct tag instead of `"po"` in `parseForeignKeys`.
+  - Schema reconstructor (`pkg/migration`) did not parse `CONSTRAINT … FOREIGN KEY … REFERENCES` from existing migration SQL, causing all FKs to appear as newly added on every subsequent `pebble generate` run.
+- Incremental `pebble generate` now emits only genuinely new tables/columns when FK constraints are present, with no spurious `ALTER TABLE ADD CONSTRAINT` for already-migrated tables.
+
+### Changed
+
+- `strings.IndexByte` + manual slice arithmetic replaced with `strings.Cut` in column definition parser.
+- Untagged `switch` statements on character values converted to tagged `switch` in `typeTokenEnd` and index-definition tokenizer.
+
 ## [1.16.1] - 2026-02-23
 
 ### Fixed
@@ -437,7 +452,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - golangci-lint integration.
 - GoReleaser configuration for multi-platform releases.
 
-[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.16.1...HEAD
+[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.16.2...HEAD
+[1.16.2]: https://github.com/marshallshelly/pebble-orm/compare/v1.16.1...v1.16.2
 [1.16.1]: https://github.com/marshallshelly/pebble-orm/compare/v1.16.0...v1.16.1
 [1.16.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.15.1...v1.16.0
 [1.15.1]: https://github.com/marshallshelly/pebble-orm/compare/v1.15.0...v1.15.1
