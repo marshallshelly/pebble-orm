@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.16.3] - 2026-03-01
+
+### Fixed
+
+- `CREATE TABLE` statements in generated migrations now respect foreign key dependencies: referenced tables are always emitted before the tables that reference them. Previously, tables could appear in source-file order, causing FK constraint violations when applying migrations to PostgreSQL.
+
 ## [1.16.2] - 2026-03-01
 
 ### Fixed
@@ -452,7 +458,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - golangci-lint integration.
 - GoReleaser configuration for multi-platform releases.
 
-[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.16.2...HEAD
+[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.16.3...HEAD
+[1.16.3]: https://github.com/marshallshelly/pebble-orm/compare/v1.16.2...v1.16.3
 [1.16.2]: https://github.com/marshallshelly/pebble-orm/compare/v1.16.1...v1.16.2
 [1.16.1]: https://github.com/marshallshelly/pebble-orm/compare/v1.16.0...v1.16.1
 [1.16.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.15.1...v1.16.0

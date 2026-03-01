@@ -65,10 +65,14 @@ func (p *Planner) GenerateMigration(diff *SchemaDiff) (upSQL, downSQL string) {
 		downStatements = append(downStatements, fmt.Sprintf("-- NOTE: Cannot automatically remove enum values from type %s (PostgreSQL limitation)", enumDiff.Name))
 	}
 
-	// 3. CREATE TABLE statements
-	for _, table := range diff.TablesAdded {
+	// 3. CREATE TABLE statements — sorted so referenced tables are created first.
+	sorted := topoSortTables(diff.TablesAdded)
+	for _, table := range sorted {
 		upStatements = append(upStatements, p.generateCreateTable(&table))
-		downStatements = append(downStatements, p.generateDropTable(table.Name))
+	}
+	// DOWN drops in reverse creation order (dependents before dependencies).
+	for i := len(sorted) - 1; i >= 0; i-- {
+		downStatements = append(downStatements, p.generateDropTable(sorted[i].Name))
 	}
 
 	// 4. ALTER TABLE statements for table modifications
@@ -671,4 +675,75 @@ func (p *Planner) generateAlterEnumType(enumDiff EnumTypeDiff) []string {
 	}
 
 	return statements
+}
+
+// topoSortTables returns tables in dependency order so that referenced tables are
+// created before the tables that reference them via foreign keys.
+// Only intra-set dependencies are considered — references to tables already in the
+// database are ignored. Falls back to the original order if a cycle is detected.
+func topoSortTables(tables []schema.TableMetadata) []schema.TableMetadata {
+	if len(tables) <= 1 {
+		return tables
+	}
+
+	// Build a set of table names in this batch for quick lookup.
+	inSet := make(map[string]bool, len(tables))
+	for _, t := range tables {
+		inSet[t.Name] = true
+	}
+
+	// index maps table name → position in tables slice.
+	index := make(map[string]int, len(tables))
+	for i, t := range tables {
+		index[t.Name] = i
+	}
+
+	// Kahn's algorithm: compute in-degrees and adjacency list.
+	// An edge A → B means "A must come before B" (A is referenced by B).
+	inDegree := make([]int, len(tables))
+	// deps[i] = list of table indices that depend on table i (i must be created first).
+	deps := make([][]int, len(tables))
+
+	for i, t := range tables {
+		for _, fk := range t.ForeignKeys {
+			ref := fk.ReferencedTable
+			if !inSet[ref] {
+				continue // dependency is on an already-existing table; ignore
+			}
+			if ref == t.Name {
+				continue // self-reference; ignore
+			}
+			refIdx := index[ref]
+			deps[refIdx] = append(deps[refIdx], i)
+			inDegree[i]++
+		}
+	}
+
+	// Collect all nodes with in-degree 0 (no unresolved dependencies within the set).
+	queue := make([]int, 0, len(tables))
+	for i, deg := range inDegree {
+		if deg == 0 {
+			queue = append(queue, i)
+		}
+	}
+
+	sorted := make([]schema.TableMetadata, 0, len(tables))
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		sorted = append(sorted, tables[cur])
+		for _, next := range deps[cur] {
+			inDegree[next]--
+			if inDegree[next] == 0 {
+				queue = append(queue, next)
+			}
+		}
+	}
+
+	// If a cycle was detected, fall back to the original order.
+	if len(sorted) != len(tables) {
+		return tables
+	}
+
+	return sorted
 }
