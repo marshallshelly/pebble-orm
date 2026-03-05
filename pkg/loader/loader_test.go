@@ -232,6 +232,59 @@ func TestGetSQLTypeFromOptions_AllTypes(t *testing.T) {
 	}
 }
 
+func TestGetSQLTypeFromOptions_ArrayTypes(t *testing.T) {
+	tests := []struct {
+		name     string
+		tag      string
+		expected string
+	}{
+		{
+			name:     "text array",
+			tag:      "skills,text[]",
+			expected: "text[]",
+		},
+		{
+			name:     "integer array",
+			tag:      "scores,integer[]",
+			expected: "integer[]",
+		},
+		{
+			name:     "bigint array",
+			tag:      "ids,bigint[]",
+			expected: "bigint[]",
+		},
+		{
+			name:     "uuid array",
+			tag:      "refs,uuid[]",
+			expected: "uuid[]",
+		},
+		{
+			name:     "text array with other options",
+			tag:      "languages_spoken,text[],notNull",
+			expected: "text[]",
+		},
+		{
+			name:     "text array nullable",
+			tag:      "certifications,text[]",
+			expected: "text[]",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := parseTag(tt.tag)
+			if opts == nil {
+				t.Fatalf("parseTag returned nil for tag %q", tt.tag)
+			}
+
+			got := getSQLTypeFromOptions(opts)
+			if got != tt.expected {
+				t.Errorf("getSQLTypeFromOptions() = %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}
+
 func TestGetSQLTypeFromOptions_WithSize(t *testing.T) {
 	tests := []struct {
 		name     string

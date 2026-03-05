@@ -450,11 +450,9 @@ func getSQLTypeFromOptions(opts *tagOptions) string {
 	for _, opt := range opts.options {
 		for _, pgType := range pgTypes {
 			if strings.HasPrefix(opt, pgType) {
-				// Check for type with size: varchar(255)
-				if found := strings.Contains(opt, "("); found {
-					return opt
-				}
-				return pgType
+				// Return opt directly: preserves size params like varchar(255)
+				// and array suffixes like text[], integer[]
+				return opt
 			}
 		}
 	}

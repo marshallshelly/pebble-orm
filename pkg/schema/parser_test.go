@@ -414,3 +414,62 @@ func TestEnumParsing(t *testing.T) {
 		}
 	})
 }
+
+func TestGetSQLType_ArrayTypes(t *testing.T) {
+	parser := NewParser()
+
+	tests := []struct {
+		name     string
+		tag      string
+		expected string
+	}{
+		{"text array", "skills,text[]", "text[]"},
+		{"integer array", "scores,integer[]", "integer[]"},
+		{"bigint array", "ids,bigint[]", "bigint[]"},
+		{"uuid array", "refs,uuid[]", "uuid[]"},
+		{"boolean array", "flags,boolean[]", "boolean[]"},
+		{"text array with other options", "languages,text[],notNull", "text[]"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts, err := parser.parseTag(tt.tag)
+			if err != nil {
+				t.Fatalf("parseTag() error: %v", err)
+			}
+			got := opts.GetSQLType()
+			if got != tt.expected {
+				t.Errorf("GetSQLType() = %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestParser_ArrayColumnType(t *testing.T) {
+	parser := NewParser()
+
+	type TestTeam struct {
+		ID          string    `po:"id,primaryKey,uuid,default(gen_random_uuid())"`
+		Skills      *[]string `po:"skills,text[]"`
+		Certs       *[]string `po:"certifications,text[]"`
+		Languages   *[]string `po:"languages_spoken,text[]"`
+	}
+
+	table, err := parser.Parse(reflect.TypeFor[TestTeam]())
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	for _, colName := range []string{"skills", "certifications", "languages_spoken"} {
+		col := table.GetColumnByName(colName)
+		if col == nil {
+			t.Fatalf("column %q not found", colName)
+		}
+		if col.SQLType != "text[]" {
+			t.Errorf("column %q: SQLType = %q, want %q", colName, col.SQLType, "text[]")
+		}
+		if col.IsJSONB {
+			t.Errorf("column %q: IsJSONB should be false for text[]", colName)
+		}
+	}
+}

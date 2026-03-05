@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.16.4] - 2026-03-05
+
+### Fixed
+
+- PostgreSQL array types (`text[]`, `integer[]`, `uuid[]`, etc.) stripped to their base type in CLI-generated migrations. Fields declared as `*[]string` with `po:"col,text[]"` now correctly emit `text[]` in `CREATE TABLE` SQL instead of `text`.
+- Runtime schema parser (`GetSQLType`) now recognises explicit array-type tag options (`text[]`, `bigint[]`, etc.) rather than ignoring them and falling back to type inference.
+
 ## [1.16.3] - 2026-03-01
 
 ### Fixed
@@ -458,7 +465,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - golangci-lint integration.
 - GoReleaser configuration for multi-platform releases.
 
-[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.16.3...HEAD
+[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.16.4...HEAD
+[1.16.4]: https://github.com/marshallshelly/pebble-orm/compare/v1.16.3...v1.16.4
 [1.16.3]: https://github.com/marshallshelly/pebble-orm/compare/v1.16.2...v1.16.3
 [1.16.2]: https://github.com/marshallshelly/pebble-orm/compare/v1.16.1...v1.16.2
 [1.16.1]: https://github.com/marshallshelly/pebble-orm/compare/v1.16.0...v1.16.1

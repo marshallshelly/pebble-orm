@@ -471,6 +471,10 @@ func (t *TagOptions) GetSQLType() string {
 			}
 			return pgType
 		}
+		// Check for array variant: text[], integer[], uuid[], etc.
+		if t.Has(pgType + "[]") {
+			return pgType + "[]"
+		}
 	}
 	return ""
 }
