@@ -18,7 +18,7 @@ func (q *SelectQuery[T]) loadRelationships(ctx context.Context, results interfac
 	}
 
 	resultsVal := reflect.ValueOf(results)
-	if resultsVal.Kind() != reflect.Ptr {
+	if resultsVal.Kind() != reflect.Pointer {
 		return fmt.Errorf("results must be a pointer to slice")
 	}
 
@@ -127,7 +127,7 @@ func (q *SelectQuery[T]) loadNestedRelationships(ctx context.Context, results re
 
 		for i := 0; i < results.Len(); i++ {
 			item := results.Index(i)
-			if item.Kind() == reflect.Ptr {
+			if item.Kind() == reflect.Pointer {
 				item = item.Elem()
 			}
 
@@ -148,7 +148,7 @@ func (q *SelectQuery[T]) loadNestedRelationships(ctx context.Context, results re
 
 		for i := 0; i < results.Len(); i++ {
 			item := results.Index(i)
-			if item.Kind() == reflect.Ptr {
+			if item.Kind() == reflect.Pointer {
 				item = item.Elem()
 			}
 
@@ -158,7 +158,7 @@ func (q *SelectQuery[T]) loadNestedRelationships(ctx context.Context, results re
 			}
 
 			// Handle both pointer and non-pointer fields
-			if relationField.Kind() == reflect.Ptr {
+			if relationField.Kind() == reflect.Pointer {
 				if !relationField.IsNil() {
 					parentObjects = reflect.Append(parentObjects, relationField)
 				}
@@ -260,7 +260,7 @@ func (q *SelectQuery[T]) loadBelongsTo(ctx context.Context, results reflect.Valu
 
 	for i := 0; i < results.Len(); i++ {
 		item := results.Index(i)
-		if item.Kind() == reflect.Ptr {
+		if item.Kind() == reflect.Pointer {
 			item = item.Elem()
 		}
 
@@ -278,7 +278,7 @@ func (q *SelectQuery[T]) loadBelongsTo(ctx context.Context, results reflect.Valu
 		}
 
 		// Dereference pointer if needed (for nullable foreign keys like *string)
-		if fkField.Kind() == reflect.Ptr && !fkField.IsNil() {
+		if fkField.Kind() == reflect.Pointer && !fkField.IsNil() {
 			fkValue = fkField.Elem().Interface()
 		}
 
@@ -324,7 +324,7 @@ func (q *SelectQuery[T]) loadBelongsTo(ctx context.Context, results reflect.Valu
 		// Assign to all results that reference this related record
 		for _, idx := range foreignKeyMap[idValue] {
 			item := results.Index(idx)
-			if item.Kind() == reflect.Ptr {
+			if item.Kind() == reflect.Pointer {
 				item = item.Elem()
 			}
 
@@ -334,7 +334,7 @@ func (q *SelectQuery[T]) loadBelongsTo(ctx context.Context, results reflect.Valu
 			}
 
 			// Set the relationship field
-			if relationField.Kind() == reflect.Ptr {
+			if relationField.Kind() == reflect.Pointer {
 				relationField.Set(related)
 			} else {
 				relationField.Set(related.Elem())
@@ -368,7 +368,7 @@ func (q *SelectQuery[T]) loadHasOne(ctx context.Context, results reflect.Value, 
 
 	for i := 0; i < results.Len(); i++ {
 		item := results.Index(i)
-		if item.Kind() == reflect.Ptr {
+		if item.Kind() == reflect.Pointer {
 			item = item.Elem()
 		}
 
@@ -381,7 +381,7 @@ func (q *SelectQuery[T]) loadHasOne(ctx context.Context, results reflect.Value, 
 		pkValue := pkField.Interface()
 
 		// Dereference pointer if needed
-		if pkField.Kind() == reflect.Ptr && !pkField.IsNil() {
+		if pkField.Kind() == reflect.Pointer && !pkField.IsNil() {
 			pkValue = pkField.Elem().Interface()
 		}
 
@@ -426,7 +426,7 @@ func (q *SelectQuery[T]) loadHasOne(ctx context.Context, results reflect.Value, 
 		}
 
 		item := results.Index(idx)
-		if item.Kind() == reflect.Ptr {
+		if item.Kind() == reflect.Pointer {
 			item = item.Elem()
 		}
 
@@ -436,7 +436,7 @@ func (q *SelectQuery[T]) loadHasOne(ctx context.Context, results reflect.Value, 
 		}
 
 		// Set the relationship field
-		if relationField.Kind() == reflect.Ptr {
+		if relationField.Kind() == reflect.Pointer {
 			relationField.Set(related)
 		} else {
 			relationField.Set(related.Elem())
@@ -469,7 +469,7 @@ func (q *SelectQuery[T]) loadHasMany(ctx context.Context, results reflect.Value,
 
 	for i := 0; i < results.Len(); i++ {
 		item := results.Index(i)
-		if item.Kind() == reflect.Ptr {
+		if item.Kind() == reflect.Pointer {
 			item = item.Elem()
 		}
 
@@ -482,7 +482,7 @@ func (q *SelectQuery[T]) loadHasMany(ctx context.Context, results reflect.Value,
 		pkValue := pkField.Interface()
 
 		// Dereference pointer if needed
-		if pkField.Kind() == reflect.Ptr && !pkField.IsNil() {
+		if pkField.Kind() == reflect.Pointer && !pkField.IsNil() {
 			pkValue = pkField.Elem().Interface()
 		}
 
@@ -535,7 +535,7 @@ func (q *SelectQuery[T]) loadHasMany(ctx context.Context, results reflect.Value,
 		}
 
 		item := results.Index(idx)
-		if item.Kind() == reflect.Ptr {
+		if item.Kind() == reflect.Pointer {
 			item = item.Elem()
 		}
 
@@ -547,7 +547,7 @@ func (q *SelectQuery[T]) loadHasMany(ctx context.Context, results reflect.Value,
 		// Append to the slice
 		if relationField.Kind() == reflect.Slice {
 			var elemToAppend reflect.Value
-			if relationField.Type().Elem().Kind() == reflect.Ptr {
+			if relationField.Type().Elem().Kind() == reflect.Pointer {
 				elemToAppend = related
 			} else {
 				elemToAppend = related.Elem()
@@ -586,7 +586,7 @@ func (q *SelectQuery[T]) loadManyToMany(ctx context.Context, results reflect.Val
 
 	for i := 0; i < results.Len(); i++ {
 		item := results.Index(i)
-		if item.Kind() == reflect.Ptr {
+		if item.Kind() == reflect.Pointer {
 			item = item.Elem()
 		}
 
@@ -599,7 +599,7 @@ func (q *SelectQuery[T]) loadManyToMany(ctx context.Context, results reflect.Val
 		pkValue := pkField.Interface()
 
 		// Dereference pointer if needed
-		if pkField.Kind() == reflect.Ptr && !pkField.IsNil() {
+		if pkField.Kind() == reflect.Pointer && !pkField.IsNil() {
 			pkValue = pkField.Elem().Interface()
 		}
 
@@ -701,7 +701,7 @@ func (q *SelectQuery[T]) loadManyToMany(ctx context.Context, results reflect.Val
 		}
 
 		item := results.Index(idx)
-		if item.Kind() == reflect.Ptr {
+		if item.Kind() == reflect.Pointer {
 			item = item.Elem()
 		}
 
@@ -719,7 +719,7 @@ func (q *SelectQuery[T]) loadManyToMany(ctx context.Context, results reflect.Val
 
 			if relationField.Kind() == reflect.Slice {
 				var elemToAppend reflect.Value
-				if relationField.Type().Elem().Kind() == reflect.Ptr {
+				if relationField.Type().Elem().Kind() == reflect.Pointer {
 					elemToAppend = related
 				} else {
 					elemToAppend = related.Elem()
@@ -740,7 +740,7 @@ func (q *SelectQuery[T]) loadBelongsToOnCollection(ctx context.Context, objects 
 
 	for i := 0; i < objects.Len(); i++ {
 		item := objects.Index(i)
-		if item.Kind() == reflect.Ptr {
+		if item.Kind() == reflect.Pointer {
 			item = item.Elem()
 		}
 
@@ -754,7 +754,7 @@ func (q *SelectQuery[T]) loadBelongsToOnCollection(ctx context.Context, objects 
 			continue
 		}
 
-		if fkField.Kind() == reflect.Ptr && !fkField.IsNil() {
+		if fkField.Kind() == reflect.Pointer && !fkField.IsNil() {
 			fkValue = fkField.Elem().Interface()
 		}
 
@@ -792,7 +792,7 @@ func (q *SelectQuery[T]) loadBelongsToOnCollection(ctx context.Context, objects 
 
 		for _, idx := range foreignKeyMap[idValue] {
 			item := objects.Index(idx)
-			if item.Kind() == reflect.Ptr {
+			if item.Kind() == reflect.Pointer {
 				item = item.Elem()
 			}
 
@@ -801,7 +801,7 @@ func (q *SelectQuery[T]) loadBelongsToOnCollection(ctx context.Context, objects 
 				continue
 			}
 
-			if relationField.Kind() == reflect.Ptr {
+			if relationField.Kind() == reflect.Pointer {
 				relationField.Set(related)
 			} else {
 				relationField.Set(related.Elem())
@@ -819,7 +819,7 @@ func (q *SelectQuery[T]) loadHasOneOnCollection(ctx context.Context, objects ref
 
 	for i := 0; i < objects.Len(); i++ {
 		item := objects.Index(i)
-		if item.Kind() == reflect.Ptr {
+		if item.Kind() == reflect.Pointer {
 			item = item.Elem()
 		}
 
@@ -829,7 +829,7 @@ func (q *SelectQuery[T]) loadHasOneOnCollection(ctx context.Context, objects ref
 		}
 
 		pkValue := pkField.Interface()
-		if pkField.Kind() == reflect.Ptr && !pkField.IsNil() {
+		if pkField.Kind() == reflect.Pointer && !pkField.IsNil() {
 			pkValue = pkField.Elem().Interface()
 		}
 
@@ -868,7 +868,7 @@ func (q *SelectQuery[T]) loadHasOneOnCollection(ctx context.Context, objects ref
 		}
 
 		item := objects.Index(idx)
-		if item.Kind() == reflect.Ptr {
+		if item.Kind() == reflect.Pointer {
 			item = item.Elem()
 		}
 
@@ -877,7 +877,7 @@ func (q *SelectQuery[T]) loadHasOneOnCollection(ctx context.Context, objects ref
 			continue
 		}
 
-		if relationField.Kind() == reflect.Ptr {
+		if relationField.Kind() == reflect.Pointer {
 			relationField.Set(related)
 		} else {
 			relationField.Set(related.Elem())
@@ -894,7 +894,7 @@ func (q *SelectQuery[T]) loadHasManyOnCollection(ctx context.Context, objects re
 
 	for i := 0; i < objects.Len(); i++ {
 		item := objects.Index(i)
-		if item.Kind() == reflect.Ptr {
+		if item.Kind() == reflect.Pointer {
 			item = item.Elem()
 		}
 
@@ -904,7 +904,7 @@ func (q *SelectQuery[T]) loadHasManyOnCollection(ctx context.Context, objects re
 		}
 
 		pkValue := pkField.Interface()
-		if pkField.Kind() == reflect.Ptr && !pkField.IsNil() {
+		if pkField.Kind() == reflect.Pointer && !pkField.IsNil() {
 			pkValue = pkField.Elem().Interface()
 		}
 
@@ -951,7 +951,7 @@ func (q *SelectQuery[T]) loadHasManyOnCollection(ctx context.Context, objects re
 		}
 
 		item := objects.Index(idx)
-		if item.Kind() == reflect.Ptr {
+		if item.Kind() == reflect.Pointer {
 			item = item.Elem()
 		}
 
@@ -962,7 +962,7 @@ func (q *SelectQuery[T]) loadHasManyOnCollection(ctx context.Context, objects re
 
 		if relationField.Kind() == reflect.Slice {
 			var elemToAppend reflect.Value
-			if relationField.Type().Elem().Kind() == reflect.Ptr {
+			if relationField.Type().Elem().Kind() == reflect.Pointer {
 				elemToAppend = related
 			} else {
 				elemToAppend = related.Elem()
@@ -1111,7 +1111,7 @@ func isZeroValue(v interface{}) bool {
 
 	val := reflect.ValueOf(v)
 	switch val.Kind() {
-	case reflect.Ptr, reflect.Interface:
+	case reflect.Pointer, reflect.Interface:
 		return val.IsNil()
 	case reflect.Slice, reflect.Map, reflect.Chan, reflect.Func:
 		return val.IsNil()

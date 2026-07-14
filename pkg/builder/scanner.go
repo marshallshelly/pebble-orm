@@ -14,7 +14,7 @@ import (
 func scanIntoStruct(rows pgx.Rows, dest interface{}, table *schema.TableMetadata) error {
 	// Get the value and type
 	destValue := reflect.ValueOf(dest)
-	if destValue.Kind() != reflect.Ptr {
+	if destValue.Kind() != reflect.Pointer {
 		return fmt.Errorf("dest must be a pointer to struct")
 	}
 
@@ -163,7 +163,7 @@ func implementsValuer(t reflect.Type) bool {
 // 3. For JSONB columns, automatically marshals values to JSON bytes.
 func structToValues(model interface{}, table *schema.TableMetadata, skipPrimaryKey bool) ([]string, []interface{}, error) {
 	modelValue := reflect.ValueOf(model)
-	if modelValue.Kind() == reflect.Ptr {
+	if modelValue.Kind() == reflect.Pointer {
 		modelValue = modelValue.Elem()
 	}
 
@@ -229,7 +229,7 @@ func marshalJSONB(value interface{}) (string, error) {
 
 	// Check for nil pointers/interfaces
 	v := reflect.ValueOf(value)
-	if v.Kind() == reflect.Ptr || v.Kind() == reflect.Interface {
+	if v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
 		if v.IsNil() {
 			return "", nil
 		}
