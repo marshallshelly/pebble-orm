@@ -261,19 +261,21 @@ func structToValues(model interface{}, table *schema.TableMetadata, skipPrimaryK
 	return columns, values, nil
 }
 
-// marshalJSONB marshals a value to a JSON string for JSONB columns.
-// Returns string because pgx correctly handles string->jsonb conversion,
-// while []byte might be incorrectly encoded as bytea.
-func marshalJSONB(value interface{}) (string, error) {
+// marshalJSONB marshals a value for a JSONB column. Returns string because
+// pgx correctly handles string->jsonb conversion, while []byte might be
+// incorrectly encoded as bytea. Nil values (and nil pointers/interfaces)
+// return nil so they are stored as SQL NULL, not an empty string, which
+// PostgreSQL rejects as invalid JSON.
+func marshalJSONB(value interface{}) (interface{}, error) {
 	if value == nil {
-		return "", nil
+		return nil, nil
 	}
 
 	// Check for nil pointers/interfaces
 	v := reflect.ValueOf(value)
 	if v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
 		if v.IsNil() {
-			return "", nil
+			return nil, nil
 		}
 		// Dereference for marshaling
 		value = v.Elem().Interface()
@@ -281,7 +283,7 @@ func marshalJSONB(value interface{}) (string, error) {
 
 	jsonBytes, err := json.Marshal(value)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	return string(jsonBytes), nil
 }

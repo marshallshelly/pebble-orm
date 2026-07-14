@@ -6,13 +6,25 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/marshallshelly/pebble-orm/pkg/registry"
 	"github.com/marshallshelly/pebble-orm/pkg/schema"
 )
 
+// queryFunc executes a SQL query. Satisfied by both runtime.DB.Query and
+// pgx.Tx.Query, so relationship loading works inside and outside transactions.
+type queryFunc func(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
+
+// relationshipLoader loads preloaded relationships for a result set.
+type relationshipLoader struct {
+	query    queryFunc
+	table    *schema.TableMetadata
+	preloads []string
+}
+
 // loadRelationships loads all preloaded relationships for a set of results.
 // Supports nested preloads using dot notation (e.g., "Client.Route").
-func (q *SelectQuery[T]) loadRelationships(ctx context.Context, results interface{}) error {
+func (q *relationshipLoader) loadRelationships(ctx context.Context, results interface{}) error {
 	if len(q.preloads) == 0 {
 		return nil
 	}
@@ -82,7 +94,7 @@ func (q *SelectQuery[T]) loadRelationships(ctx context.Context, results interfac
 }
 
 // loadRelationship loads a specific relationship for all results.
-func (q *SelectQuery[T]) loadRelationship(ctx context.Context, results reflect.Value, rel *schema.RelationshipMetadata) error {
+func (q *relationshipLoader) loadRelationship(ctx context.Context, results reflect.Value, rel *schema.RelationshipMetadata) error {
 	switch rel.Type {
 	case schema.BelongsTo:
 		return q.loadBelongsTo(ctx, results, rel)
@@ -99,7 +111,7 @@ func (q *SelectQuery[T]) loadRelationship(ctx context.Context, results reflect.V
 
 // loadNestedRelationships loads nested relationships on already-loaded parent objects.
 // For example, after loading "Client", this loads "Route" on each Client.
-func (q *SelectQuery[T]) loadNestedRelationships(ctx context.Context, results reflect.Value, parentRel *schema.RelationshipMetadata, nestedPaths []string) error {
+func (q *relationshipLoader) loadNestedRelationships(ctx context.Context, results reflect.Value, parentRel *schema.RelationshipMetadata, nestedPaths []string) error {
 	// Get the target table metadata for the parent relationship
 	var parentTable *schema.TableMetadata
 	var err error
@@ -203,7 +215,7 @@ func (q *SelectQuery[T]) loadNestedRelationships(ctx context.Context, results re
 
 // loadRelationshipOnCollection loads a relationship on a collection of objects.
 // This is similar to loadRelationship but works with any table, not just the query's base table.
-func (q *SelectQuery[T]) loadRelationshipOnCollection(ctx context.Context, objects reflect.Value, rel *schema.RelationshipMetadata, sourceTable *schema.TableMetadata) error {
+func (q *relationshipLoader) loadRelationshipOnCollection(ctx context.Context, objects reflect.Value, rel *schema.RelationshipMetadata, sourceTable *schema.TableMetadata) error {
 	if objects.Len() == 0 {
 		return nil
 	}
@@ -239,7 +251,7 @@ func (q *SelectQuery[T]) loadRelationshipOnCollection(ctx context.Context, objec
 
 // loadBelongsTo loads belongsTo relationships.
 // Example: Post belongsTo User (post.user_id -> users.id)
-func (q *SelectQuery[T]) loadBelongsTo(ctx context.Context, results reflect.Value, rel *schema.RelationshipMetadata) error {
+func (q *relationshipLoader) loadBelongsTo(ctx context.Context, results reflect.Value, rel *schema.RelationshipMetadata) error {
 	// Get target table metadata using TargetType (accurate) or fallback to TargetTable (legacy)
 	var targetTable *schema.TableMetadata
 	var err error
@@ -299,8 +311,8 @@ func (q *SelectQuery[T]) loadBelongsTo(ctx context.Context, results reflect.Valu
 	typedKeys := convertToTypedSlice(foreignKeys)
 
 	// Query related records using IN clause
-	sql := fmt.Sprintf("SELECT * FROM %s WHERE %s = ANY($1)", targetTable.Name, rel.References)
-	rows, err := q.db.db.Query(ctx, sql, typedKeys)
+	sql := fmt.Sprintf("SELECT * FROM %s WHERE %s = ANY($1)", schema.QuoteReservedIdent(targetTable.Name), schema.QuoteReservedIdent(rel.References))
+	rows, err := q.query(ctx, sql, typedKeys)
 	if err != nil {
 		return fmt.Errorf("failed to query related records: %w", err)
 	}
@@ -347,7 +359,7 @@ func (q *SelectQuery[T]) loadBelongsTo(ctx context.Context, results reflect.Valu
 
 // loadHasOne loads hasOne relationships.
 // Example: User hasOne Profile (profiles.user_id -> users.id)
-func (q *SelectQuery[T]) loadHasOne(ctx context.Context, results reflect.Value, rel *schema.RelationshipMetadata) error {
+func (q *relationshipLoader) loadHasOne(ctx context.Context, results reflect.Value, rel *schema.RelationshipMetadata) error {
 	// Get target table metadata using TargetType (accurate) or fallback to TargetTable (legacy)
 	var targetTable *schema.TableMetadata
 	var err error
@@ -397,8 +409,8 @@ func (q *SelectQuery[T]) loadHasOne(ctx context.Context, results reflect.Value, 
 	typedKeys := convertToTypedSlice(primaryKeys)
 
 	// Query related records using IN clause
-	sql := fmt.Sprintf("SELECT * FROM %s WHERE %s = ANY($1)", targetTable.Name, rel.ForeignKey)
-	rows, err := q.db.db.Query(ctx, sql, typedKeys)
+	sql := fmt.Sprintf("SELECT * FROM %s WHERE %s = ANY($1)", schema.QuoteReservedIdent(targetTable.Name), schema.QuoteReservedIdent(rel.ForeignKey))
+	rows, err := q.query(ctx, sql, typedKeys)
 	if err != nil {
 		return fmt.Errorf("failed to query related records: %w", err)
 	}
@@ -448,7 +460,7 @@ func (q *SelectQuery[T]) loadHasOne(ctx context.Context, results reflect.Value, 
 
 // loadHasMany loads hasMany relationships.
 // Example: User hasMany Posts (posts.user_id -> users.id)
-func (q *SelectQuery[T]) loadHasMany(ctx context.Context, results reflect.Value, rel *schema.RelationshipMetadata) error {
+func (q *relationshipLoader) loadHasMany(ctx context.Context, results reflect.Value, rel *schema.RelationshipMetadata) error {
 	// Get target table metadata using TargetType (accurate) or fallback to TargetTable (legacy)
 	var targetTable *schema.TableMetadata
 	var err error
@@ -506,8 +518,8 @@ func (q *SelectQuery[T]) loadHasMany(ctx context.Context, results reflect.Value,
 	typedKeys := convertToTypedSlice(primaryKeys)
 
 	// Query related records using IN clause
-	sql := fmt.Sprintf("SELECT * FROM %s WHERE %s = ANY($1)", targetTable.Name, rel.ForeignKey)
-	rows, err := q.db.db.Query(ctx, sql, typedKeys)
+	sql := fmt.Sprintf("SELECT * FROM %s WHERE %s = ANY($1)", schema.QuoteReservedIdent(targetTable.Name), schema.QuoteReservedIdent(rel.ForeignKey))
+	rows, err := q.query(ctx, sql, typedKeys)
 	if err != nil {
 		return fmt.Errorf("failed to query related records: %w", err)
 	}
@@ -561,7 +573,7 @@ func (q *SelectQuery[T]) loadHasMany(ctx context.Context, results reflect.Value,
 
 // loadManyToMany loads manyToMany relationships through a junction table.
 // Example: User manyToMany Roles (users_roles junction table)
-func (q *SelectQuery[T]) loadManyToMany(ctx context.Context, results reflect.Value, rel *schema.RelationshipMetadata) error {
+func (q *relationshipLoader) loadManyToMany(ctx context.Context, results reflect.Value, rel *schema.RelationshipMetadata) error {
 	if rel.JoinTable == nil {
 		return fmt.Errorf("manyToMany relationship requires a junction table")
 	}
@@ -630,14 +642,14 @@ func (q *SelectQuery[T]) loadManyToMany(ctx context.Context, results reflect.Val
 	// Query through junction table with JOIN
 	sql := fmt.Sprintf(
 		"SELECT t.* FROM %s t INNER JOIN %s j ON t.%s = j.%s WHERE j.%s = ANY($1)",
-		targetTable.Name,
-		*rel.JoinTable,
-		rel.References,
-		targetFKCol,
-		sourceFKCol,
+		schema.QuoteReservedIdent(targetTable.Name),
+		schema.QuoteReservedIdent(*rel.JoinTable),
+		schema.QuoteReservedIdent(rel.References),
+		schema.QuoteReservedIdent(targetFKCol),
+		schema.QuoteReservedIdent(sourceFKCol),
 	)
 
-	rows, err := q.db.db.Query(ctx, sql, typedKeys)
+	rows, err := q.query(ctx, sql, typedKeys)
 	if err != nil {
 		return fmt.Errorf("failed to query related records: %w", err)
 	}
@@ -646,13 +658,13 @@ func (q *SelectQuery[T]) loadManyToMany(ctx context.Context, results reflect.Val
 	// We need to query the junction table to get the associations
 	junctionSQL := fmt.Sprintf(
 		"SELECT %s, %s FROM %s WHERE %s = ANY($1)",
-		sourceFKCol,
-		targetFKCol,
-		*rel.JoinTable,
-		sourceFKCol,
+		schema.QuoteReservedIdent(sourceFKCol),
+		schema.QuoteReservedIdent(targetFKCol),
+		schema.QuoteReservedIdent(*rel.JoinTable),
+		schema.QuoteReservedIdent(sourceFKCol),
 	)
 
-	junctionRows, err := q.db.db.Query(ctx, junctionSQL, typedKeys)
+	junctionRows, err := q.query(ctx, junctionSQL, typedKeys)
 	if err != nil {
 		return fmt.Errorf("failed to query junction table: %w", err)
 	}
@@ -733,7 +745,7 @@ func (q *SelectQuery[T]) loadManyToMany(ctx context.Context, results reflect.Val
 }
 
 // loadBelongsToOnCollection loads belongsTo relationships on a collection of objects.
-func (q *SelectQuery[T]) loadBelongsToOnCollection(ctx context.Context, objects reflect.Value, rel *schema.RelationshipMetadata, targetTable *schema.TableMetadata) error {
+func (q *relationshipLoader) loadBelongsToOnCollection(ctx context.Context, objects reflect.Value, rel *schema.RelationshipMetadata, targetTable *schema.TableMetadata) error {
 	// Collect foreign key values
 	foreignKeys := make([]interface{}, 0, objects.Len())
 	foreignKeyMap := make(map[interface{}][]int)
@@ -770,8 +782,8 @@ func (q *SelectQuery[T]) loadBelongsToOnCollection(ctx context.Context, objects 
 	}
 
 	typedKeys := convertToTypedSlice(foreignKeys)
-	sql := fmt.Sprintf("SELECT * FROM %s WHERE %s = ANY($1)", targetTable.Name, rel.References)
-	rows, err := q.db.db.Query(ctx, sql, typedKeys)
+	sql := fmt.Sprintf("SELECT * FROM %s WHERE %s = ANY($1)", schema.QuoteReservedIdent(targetTable.Name), schema.QuoteReservedIdent(rel.References))
+	rows, err := q.query(ctx, sql, typedKeys)
 	if err != nil {
 		return fmt.Errorf("failed to query related records: %w", err)
 	}
@@ -813,7 +825,7 @@ func (q *SelectQuery[T]) loadBelongsToOnCollection(ctx context.Context, objects 
 }
 
 // loadHasOneOnCollection loads hasOne relationships on a collection of objects.
-func (q *SelectQuery[T]) loadHasOneOnCollection(ctx context.Context, objects reflect.Value, rel *schema.RelationshipMetadata, targetTable *schema.TableMetadata) error {
+func (q *relationshipLoader) loadHasOneOnCollection(ctx context.Context, objects reflect.Value, rel *schema.RelationshipMetadata, targetTable *schema.TableMetadata) error {
 	primaryKeys := make([]interface{}, 0, objects.Len())
 	pkMap := make(map[interface{}]int)
 
@@ -842,8 +854,8 @@ func (q *SelectQuery[T]) loadHasOneOnCollection(ctx context.Context, objects ref
 	}
 
 	typedKeys := convertToTypedSlice(primaryKeys)
-	sql := fmt.Sprintf("SELECT * FROM %s WHERE %s = ANY($1)", targetTable.Name, rel.ForeignKey)
-	rows, err := q.db.db.Query(ctx, sql, typedKeys)
+	sql := fmt.Sprintf("SELECT * FROM %s WHERE %s = ANY($1)", schema.QuoteReservedIdent(targetTable.Name), schema.QuoteReservedIdent(rel.ForeignKey))
+	rows, err := q.query(ctx, sql, typedKeys)
 	if err != nil {
 		return fmt.Errorf("failed to query related records: %w", err)
 	}
@@ -888,7 +900,7 @@ func (q *SelectQuery[T]) loadHasOneOnCollection(ctx context.Context, objects ref
 }
 
 // loadHasManyOnCollection loads hasMany relationships on a collection of objects.
-func (q *SelectQuery[T]) loadHasManyOnCollection(ctx context.Context, objects reflect.Value, rel *schema.RelationshipMetadata, targetTable *schema.TableMetadata) error {
+func (q *relationshipLoader) loadHasManyOnCollection(ctx context.Context, objects reflect.Value, rel *schema.RelationshipMetadata, targetTable *schema.TableMetadata) error {
 	primaryKeys := make([]interface{}, 0, objects.Len())
 	pkMap := make(map[interface{}]int)
 
@@ -925,8 +937,8 @@ func (q *SelectQuery[T]) loadHasManyOnCollection(ctx context.Context, objects re
 	}
 
 	typedKeys := convertToTypedSlice(primaryKeys)
-	sql := fmt.Sprintf("SELECT * FROM %s WHERE %s = ANY($1)", targetTable.Name, rel.ForeignKey)
-	rows, err := q.db.db.Query(ctx, sql, typedKeys)
+	sql := fmt.Sprintf("SELECT * FROM %s WHERE %s = ANY($1)", schema.QuoteReservedIdent(targetTable.Name), schema.QuoteReservedIdent(rel.ForeignKey))
+	rows, err := q.query(ctx, sql, typedKeys)
 	if err != nil {
 		return fmt.Errorf("failed to query related records: %w", err)
 	}

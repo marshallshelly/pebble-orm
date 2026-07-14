@@ -4,6 +4,7 @@ import (
 	"reflect"
 
 	"github.com/marshallshelly/pebble-orm/pkg/registry"
+	"github.com/marshallshelly/pebble-orm/pkg/schema"
 )
 
 // Col returns the database column name for a given Go field name.
@@ -39,5 +40,5 @@ func Col[T any](goFieldName string) string {
 		return goFieldName
 	}
 
-	return column.Name
+	return schema.QuoteReservedIdent(column.Name)
 }

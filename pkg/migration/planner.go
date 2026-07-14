@@ -126,7 +126,7 @@ func (p *Planner) generateCreateTable(table *schema.TableMetadata) string {
 
 	// Primary key (composite only - single column handled inline)
 	if table.PrimaryKey != nil && len(table.PrimaryKey.Columns) > 1 {
-		pkCols := strings.Join(table.PrimaryKey.Columns, ", ")
+		pkCols := strings.Join(schema.QuoteReservedIdents(table.PrimaryKey.Columns), ", ")
 		parts = append(parts, fmt.Sprintf("    CONSTRAINT %s PRIMARY KEY (%s)", table.PrimaryKey.Name, pkCols))
 	}
 
@@ -155,7 +155,7 @@ func (p *Planner) generateCreateTable(table *schema.TableMetadata) string {
 	if p.options.IfNotExists {
 		createClause = "CREATE TABLE IF NOT EXISTS"
 	}
-	sql := fmt.Sprintf("%s %s (\n%s\n);", createClause, table.Name, strings.Join(parts, ",\n"))
+	sql := fmt.Sprintf("%s %s (\n%s\n);", createClause, schema.QuoteReservedIdent(table.Name), strings.Join(parts, ",\n"))
 
 	// Indexes (separate statements)
 	var indexStatements []string
@@ -172,7 +172,7 @@ func (p *Planner) generateCreateTable(table *schema.TableMetadata) string {
 
 // generateColumnDefinition generates a column definition.
 func (p *Planner) generateColumnDefinition(col schema.ColumnMetadata) string {
-	parts := []string{col.Name, col.SQLType}
+	parts := []string{schema.QuoteReservedIdent(col.Name), col.SQLType}
 
 	// Generated columns cannot have NOT NULL, DEFAULT, or UNIQUE constraints
 	// as they are computed from other columns
@@ -211,12 +211,12 @@ func (p *Planner) generateColumnDefinition(col schema.ColumnMetadata) string {
 
 // generateForeignKeyDefinition generates a foreign key constraint.
 func (p *Planner) generateForeignKeyDefinition(fk schema.ForeignKeyMetadata) string {
-	localCols := strings.Join(fk.Columns, ", ")
-	refCols := strings.Join(fk.ReferencedColumns, ", ")
+	localCols := strings.Join(schema.QuoteReservedIdents(fk.Columns), ", ")
+	refCols := strings.Join(schema.QuoteReservedIdents(fk.ReferencedColumns), ", ")
 
 	parts := []string{
 		fmt.Sprintf("CONSTRAINT %s FOREIGN KEY (%s)", fk.Name, localCols),
-		fmt.Sprintf("REFERENCES %s (%s)", fk.ReferencedTable, refCols),
+		fmt.Sprintf("REFERENCES %s (%s)", schema.QuoteReservedIdent(fk.ReferencedTable), refCols),
 	}
 
 	if fk.OnDelete != schema.NoAction && fk.OnDelete != "" {
@@ -260,7 +260,7 @@ func (p *Planner) generateCreateIndex(tableName string, idx schema.IndexMetadata
 	parts = append(parts, idx.Name)
 
 	// ON table
-	parts = append(parts, "ON", tableName)
+	parts = append(parts, "ON", schema.QuoteReservedIdent(tableName))
 
 	// [USING method]
 	if idx.Type != "" && idx.Type != "btree" {
@@ -300,7 +300,7 @@ func (p *Planner) generateCreateIndex(tableName string, idx schema.IndexMetadata
 //   - ["col1"] with all modifiers -> "col1 varchar_pattern_ops COLLATE \"C\" DESC NULLS LAST"
 func (p *Planner) formatColumnsWithOrdering(columns []string, ordering []schema.ColumnOrder) string {
 	if len(ordering) == 0 {
-		return strings.Join(columns, ", ")
+		return strings.Join(schema.QuoteReservedIdents(columns), ", ")
 	}
 
 	// Build a map for quick lookup
@@ -311,7 +311,7 @@ func (p *Planner) formatColumnsWithOrdering(columns []string, ordering []schema.
 
 	var parts []string
 	for _, col := range columns {
-		part := col
+		part := schema.QuoteReservedIdent(col)
 
 		if ord, ok := orderMap[col]; ok {
 			// Add operator class if specified
@@ -348,20 +348,20 @@ func (p *Planner) generateDropTable(tableName string) string {
 
 // generateAlterTable generates ALTER TABLE statements for table modifications.
 func (p *Planner) generateAlterTable(diff TableDiff) (upSQL, downSQL []string) {
-	tableName := diff.TableName
+	tableName := schema.QuoteReservedIdent(diff.TableName)
 
 	// Add columns
 	for _, col := range diff.ColumnsAdded {
 		upSQL = append(upSQL, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s;",
 			tableName, p.generateColumnDefinition(col)))
 		downSQL = append(downSQL, fmt.Sprintf("ALTER TABLE %s DROP COLUMN IF EXISTS %s;",
-			tableName, col.Name))
+			tableName, schema.QuoteReservedIdent(col.Name)))
 	}
 
 	// Drop columns
 	for _, col := range diff.ColumnsDropped {
 		upSQL = append(upSQL, fmt.Sprintf("ALTER TABLE %s DROP COLUMN IF EXISTS %s;",
-			tableName, col.Name))
+			tableName, schema.QuoteReservedIdent(col.Name)))
 		downSQL = append(downSQL, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s;",
 			tableName, p.generateColumnDefinition(col)))
 	}
@@ -427,7 +427,7 @@ func (p *Planner) generateAlterTable(diff TableDiff) (upSQL, downSQL []string) {
 
 // generateColumnModification generates ALTER statements for column changes.
 func (p *Planner) generateColumnModification(tableName string, colDiff ColumnDiff) (upSQL, downSQL []string) {
-	colName := colDiff.ColumnName
+	colName := schema.QuoteReservedIdent(colDiff.ColumnName)
 
 	// Type change
 	if colDiff.TypeChanged {
@@ -507,6 +507,7 @@ func (p *Planner) generateColumnModification(tableName string, colDiff ColumnDif
 
 // generatePrimaryKeyChange generates ALTER statements for primary key changes.
 func (p *Planner) generatePrimaryKeyChange(tableName string, pkChange *PrimaryKeyChange) (upSQL, downSQL []string) {
+	tableName = schema.QuoteReservedIdent(tableName)
 	// Drop old primary key
 	if pkChange.Old != nil {
 		upSQL = append(upSQL, fmt.Sprintf("ALTER TABLE %s DROP CONSTRAINT IF EXISTS %s;",
@@ -515,7 +516,7 @@ func (p *Planner) generatePrimaryKeyChange(tableName string, pkChange *PrimaryKe
 
 	// Add new primary key
 	if pkChange.New != nil {
-		cols := strings.Join(pkChange.New.Columns, ", ")
+		cols := strings.Join(schema.QuoteReservedIdents(pkChange.New.Columns), ", ")
 		upSQL = append(upSQL, fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s PRIMARY KEY (%s);",
 			tableName, pkChange.New.Name, cols))
 	}
@@ -527,7 +528,7 @@ func (p *Planner) generatePrimaryKeyChange(tableName string, pkChange *PrimaryKe
 	}
 
 	if pkChange.Old != nil {
-		cols := strings.Join(pkChange.Old.Columns, ", ")
+		cols := strings.Join(schema.QuoteReservedIdents(pkChange.Old.Columns), ", ")
 		downSQL = append(downSQL, fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s PRIMARY KEY (%s);",
 			tableName, pkChange.Old.Name, cols))
 	}
@@ -631,10 +632,11 @@ func generateUsingClause(columnName, fromType, toType string) string {
 
 // generateAddConstraintSQL generates SQL for adding a constraint.
 func (p *Planner) generateAddConstraintSQL(tableName string, c schema.ConstraintMetadata) string {
+	tableName = schema.QuoteReservedIdent(tableName)
 	switch c.Type {
 	case schema.UniqueConstraint:
 		return fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s UNIQUE (%s);",
-			tableName, c.Name, strings.Join(c.Columns, ", "))
+			tableName, c.Name, strings.Join(schema.QuoteReservedIdents(c.Columns), ", "))
 	case schema.CheckConstraint:
 		return fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s CHECK %s;",
 			tableName, c.Name, c.Expression)

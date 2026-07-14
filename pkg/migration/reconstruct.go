@@ -14,11 +14,11 @@ import (
 var (
 	reCreateTableName = regexp.MustCompile(`(?i)^\s*CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?"?(\w+)"?`)
 	reDropTableName   = regexp.MustCompile(`(?i)^\s*DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?"?(\w+)"?`)
-	reAlterTableParts = regexp.MustCompile(`(?i)^\s*ALTER\s+TABLE\s+(\w+)\s+(.+)`)
-	reAlterColType    = regexp.MustCompile(`(?i)^ALTER\s+COLUMN\s+(\w+)\s+TYPE\s+(.+)$`)
-	reAddConstraint   = regexp.MustCompile(`(?i)^ADD\s+CONSTRAINT\s+\w+\s+UNIQUE\s*\((\w+)\)$`)
-	reFKConstraint    = regexp.MustCompile(`(?i)CONSTRAINT\s+(\w+)\s+FOREIGN\s+KEY\s*\(([^)]+)\)\s+REFERENCES\s+(\w+)\s*\(([^)]+)\)(?:\s+ON\s+DELETE\s+([\w\s]+?))?$`)
-	reAddFKConstraint = regexp.MustCompile(`(?i)^ADD\s+CONSTRAINT\s+(\w+)\s+FOREIGN\s+KEY\s*\(([^)]+)\)\s+REFERENCES\s+(\w+)\s*\(([^)]+)\)(?:\s+ON\s+DELETE\s+([\w\s]+?))?$`)
+	reAlterTableParts = regexp.MustCompile(`(?i)^\s*ALTER\s+TABLE\s+"?(\w+)"?\s+(.+)`)
+	reAlterColType    = regexp.MustCompile(`(?i)^ALTER\s+COLUMN\s+"?(\w+)"?\s+TYPE\s+(.+)$`)
+	reAddConstraint   = regexp.MustCompile(`(?i)^ADD\s+CONSTRAINT\s+\w+\s+UNIQUE\s*\("?(\w+)"?\)$`)
+	reFKConstraint    = regexp.MustCompile(`(?i)CONSTRAINT\s+(\w+)\s+FOREIGN\s+KEY\s*\(([^)]+)\)\s+REFERENCES\s+"?(\w+)"?\s*\(([^)]+)\)(?:\s+ON\s+DELETE\s+([\w\s]+?))?$`)
+	reAddFKConstraint = regexp.MustCompile(`(?i)^ADD\s+CONSTRAINT\s+(\w+)\s+FOREIGN\s+KEY\s*\(([^)]+)\)\s+REFERENCES\s+"?(\w+)"?\s*\(([^)]+)\)(?:\s+ON\s+DELETE\s+([\w\s]+?))?$`)
 )
 
 // HasMigrationFiles reports whether any *.up.sql files exist in dir.
@@ -181,7 +181,7 @@ func applyAlterTable(tables map[string]*schema.TableMetadata, stmt string) {
 			idx = 4 // skip "IF EXISTS"
 		}
 		if idx < len(parts) {
-			table.Columns = removeColumn(table.Columns, strings.ToLower(parts[idx]))
+			table.Columns = removeColumn(table.Columns, strings.ToLower(strings.Trim(parts[idx], `"`)))
 		}
 
 	case strings.HasPrefix(upper, "ALTER COLUMN"):
@@ -335,7 +335,7 @@ func splitCSV(s string) []string {
 	out := make([]string, 0, len(parts))
 	for _, p := range parts {
 		if p = strings.TrimSpace(p); p != "" {
-			out = append(out, strings.ToLower(p))
+			out = append(out, strings.ToLower(strings.Trim(p, `"`)))
 		}
 	}
 	return out
@@ -411,10 +411,10 @@ func parseColDef(def string, position int) schema.ColumnMetadata {
 
 	name, rest, ok := strings.Cut(def, " ")
 	if !ok {
-		col.Name = strings.ToLower(def)
+		col.Name = strings.ToLower(strings.Trim(def, `"`))
 		return col
 	}
-	col.Name = strings.ToLower(name)
+	col.Name = strings.ToLower(strings.Trim(name, `"`))
 	rest = strings.TrimSpace(rest)
 	restUpper := strings.ToUpper(rest)
 

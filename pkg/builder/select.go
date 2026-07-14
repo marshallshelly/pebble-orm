@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/marshallshelly/pebble-orm/pkg/schema"
 )
 
 // Columns specifies which columns to select.
@@ -187,7 +189,7 @@ func (q *SelectQuery[T]) ToSQL() (string, []interface{}, error) {
 
 	// FROM clause
 	sql.WriteString(" FROM ")
-	sql.WriteString(q.table.Name)
+	sql.WriteString(schema.QuoteReservedIdent(q.table.Name))
 
 	// JOIN clauses
 	for _, join := range q.joins {
@@ -309,7 +311,8 @@ func (q *SelectQuery[T]) All(ctx context.Context) ([]T, error) {
 
 	// Load preloaded relationships
 	if len(q.preloads) > 0 && len(results) > 0 {
-		if err := q.loadRelationships(ctx, &results); err != nil {
+		loader := &relationshipLoader{query: q.db.db.Query, table: q.table, preloads: q.preloads}
+		if err := loader.loadRelationships(ctx, &results); err != nil {
 			return nil, err
 		}
 	}
@@ -343,7 +346,7 @@ func (q *SelectQuery[T]) Count(ctx context.Context) (int64, error) {
 	// Build COUNT query
 	var sql strings.Builder
 	sql.WriteString("SELECT COUNT(*) FROM ")
-	sql.WriteString(q.table.Name)
+	sql.WriteString(schema.QuoteReservedIdent(q.table.Name))
 
 	var args []interface{}
 

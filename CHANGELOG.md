@@ -7,9 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.17.0] - 2026-07-15
+
 ### Fixed
 
+- **PostgreSQL-specific operators now work in WHERE clauses.** `WhereBuilder` previously rejected every operator outside the standard comparison set, so `JSONBContains` (`@>`), `JSONBHasKey` (`?`), `JSONBHasAnyKey`/`JSONBHasAllKeys` (`?|`/`?&`), `ArrayContains`/`ArrayContainedBy`/`ArrayOverlap` (`@>`/`<@`/`&&`), `RegexpMatch` (`~`, `~*`, `!~`), and `TSMatch` (`@@`) all failed with "unknown operator" at query time. Unknown operators are now parameterized like comparisons, and the `Condition.Raw` flag is honored — which also makes every subquery helper (`InSubquery`, `ExistsSubquery`, `GtSubquery`, …) work for the first time.
+- **`Preload` now works inside transactions.** `TxSelectQuery.All()`/`First()` silently ignored preloads; relationship loading now runs through the transaction's connection, including nested dot-notation preloads.
+- **Nil JSONB struct pointers insert as SQL NULL** instead of an empty string, which PostgreSQL rejected with `invalid input syntax for type json`.
+- **Reserved-word identifiers are quoted.** Tables or columns named after PostgreSQL reserved keywords (`user`, `order`, `group`, …) are now quoted in builder SQL, generated migrations, and preload queries. Non-reserved names are emitted unchanged, preserving existing case-folding behavior.
+- **`WithCTE(...).All(ctx)` executes the WITH clause.** `CTESelect` previously inherited `All`/`First` from the embedded `SelectQuery` via method promotion, silently dropping the CTEs.
 - `schema.StringArray`, `schema.Int32Array`, `schema.Int64Array`, `schema.Float64Array`, and `schema.BoolArray` failed to scan under pgx's default query exec mode (`cache_statement`/`cache_describe`), where array results arrive in binary format and the `sql.Scanner` received raw wire bytes (`invalid array format: must be enclosed in braces`). The query builders now route named Scanner slices on array columns through pgx's native array decoding, so these types work in every exec mode. Direct `rows.Scan` outside the builders remains text-format only.
+
+### Documentation
+
+- Documented the intentional smart-default behavior: zero-valued fields on columns with a `default(...)` are omitted from INSERT so the database default applies; use a pointer field to store an explicit zero.
 
 ## [1.16.6] - 2026-07-15
 
@@ -481,7 +492,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - golangci-lint integration.
 - GoReleaser configuration for multi-platform releases.
 
-[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.16.6...HEAD
+[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.17.0...HEAD
+[1.17.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.16.6...v1.17.0
 [1.16.6]: https://github.com/marshallshelly/pebble-orm/compare/v1.16.5...v1.16.6
 [1.16.5]: https://github.com/marshallshelly/pebble-orm/compare/v1.16.4...v1.16.5
 [1.16.4]: https://github.com/marshallshelly/pebble-orm/compare/v1.16.3...v1.16.4

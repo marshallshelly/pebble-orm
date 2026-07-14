@@ -190,14 +190,14 @@ func TestEnumTypeDetection(t *testing.T) {
 
 		dbSchema := map[string]*schema.TableMetadata{
 			"orders": {
-				Name: "orders",
+				Name:      "orders",
 				EnumTypes: []schema.EnumType{enumType},
 			},
 		}
 
 		codeSchema := map[string]*schema.TableMetadata{
 			"orders": {
-				Name: "orders",
+				Name:      "orders",
 				EnumTypes: []schema.EnumType{enumType},
 			},
 		}
@@ -401,7 +401,7 @@ func TestEnumMigrationOrdering(t *testing.T) {
 
 	t.Run("enums dropped after tables", func(t *testing.T) {
 		diff := &SchemaDiff{
-			TablesDropped: []schema.TableMetadata{{Name: "orders"}},
+			TablesDropped:    []schema.TableMetadata{{Name: "orders"}},
 			EnumTypesDropped: []schema.EnumType{{Name: "order_status", Values: []string{"pending", "processing", "completed", "cancelled"}}},
 		}
 

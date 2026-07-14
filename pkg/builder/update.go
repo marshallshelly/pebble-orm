@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/marshallshelly/pebble-orm/pkg/schema"
 )
 
 // Set sets a column value for the UPDATE.
@@ -59,13 +61,13 @@ func (q *UpdateQuery[T]) ToSQL() (string, []interface{}, error) {
 	paramNum := 1
 
 	sql.WriteString("UPDATE ")
-	sql.WriteString(q.table.Name)
+	sql.WriteString(schema.QuoteReservedIdent(q.table.Name))
 	sql.WriteString(" SET ")
 
 	// SET clause
 	setClauses := make([]string, 0, len(q.sets))
 	for col, val := range q.sets {
-		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", col, paramNum))
+		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", schema.QuoteReservedIdent(col), paramNum))
 		args = append(args, val)
 		paramNum++
 	}

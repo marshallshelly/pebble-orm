@@ -428,7 +428,7 @@ func (q *TxSelectQuery[T]) ToSQL() (string, []interface{}, error) {
 
 	// FROM clause
 	sql.WriteString(" FROM ")
-	sql.WriteString(q.table.Name)
+	sql.WriteString(schema.QuoteReservedIdent(q.table.Name))
 
 	// JOIN clauses
 	for _, join := range q.joins {
@@ -545,6 +545,17 @@ func (q *TxSelectQuery[T]) All() ([]T, error) {
 		return nil, err
 	}
 
+	// Load preloaded relationships through the transaction. The transaction is
+	// a single connection, so the result rows must be fully closed before
+	// issuing the preload queries.
+	if len(q.preloads) > 0 && len(results) > 0 {
+		rows.Close()
+		loader := &relationshipLoader{query: q.tx.tx.Query, table: q.table, preloads: q.preloads}
+		if err := loader.loadRelationships(q.tx.ctx, &results); err != nil {
+			return nil, err
+		}
+	}
+
 	return results, nil
 }
 
@@ -552,31 +563,17 @@ func (q *TxSelectQuery[T]) All() ([]T, error) {
 func (q *TxSelectQuery[T]) First() (T, error) {
 	q.Limit(1)
 
-	sql, args, err := q.ToSQL()
+	results, err := q.All()
 	if err != nil {
 		var zero T
 		return zero, err
 	}
-
-	rows, err := q.tx.tx.Query(q.tx.ctx, sql, args...)
-	if err != nil {
-		var zero T
-		return zero, err
-	}
-	defer rows.Close()
-
-	if !rows.Next() {
+	if len(results) == 0 {
 		var zero T
 		return zero, pgx.ErrNoRows
 	}
 
-	var result T
-	if err := scanIntoStruct(rows, &result, q.table); err != nil {
-		var zero T
-		return zero, err
-	}
-
-	return result, nil
+	return results[0], nil
 }
 
 // Count executes a COUNT query.
@@ -588,7 +585,7 @@ func (q *TxSelectQuery[T]) Count() (int64, error) {
 	// Build COUNT query
 	var sql strings.Builder
 	sql.WriteString("SELECT COUNT(*) FROM ")
-	sql.WriteString(q.table.Name)
+	sql.WriteString(schema.QuoteReservedIdent(q.table.Name))
 
 	var args []interface{}
 
@@ -681,7 +678,7 @@ func (q *TxInsertQuery[T]) ToSQL() (string, []interface{}, error) {
 	paramNum := 1
 
 	sql.WriteString("INSERT INTO ")
-	sql.WriteString(q.table.Name)
+	sql.WriteString(schema.QuoteReservedIdent(q.table.Name))
 
 	// Get columns and values from the first row
 	columns, firstRowValues, err := structToValues(q.values[0], q.table, true)
@@ -691,7 +688,7 @@ func (q *TxInsertQuery[T]) ToSQL() (string, []interface{}, error) {
 
 	// Column names
 	sql.WriteString(" (")
-	sql.WriteString(strings.Join(columns, ", "))
+	sql.WriteString(strings.Join(schema.QuoteReservedIdents(columns), ", "))
 	sql.WriteString(") VALUES ")
 
 	// Values for all rows
@@ -886,13 +883,13 @@ func (q *TxUpdateQuery[T]) ToSQL() (string, []interface{}, error) {
 	paramNum := 1
 
 	sql.WriteString("UPDATE ")
-	sql.WriteString(q.table.Name)
+	sql.WriteString(schema.QuoteReservedIdent(q.table.Name))
 	sql.WriteString(" SET ")
 
 	// SET clause
 	setClauses := make([]string, 0, len(q.sets))
 	for col, val := range q.sets {
-		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", col, paramNum))
+		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", schema.QuoteReservedIdent(col), paramNum))
 		args = append(args, val)
 		paramNum++
 	}
@@ -1030,7 +1027,7 @@ func (q *TxDeleteQuery[T]) ToSQL() (string, []interface{}, error) {
 	var args []interface{}
 
 	sql.WriteString("DELETE FROM ")
-	sql.WriteString(q.table.Name)
+	sql.WriteString(schema.QuoteReservedIdent(q.table.Name))
 
 	// WHERE clause
 	if len(q.where) > 0 {

@@ -106,6 +106,20 @@ func (w *WhereBuilder) buildCondition(cond Condition, paramNum int) (string, []i
 	operator := cond.Operator
 	value := cond.Value
 
+	// Raw conditions embed Value directly as SQL instead of parameterizing it.
+	// Used by subquery helpers (InSubquery, ExistsSubquery, ...) and TSMatch.
+	if cond.Raw {
+		raw, ok := value.(string)
+		if !ok {
+			return "", nil, fmt.Errorf("raw condition requires string value, got %T", value)
+		}
+		if column == "" {
+			// EXISTS (subquery) / NOT EXISTS (subquery)
+			return fmt.Sprintf("%s %s", operator, raw), nil, nil
+		}
+		return fmt.Sprintf("%s %s %s", column, operator, raw), nil, nil
+	}
+
 	switch operator {
 	case OpEqual, OpNotEqual, OpGreaterThan, OpGreaterThanOrEqual, OpLessThan, OpLessThanOrEqual:
 		return fmt.Sprintf("%s %s $%d", column, operator, paramNum), []interface{}{value}, nil
@@ -154,7 +168,13 @@ func (w *WhereBuilder) buildCondition(cond Condition, paramNum int) (string, []i
 		return fmt.Sprintf("EXISTS (%s)", subquery), nil, nil
 
 	default:
-		return "", nil, fmt.Errorf("unknown operator: %s", operator)
+		// PostgreSQL-specific operators (@>, <@, ?, ?|, ?&, &&, ~, ~*, !~, @@, ...)
+		// parameterize like any comparison; PostgreSQL infers the parameter type
+		// from the operator context.
+		if operator == "" {
+			return "", nil, fmt.Errorf("missing operator")
+		}
+		return fmt.Sprintf("%s %s $%d", column, operator, paramNum), []interface{}{value}, nil
 	}
 }
 

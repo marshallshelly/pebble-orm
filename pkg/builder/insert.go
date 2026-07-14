@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/marshallshelly/pebble-orm/pkg/schema"
 )
 
 // Values sets the values to insert (single or multiple rows).
@@ -52,7 +54,7 @@ func (q *InsertQuery[T]) ToSQL() (string, []interface{}, error) {
 	paramNum := 1
 
 	sql.WriteString("INSERT INTO ")
-	sql.WriteString(q.table.Name)
+	sql.WriteString(schema.QuoteReservedIdent(q.table.Name))
 
 	// Get columns and values from the first row
 	columns, firstRowValues, err := structToValues(q.values[0], q.table, true)
@@ -62,7 +64,7 @@ func (q *InsertQuery[T]) ToSQL() (string, []interface{}, error) {
 
 	// Column names
 	sql.WriteString(" (")
-	sql.WriteString(strings.Join(columns, ", "))
+	sql.WriteString(strings.Join(schema.QuoteReservedIdents(columns), ", "))
 	sql.WriteString(") VALUES ")
 
 	// Values for all rows

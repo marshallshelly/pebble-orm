@@ -26,12 +26,12 @@ type MigrationFile struct {
 
 // SchemaDiff represents differences between two schemas.
 type SchemaDiff struct {
-	TablesAdded    []schema.TableMetadata // Tables to create
-	TablesDropped  []schema.TableMetadata // Tables to drop (full metadata for down migration)
-	TablesModified []TableDiff            // Tables with changes
-	EnumTypesAdded []schema.EnumType      // Enum types to create
-	EnumTypesDropped []schema.EnumType    // Enum types to drop (full metadata for down migration)
-	EnumTypesModified []EnumTypeDiff      // Enum types with new values
+	TablesAdded       []schema.TableMetadata // Tables to create
+	TablesDropped     []schema.TableMetadata // Tables to drop (full metadata for down migration)
+	TablesModified    []TableDiff            // Tables with changes
+	EnumTypesAdded    []schema.EnumType      // Enum types to create
+	EnumTypesDropped  []schema.EnumType      // Enum types to drop (full metadata for down migration)
+	EnumTypesModified []EnumTypeDiff         // Enum types with new values
 }
 
 // TableDiff represents changes to a single table.
@@ -67,9 +67,9 @@ type PrimaryKeyChange struct {
 
 // EnumTypeDiff represents changes to an enum type.
 type EnumTypeDiff struct {
-	Name        string   // Enum type name
-	OldValues   []string // Existing values in database
-	NewValues   []string // New values to add
+	Name      string   // Enum type name
+	OldValues []string // Existing values in database
+	NewValues []string // New values to add
 }
 
 // MigrationStatus represents the status of a migration.

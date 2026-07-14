@@ -194,7 +194,7 @@ n, err = builder.Delete[User](qb).Where(builder.Lt("age", 18)).Exec(ctx)
 ```
 
 <details>
-<summary><strong>Joins, grouping, CTEs</strong></summary>
+<summary><strong>Joins, grouping, CTEs, subqueries</strong></summary>
 
 ```go
 // Joins
@@ -210,13 +210,21 @@ rows, err := builder.Select[User](qb).
     Having(builder.Gt("COUNT(*)", 5)).
     All(ctx)
 
-// CTEs — build the WITH clause, combine via CTESelect.ToSQL()
-cteQuery := builder.Select[User](qb).
-    WithCTE("active_users", "SELECT * FROM users WHERE active = true")
-sql, args, err := cteQuery.ToSQL()
+// CTEs
+users, err = builder.Select[User](qb).
+    WithCTE("active_users", "SELECT * FROM users WHERE active = true").
+    All(ctx)
+
+// Subqueries
+sub := builder.NewSubquery("SELECT AVG(age) FROM users")
+users, err = builder.Select[User](qb).Where(builder.GtSubquery("age", sub)).All(ctx)
+users, err = builder.Select[User](qb).Where(builder.InSubquery("id",
+    builder.NewSubquery("SELECT user_id FROM orders WHERE status = 'paid'"))).All(ctx)
 ```
 
 </details>
+
+One insert gotcha by design: a zero-valued field on a column with a `default(...)` is omitted from the INSERT so the database default applies (that's how `ID string` + `default(gen_random_uuid())` works without pointers). To store an explicit `false`/`0`/`""` in a defaulted column, make the field a pointer — `*bool` with `new(false)`.
 
 ## Relationships
 
@@ -249,6 +257,9 @@ account, err := builder.TxSelect[Account](tx).
     Where(builder.Eq("id", accountID)).
     ForUpdate().          // row lock
     First()
+
+// Preload works inside transactions too
+users, err := builder.TxSelect[User](tx).Preload("Posts").All()
 
 tx.Savepoint("before_update")
 // ...
@@ -311,7 +322,24 @@ type Product struct {
 }
 ```
 
+**JSONB and array queries** — the PostgreSQL operators are first-class conditions:
+
+```go
+users, err := builder.Select[User](qb).
+    Where(builder.JSONBContains("prefs", `{"theme":"dark"}`)).   // prefs @> $1
+    All(ctx)
+
+posts, err := builder.Select[Post](qb).
+    Where(builder.ArrayContains("tags", []string{"golang"})).    // tags @> $1
+    All(ctx)
+
+// Also: JSONBHasKey (?), JSONBHasAnyKey (?|), JSONBHasAllKeys (?&),
+// ArrayOverlap (&&), RegexpMatch (~), TSMatch (@@ full-text search)
+```
+
 **Arrays** — native `[]string`/`[]int64` etc. just work; `schema.StringArray`, `schema.Int32Array`, … add text-format (`{a,b,c}`) parsing for PgBouncer / `simple_protocol` mode, and scan correctly through the builders in every query exec mode.
+
+**Reserved-word tables** — identifiers that collide with PostgreSQL reserved keywords (`user`, `order`, `group`, …) are quoted automatically in generated SQL and migrations.
 
 **Enums** — `po:"status,enum(pending,active,completed)"` on a named string type generates the `CREATE TYPE` and uses it in the column. New values diff to `ALTER TYPE ... ADD VALUE`.
 

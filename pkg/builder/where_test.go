@@ -3,6 +3,9 @@ package builder
 import (
 	"strings"
 	"testing"
+
+	"github.com/marshallshelly/pebble-orm/pkg/registry"
+	"github.com/marshallshelly/pebble-orm/pkg/schema"
 )
 
 func TestWhereBuilder_Build(t *testing.T) {
@@ -240,4 +243,67 @@ func TestGroupedConditions(t *testing.T) {
 			t.Errorf("Expected 3 args, got %d", len(args))
 		}
 	})
+}
+
+// TestPostgreSQLOperatorsToSQL verifies PG-specific operators and Raw
+// conditions actually build SQL instead of returning "unknown operator".
+func TestPostgreSQLOperatorsToSQL(t *testing.T) {
+	tests := []struct {
+		name     string
+		cond     Condition
+		wantSQL  string
+		wantArgs int
+	}{
+		{"JSONBContains", JSONBContains("prefs", `{"a":1}`), "WHERE prefs @> $1", 1},
+		{"JSONBHasKey", JSONBHasKey("prefs", "a"), "WHERE prefs ? $1", 1},
+		{"JSONBHasAnyKey", JSONBHasAnyKey("prefs", []string{"a", "b"}), "WHERE prefs ?| $1", 1},
+		{"ArrayContains", ArrayContains("tags", []string{"go"}), "WHERE tags @> $1", 1},
+		{"ArrayOverlap", ArrayOverlap("tags", []string{"go"}), "WHERE tags && $1", 1},
+		{"RegexpMatch", RegexpMatch("email", "^a"), "WHERE email ~ $1", 1},
+		{"RegexpMatchInsensitive", RegexpMatchInsensitive("email", "^a"), "WHERE email ~* $1", 1},
+		{"TSMatch", TSMatch("bio", "word"), "WHERE to_tsvector(bio) @@ to_tsquery('word')", 0},
+		{"InSubquery", InSubquery("id", NewSubquery("SELECT id FROM t")), "WHERE id IN (SELECT id FROM t)", 0},
+		{"ExistsSubquery", ExistsSubquery(NewSubquery("SELECT 1")), "WHERE EXISTS (SELECT 1)", 0},
+		{"NotExistsSubquery", NotExistsSubquery(NewSubquery("SELECT 1")), "WHERE NOT EXISTS (SELECT 1)", 0},
+		{"GtSubquery", GtSubquery("age", NewSubquery("SELECT AVG(age) FROM t")), "WHERE age > (SELECT AVG(age) FROM t)", 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			wb := NewWhereBuilder()
+			wb.Add(tt.cond)
+			sql, args, err := wb.Build()
+			if err != nil {
+				t.Fatalf("Build() error: %v", err)
+			}
+			if sql != tt.wantSQL {
+				t.Errorf("SQL: got %q, want %q", sql, tt.wantSQL)
+			}
+			if len(args) != tt.wantArgs {
+				t.Errorf("args: got %d, want %d", len(args), tt.wantArgs)
+			}
+		})
+	}
+}
+
+// TestQuoteReservedIdentInBuilders verifies reserved-word table names are quoted.
+func TestQuoteReservedIdentInBuilders(t *testing.T) {
+	type ReservedUser struct {
+		ID   int    `po:"id,primaryKey,serial"`
+		Name string `po:"name,text"`
+	}
+	if err := registry.Register(ReservedUser{}); err != nil {
+		t.Fatal(err)
+	}
+	// reserved_user is not reserved — check the helper directly plus a real
+	// reserved name through schema metadata.
+	if got := schema.QuoteReservedIdent("user"); got != `"user"` {
+		t.Errorf(`QuoteReservedIdent("user") = %s, want "user" quoted`, got)
+	}
+	if got := schema.QuoteReservedIdent("users"); got != "users" {
+		t.Errorf(`QuoteReservedIdent("users") = %s, want unquoted`, got)
+	}
+	if got := schema.QuoteReservedIdent("order"); got != `"order"` {
+		t.Errorf(`QuoteReservedIdent("order") = %s, want quoted`, got)
+	}
 }

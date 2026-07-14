@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/marshallshelly/pebble-orm/pkg/schema"
 )
 
 // Where adds a WHERE condition to the DELETE query.
@@ -40,7 +42,7 @@ func (q *DeleteQuery[T]) ToSQL() (string, []interface{}, error) {
 	var args []interface{}
 
 	sql.WriteString("DELETE FROM ")
-	sql.WriteString(q.table.Name)
+	sql.WriteString(schema.QuoteReservedIdent(q.table.Name))
 
 	// WHERE clause
 	if len(q.where) > 0 {

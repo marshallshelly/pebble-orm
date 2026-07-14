@@ -1,6 +1,7 @@
 package builder
 
 import (
+	"context"
 	"fmt"
 	"strings"
 )
@@ -114,6 +115,60 @@ func (q *CTESelect[T]) ToSQL() (string, []interface{}, error) {
 	}
 
 	return mainSQL, mainArgs, nil
+}
+
+// All executes the CTE query and returns all results. Defined explicitly so
+// the WITH clause is included — the promoted SelectQuery.All would use the
+// embedded ToSQL and silently drop the CTEs.
+func (q *CTESelect[T]) All(ctx context.Context) ([]T, error) {
+	sql, args, err := q.ToSQL()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := q.db.db.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []T
+	for rows.Next() {
+		var item T
+		if err := scanIntoStruct(rows, &item, q.table); err != nil {
+			return nil, err
+		}
+		results = append(results, item)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Load preloaded relationships
+	if len(q.preloads) > 0 && len(results) > 0 {
+		loader := &relationshipLoader{query: q.db.db.Query, table: q.table, preloads: q.preloads}
+		if err := loader.loadRelationships(ctx, &results); err != nil {
+			return nil, err
+		}
+	}
+
+	return results, nil
+}
+
+// First executes the CTE query and returns the first result.
+func (q *CTESelect[T]) First(ctx context.Context) (*T, error) {
+	q.Limit(1)
+
+	results, err := q.All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(results) == 0 {
+		return nil, fmt.Errorf("no rows found")
+	}
+
+	return &results[0], nil
 }
 
 // Recursive CTE support

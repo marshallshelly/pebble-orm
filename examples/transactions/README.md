@@ -73,7 +73,7 @@ tx.RollbackToSavepoint("before_second_account")
 tx.Commit() // account1 persists, account2 never existed
 ```
 
-One gotcha: `Preload` is not available on `TxSelect` — eager-load relationships outside the transaction.
+`Preload` works on `TxSelect` too — eager loading runs through the same transaction connection.
 
 <details>
 <summary><strong>Expected output (excerpt)</strong></summary>

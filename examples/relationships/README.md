@@ -71,7 +71,7 @@ for _, a := range authors {
 
 Two queries total: authors, then `books WHERE author_id = ANY($1)`. Chain multiple `Preload` calls to load several relationships, or use dot notation (`Preload("Author.Profile")`) for nested loads.
 
-Note: `Preload` works on plain `Select` queries. Inside a transaction (`TxSelect`), preloads are not supported — load relationships outside the transaction.
+`Preload` works on plain `Select` queries and on `TxSelect` inside transactions.
 
 <details>
 <summary><strong>Expected output (excerpt)</strong></summary>
