@@ -1,389 +1,121 @@
-# Migrations Example
+# Migrations
 
-This example demonstrates **schema migration and management** in Pebble ORM including:
+<em>The introspect → diff → plan → generate pipeline, taken apart piece by piece.</em>
 
-- ✅ **CLI Migration Generation** - Generate SQL from Go structs without a database
-- ✅ **Schema Introspection** - Inspect current database schema
-- ✅ **Schema Diff** - Compare database vs code schemas
-- ✅ **Migration Management** - Track and apply migrations
+`pebble generate` is one command, but under it sits a pipeline: introspect the live database, compare it against your registered structs, plan the SQL, write timestamped files. This example runs each stage programmatically via `pkg/migration`, so you can see exactly what the CLI does — and drive it yourself if you need migrations inside your own tooling.
 
-## Features Demonstrated
-
-### 1. CLI Migration Generation (NEW in v1.6.0)
-
-**Generate migrations directly from Go source files - no database required!**
+## Run
 
 ```bash
-# Generate initial migration from models
-pebble generate --name initial_schema --models ./internal/models
+cd examples/migrations
+createdb pebble_migrations
 
-# Generates timestamped SQL files:
-# migrations/20251227064205_initial_schema.up.sql
-# migrations/20251227064205_initial_schema.down.sql
+export DATABASE_URL="postgres://localhost:5432/pebble_migrations?sslmode=disable"
 ```
 
-**Benefits:**
+CLI route (what you'd do in a real project):
 
-- ✅ No database connection needed
-- ✅ Works before database even exists
-- ✅ Extracts schema from struct tags
-- ✅ Respects custom table names from comments
-- ✅ Generates complete CREATE TABLE statements
+```bash
+pebble generate --name initial_schema --models ./internal/models --verbose   # no DB needed
+pebble migrate up --all --db "$DATABASE_URL"
+pebble migrate status --db "$DATABASE_URL"
+```
 
-### 2. Schema Introspection (Programmatic)
+Programmatic route (this example):
+
+```bash
+go run cmd/migrations/main.go
+```
+
+`DATABASE_URL` is optional — the example falls back to the URL above.
+
+## What it shows
+
+Two small models ([internal/models/models.go](internal/models/models.go)) — `Product` and `Category`, both `serial` primary keys — pushed through every stage:
+
+| Stage | API | What it does |
+|-------|-----|--------------|
+| Introspect | `migration.NewIntrospector(db.Pool()).IntrospectSchema(ctx)` | Live schema from `information_schema` |
+| Code schema | `registry.AllTables()` | Schema from your registered structs |
+| Diff | `migration.NewDiffer().Compare(codeSchema, dbSchema)` | Tables added/dropped/modified, down to columns, indexes, FKs |
+| Plan | `migration.NewPlanner().GenerateMigration(diff)` | Up + down SQL, `IF NOT EXISTS` by default |
+| Generate | `migration.NewGenerator("./migrations")` | Timestamped `.up.sql` / `.down.sql` files |
+
+The core loop from [cmd/migrations/main.go](cmd/migrations/main.go):
 
 ```go
 introspector := migration.NewIntrospector(db.Pool())
 dbSchema, err := introspector.IntrospectSchema(ctx)
-// Returns map of table metadata from database
-```
 
-### 3. Code Schema from Models
-
-```go
 codeSchema := registry.AllTables()
-// Returns map of table metadata from Go structs
-```
 
-### 4. Schema Diff
-
-```go
 differ := migration.NewDiffer()
 diff := differ.Compare(codeSchema, dbSchema)
 
 if diff.HasChanges() {
-    // Tables added, dropped, or modified
+    planner := migration.NewPlanner()
+    upSQL, downSQL := planner.GenerateMigration(diff)
+    // upSQL: CREATE TABLE IF NOT EXISTS products (...); ...
 }
 ```
 
-### 5. Safe Migration SQL Generation (⭐ Default in v1.4.0+)
-
-**Migrations are idempotent by default!**
+Migrations are idempotent by default — re-running one doesn't error out mid-deploy. If you'd rather have loud failures on schema drift, opt into strict mode:
 
 ```go
-// Default: Safe migrations with IF NOT EXISTS
-planner := migration.NewPlanner()
-upSQL, downSQL := planner.GenerateMigration(diff)
-
-// Generated SQL includes IF NOT EXISTS:
-// CREATE TABLE IF NOT EXISTS users (...);
-// CREATE INDEX IF NOT EXISTS idx_users_email ON users (email);
+strictPlanner := migration.NewPlannerWithOptions(migration.PlannerOptions{
+    IfNotExists: false, // CREATE TABLE fails if the table already exists
+})
 ```
 
-**Benefits:**
-
-- ✅ Safe to run multiple times without errors
-- ✅ Applications can restart without migration failures
-- ✅ Deployments are more robust
-- ✅ No manual error handling needed
-
-## Running the Example
-
-### Quick Start (CLI Method - Recommended)
-
-```bash
-cd examples/migrations
-
-# 1. Generate migration from models (no database required!)
-pebble generate --name initial_schema --models ./internal/models --verbose
-
-# 2. Create database
-createdb pebble_migrations_demo
-
-# 3. Apply migration
-pebble migrate up --all --db "postgres://localhost:5432/pebble_migrations_demo"
-```
-
-### Programmatic Method
-
-```bash
-cd examples/migrations
-
-# Create database
-createdb pebble_migrations_demo
-
-# Run the example
-go run cmd/migrations/main.go
-```
-
-## Project Structure
-
-```
-migrations/
-├── cmd/
-│   └── migrations/
-│       └── main.go           # Main application
-├── internal/
-│   ├── database/
-│   │   └── db.go             # Database connection
-│   └── models/
-│       ├── models.go         # Model definitions
-│       └── registry.go       # Model registration
-├── migrations/               # Generated migration files (created at runtime)
-│   ├── 20240101120000_add_users.up.sql
-│   └── 20240101120000_add_users.down.sql
-├── go.mod
-└── README.md
-```
-
-## Models
-
-### User
+File generation and listing:
 
 ```go
-type User struct {
-    ID        int       `po:"id,primaryKey,serial"`
-    Name      string    `po:"name,varchar(255),notNull"`
-    Email     string    `po:"email,varchar(255),unique,notNull"`
-    CreatedAt time.Time `po:"created_at,timestamp,default(NOW()),notNull"`
-}
+generator := migration.NewGenerator("./migrations")
+file, err := generator.GenerateEmpty("add_products_and_categories")
+// file.UpPath:   ./migrations/20240122030000_add_products_and_categories.up.sql
+// file.DownPath: ./migrations/20240122030000_add_products_and_categories.down.sql
+
+migrations, err := generator.ListMigrations()
 ```
 
-### Product
-
-```go
-type Product struct {
-    ID    int    `po:"id,primaryKey,serial"`
-    Name  string `po:"name,varchar(255),notNull"`
-    Price int    `po:"price,integer,notNull"`
-}
-```
-
-## Example Output
+<details>
+<summary><strong>Expected output</strong></summary>
 
 ```
 === Migrations & Schema Management Example ===
 
-✅ Connected to database
+Connected to database
 
 --- Example 1: Schema Introspection ---
-✅ Found 2 tables in database
-  - users
+Found 2 tables in database
   - products
+  - categories
 
 --- Example 2: Code Schema (from structs) ---
-✅ Found 2 models registered
-  - users (4 columns)
-  - products (3 columns)
+Found 2 models registered
+  - products (5 columns)
+  - categories (2 columns)
 
 --- Example 3: Schema Diff ---
-✅ Database schema matches code schema (no changes)
+Database schema matches code schema (no changes)
 
---- Example 4: Migration SQL Generation ---
-(No changes to generate)
+--- Example 4: Safe Migration SQL Generation ---
+(no changes to generate)
 
 --- Example 5: Migration File Generation ---
-✅ Created migration files:
+Created migration files:
   - ./migrations/20240122030000_add_products_and_categories.up.sql
   - ./migrations/20240122030000_add_products_and_categories.down.sql
 
 --- Example 6: List Migrations ---
-✅ Found 1 migrations:
+Found 1 migrations:
   - 20240122030000_add_products_and_categories
-
-✅ Migration examples completed!
-
-Key Takeaways:
-  - Introspect database to get current schema
-  - Compare DB schema with code schema to detect changes
-  - Generate migration SQL automatically
-  - Create timestamped migration files
-  - Use 'pebble' CLI for production migrations
 ```
 
-## Migration Workflow
+On a fresh database, Example 3 instead reports both tables as "to add" and Example 4 prints the generated `CREATE TABLE IF NOT EXISTS` up SQL plus the matching `DROP TABLE` down SQL.
 
-### 1. Development Workflow
+</details>
 
-```bash
-# 1. Modify your models
-type User struct {
-    // Add new field
-    Age int `po:"age,integer"`
-}
+Ground rules that keep this pipeline honest: never edit an applied migration (write a new one), never delete migration files (they're the version history), and let the CLI apply them in production — it takes an advisory lock and records each version in `schema_migrations`.
 
-# 2. Run migration example to see diff
-go run cmd/migrations/main.go
-
-# 3. Generate migration
-# (In production, use pebble CLI)
-```
-
-### 2. Generated Migration Files
-
-**UP Migration** (`YYYYMMDDHHMMSS_name.up.sql`):
-
-```sql
--- Safe migrations with IF NOT EXISTS (default)
-CREATE TABLE IF NOT EXISTS users (
-    id serial NOT NULL,
-    name varchar(255) NOT NULL,
-    email varchar(255) NOT NULL UNIQUE,
-    age integer,
-    created_at timestamp NOT NULL DEFAULT NOW(),
-    CONSTRAINT users_pkey PRIMARY KEY (id)
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users (email);
-
--- Add new column (if modifying existing table)
-ALTER TABLE users ADD COLUMN IF NOT EXISTS age INTEGER;
-```
-
-**DOWN Migration** (`YYYYMMDDHHMMSS_name.down.sql`):
-
-```sql
--- Remove column (rollback)
-ALTER TABLE users DROP COLUMN age;
-```
-
-### 3. Apply Migrations
-
-```bash
-# Apply all pending migrations
-pebble migrate up
-
-# Rollback last migration
-pebble migrate down
-
-# Check migration status
-pebble migrate status
-```
-
-## Schema Diff Detection
-
-The differ detects:
-
-- ✅ **Tables Added** - New tables in code
-- ✅ **Tables Dropped** - Tables removed from code
-- ✅ **Tables Modified** - Changes to existing tables
-  - Columns added/dropped/modified
-  - Indexes added/dropped
-  - Foreign keys added/dropped
-  - Constraints added/dropped
-  - Primary key changes
-
-## Migration Best Practices
-
-### ✅ DO:
-
-- **Use safe migrations** (default IF NOT EXISTS behavior)
-- Use timestamped filenames (auto-generated)
-- Write reversible migrations (both up and down)
-- Test migrations on staging before production
-- Keep migrations small and focused
-- Version control your migration files
-- Run migrations idempotently (safe to re-run)
-
-### ❌ DON'T:
-
-- Edit applied migrations (create new ones instead)
-- Delete migration files (breaks version tracking)
-- Skip migrations (apply them in order)
-- Mix schema and data changes in one migration
-- Disable IF NOT EXISTS unless you have a specific reason
-
-## Safe Migrations (v1.4.0+)
-
-### Why Safe by Default?
-
-Traditional migrations fail when re-run:
-
-```sql
-CREATE TABLE users (...);
--- ERROR: relation "users" already exists ❌
-```
-
-Pebble ORM migrations are idempotent:
-
-```sql
-CREATE TABLE IF NOT EXISTS users (...);
--- ✅ No error if table exists
-```
-
-### When to Use Strict Mode
-
-Disable IF NOT EXISTS only when:
-
-- You need to detect schema drift errors
-- You want migrations to fail loudly if tables exist
-- You're doing one-time setup in controlled environments
-
-```go
-// Strict mode
-planner := migration.NewPlannerWithOptions(migration.PlannerOptions{
-    IfNotExists: false,
-})
-```
-
-## Common Scenarios
-
-### Adding a Column
-
-```sql
--- up
-ALTER TABLE users ADD COLUMN phone VARCHAR(20);
-
--- down
-ALTER TABLE users DROP COLUMN phone;
-```
-
-### Adding an Index
-
-```sql
--- up
-CREATE INDEX idx_users_email ON users(email);
-
--- down
-DROP INDEX idx_users_email;
-```
-
-### Adding a Foreign Key
-
-```sql
--- up
-ALTER TABLE posts
-ADD CONSTRAINT fk_posts_author
-FOREIGN KEY (author_id) REFERENCES users(id)
-ON DELETE CASCADE;
-
--- down
-ALTER TABLE posts DROP CONSTRAINT fk_posts_author;
-```
-
-## Troubleshooting
-
-### Schema Mismatch
-
-If database and code schemas don't match:
-
-1. Run the example to see the diff
-2. Generate a migration to sync them
-3. Apply the migration
-
-### Migration Files Not Found
-
-```bash
-# Create migrations directory
-mkdir -p migrations
-
-# Run example again
-go run cmd/migrations/main.go
-```
-
-## Learn More
-
-- **Migration Docs**: `../docs/MIGRATIONS.md`
-- **Schema Package**: `pkg/schema/`
-- **Migration Package**: `pkg/migration/`
-
-## Key Takeaways
-
-1. **Automatic Detection** - Pebble compares DB vs code automatically
-2. **Type-Safe** - Schema derived from Go structs
-3. **Reversible** - Both up and down migrations generated
-4. **Safe by Default** - IF NOT EXISTS makes migrations idempotent ⭐
-5. **Production-Ready** - Use `pebble` CLI for deployment
-6. **Git-Friendly** - Track migrations in version control
-
-**This example shows the foundation for production schema management!** 🎉
+Related: [basic](../basic/) · [identity-columns](../identity-columns/) · root README's [Migrations section](../../README.md#migrations)

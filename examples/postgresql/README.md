@@ -1,360 +1,101 @@
-# PostgreSQL Features Example
+# PostgreSQL Features
 
-This example demonstrates **advanced PostgreSQL features** in Pebble ORM including:
+<em>The types that make PostgreSQL worth it — JSONB, arrays, tsvector, point — as plain struct fields.</em>
 
-- ✅ **JSONB** - Store and query JSON data
-- ✅ **Arrays** - PostgreSQL array types
-- ✅ **UUID** - Universally unique identifiers
-- ✅ **Geometric Types** - Points, polygons, etc.
-- ✅ **Custom Types** - Enums, composite types
+Four models exercising PostgreSQL-native column types. Everything round-trips through the ordinary `Insert`/`Select` builders; no special-case APIs to learn.
 
-## Features Demonstrated
-
-### 1. JSONB (JSON Binary)
-
-```go
-type Document struct {
-    Metadata JSONB `db:"metadata,jsonb"`
-}
-
-// Insert JSONB
-doc := Document{
-    Metadata: JSONB{"author": "Alice", "tags": []string{"tech", "go"}},
-}
-
-// Query JSONB
-// WHERE metadata->>'author' = 'Alice'
-```
-
-### 2. PostgreSQL Arrays
-
-```go
-type Document struct {
-    Tags []string `db:"tags,text[]"`
-}
-
-// Insert array
-doc := Document{
-    Tags: []string{"programming", "golang", "database"},
-}
-```
-
-### 3. UUID Type
-
-```go
-type Session struct {
-    ID   string `db:"id,uuid"`
-    Name string `db:"name"`
-}
-
-// UUIDs are handled as strings
-```
-
-### 4. Geometric Types
-
-```go
-type Location struct {
-    Coords string `db:"coords,point"`
-}
-
-// Point format: "(x,y)"
-location := Location{
-    Coords: "(37.7749,-122.4194)", // San Francisco
-}
-```
-
-## Running the Example
-
-### Prerequisites
-
-- PostgreSQL running on `localhost:5432`
-- Database: `pebble_pg_features`
-- PostgreSQL 12+ (for JSONB features)
+## Run
 
 ```bash
-# Create database
-createdb pebble_pg_features
+createdb pebble_postgresql
+export DATABASE_URL="postgres://localhost:5432/pebble_postgresql?sslmode=disable"
 
-# Run the example
 cd examples/postgresql
+pebble generate --name initial_schema --models ./internal/models
+pebble migrate up --all --db "$DATABASE_URL"
 go run cmd/postgresql/main.go
 ```
 
-## Project Structure
+## What it shows
 
-```
-postgresql/
-├── cmd/
-│   └── postgresql/
-│       └── main.go           # Main application
-├── internal/
-│   ├── database/
-│   │   └── db.go             # Database connection
-│   └── models/
-│       ├── models.go         # PostgreSQL-specific models
-│       └── registry.go       # Model registration
-├── go.mod
-└── README.md
-```
+| Type | Struct field | Tag |
+|------|-------------|-----|
+| JSONB | `Metadata schema.JSONB` | `po:"metadata,jsonb"` |
+| Text array | `Tags []string` | `po:"tags,text[]"` |
+| Integer array | `Prices []int` | `po:"prices,integer[]"` |
+| PgBouncer-safe array | `Days schema.StringArray` | `po:"days,text[]"` |
+| Full-text search | `SearchVec string` | `po:"search_vec,tsvector"` |
+| Geometric point | `Coords string` | `po:"coords,point"` |
 
-## Models
+## JSONB in, JSONB out
 
-### Document (JSONB + Arrays)
+`schema.JSONB` is a `map[string]any` that marshals on insert and scans back on select:
 
 ```go
-type Document struct {
-    ID        int64     `db:"id,primary,autoIncrement"`
-    Title     string    `db:"title"`
-    Metadata  JSONB     `db:"metadata,jsonb"`
-    Tags      []string  `db:"tags,text[]"`
-    CreatedAt time.Time `db:"created_at"`
+doc := models.Document{
+    Title:   "PostgreSQL Guide",
+    Content: "Complete guide to PostgreSQL features",
+    Metadata: schema.JSONB{
+        "author": "John Doe",
+        "tags":   []string{"database", "postgresql"},
+        "views":  1000,
+    },
+}
+
+result, err := builder.Insert[models.Document](qb).
+    Values(doc).
+    Returning("*").
+    ExecReturning(ctx)
+// result[0].Metadata is the map, round-tripped
+```
+
+For a typed alternative, point a struct at the column instead — see the root README's JSONB section. For filtering on JSONB contents (`metadata->>'author' = ...`), drop to raw SQL.
+
+## Arrays, two ways
+
+Native slices work with the default pgx protocol. Behind PgBouncer in `simple_protocol` mode, arrays arrive as text (`{Monday,Tuesday}`) that plain slices can't scan — use the `schema` array types:
+
+```go
+schedule := models.Schedule{
+    Name: "Work Week",
+    Days: schema.StringArray{"Monday", "Tuesday", "Wednesday", "Thursday", "Friday"},
 }
 ```
 
-### Product (UUID + JSONB)
+Available: `schema.StringArray`, `Int32Array`, `Int64Array`, `Float64Array`, `BoolArray`.
 
-```go
-type Product struct {
-    ID      string  `db:"id,uuid"`
-    Name    string  `db:"name"`
-    Details JSONB   `db:"details,jsonb"`
-    Active  bool    `db:"active"`
-}
-```
+## Full-text search and geometry
 
-### Location (Geometric Types)
+The example stores a `tsvector` column and a `point` column (`Coords: "(37.7749,-122.4194)"`). Populating the search vector and querying with `@@`, `<->`, `&&` etc. is raw-SQL territory — the column types are the ORM's job, the operators are PostgreSQL's.
 
-```go
-type Location struct {
-    ID     int64  `db:"id,primary,autoIncrement"`
-    Name   string `db:"name"`
-    Coords string `db:"coords,point"`
-}
-```
-
-## Example Output
+<details>
+<summary><strong>Expected output</strong></summary>
 
 ```
-=== PostgreSQL Advanced Features Example ===
-
+=== PostgreSQL Features Example ===
 ✅ Connected to database
 
---- Example 1: JSONB Operations ---
-Created document with JSONB metadata
-  Title: Getting Started with Pebble ORM
-  Metadata: map[author:Alice pages:42 published:true]
+--- Example 1: JSONB (JSON Binary) ---
+✅ Created document with JSONB metadata
+  Title: PostgreSQL Guide
+  Metadata: map[author:John Doe tags:[database postgresql] views:1000]
 
---- Example 2: Array Types ---
-Created document with tags
-  Tags: [golang postgresql pebble-orm]
+--- Example 2: PostgreSQL Arrays ---
+✅ Created document with tags array
+✅ Created product with prices array
 
---- Example 3: UUID Primary Keys ---
-Created product with UUID
-  ID: 550e8400-e29b-41d4-a716-446655440000
-  Name: Premium Widget
+--- Example 2b: PgBouncer-Compatible Arrays ---
+✅ Created schedule with PgBouncer-compatible array
+  Days: [Monday Tuesday Wednesday Thursday Friday]
+
+--- Example 3: Full-Text Search ---
+✅ Full-text search uses tsvector and tsquery
 
 --- Example 4: Geometric Types ---
-Created location
-  Name: San Francisco Office
-  Coordinates: (37.7749,-122.4194)
+✅ Created location with geometric point
+  Coords: (37.7749,-122.4194)
 
-✅ All PostgreSQL features demonstrated!
-
-Key Takeaways:
-  - JSONB for flexible schema-less data
-  - Arrays for multi-value columns
-  - UUIDs for distributed systems
-  - Geometric types for spatial data
+✅ All PostgreSQL feature examples completed!
 ```
 
-## JSONB Operations
-
-### Inserting JSONB
-
-```go
-metadata := JSONB{
-    "author": "Alice",
-    "tags":   []string{"tech", "programming"},
-    "stats":  map[string]int{"views": 100, "likes": 50},
-}
-
-doc := Document{Metadata: metadata}
-builder.Insert[Document](qb).Values(doc).Exec(ctx)
-```
-
-### Querying JSONB (Raw SQL)
-
-```sql
--- Get documents by author
-SELECT * FROM documents
-WHERE metadata->>'author' = 'Alice';
-
--- Query nested JSON
-SELECT * FROM documents
-WHERE metadata->'stats'->>'views' > '100';
-
--- Check JSON key existence
-SELECT * FROM documents
-WHERE metadata ? 'author';
-```
-
-## Array Operations
-
-### Inserting Arrays
-
-```go
-doc := Document{
-    Tags: []string{"golang", "postgresql", "orm"},
-}
-```
-
-### Querying Arrays (Raw SQL)
-
-```sql
--- Contains any element
-SELECT * FROM documents 1688
-WHERE 'golang' = ANY(tags);
-
--- Array overlap
-SELECT * FROM documents
-WHERE tags && ARRAY['golang', 'python'];
-
--- Array length
-SELECT * FROM documents
-WHERE array_length(tags, 1) > 2;
-```
-
-## UUID Best Practices
-
-### Generating UUIDs
-
-```go
-import "github.com/google/uuid"
-
-product := Product{
-    ID:   uuid.New().String(),
-    Name: "Widget",
-}
-```
-
-### Advantages
-
-- ✅ Globally unique (distributed systems)
-- ✅ No auto-increment conflicts
-- ✅ Unpredictable (security)
-- ✅ Merge-friendly (multi-database)
-
-### Disadvantages
-
-- ❌ Larger than BIGINT (16 bytes vs 8)
-- ❌ Slower indexes
-- ❌ Not sequential
-
-## Geometric Types Supported
-
-### Point
-
-```go
-Coords string `db:"coords,point"`
-// Format: "(x,y)"
-// Example: "(37.7749,-122.4194)"
-```
-
-### Other Types
-
-- `line` - Infinite line
-- `lseg` - Line segment
-- `box` - Rectangle
-- `path` - Geometric path
-- `polygon` - Closed path
-- `circle` - Circle
-
-**Note:** Most geometric types are stored as strings in Go. For advanced spatial queries, consider PostGIS extension.
-
-## JSONB vs JSON
-
-| Feature         | JSONB (Binary)    | JSON (Text)  |
-| --------------- | ----------------- | ------------ |
-| **Storage**     | Binary            | Text         |
-| **Performance** | ✅ Faster queries | ❌ Slower    |
-| **Indexing**    | ✅ GIN indexes    | ❌ Limited   |
-| **Ordering**    | ❌ Reordered      | ✅ Preserved |
-| **Whitespace**  | ❌ Removed        | ✅ Preserved |
-
-**Recommendation: Use JSONB for almost everything.**
-
-## Array Types Supported
-
-```go
-// Text array
-Tags []string `db:"tags,text[]"`
-
-// Integer array
-Numbers []int64 `db:"numbers,bigint[]"`
-
-// Boolean array
-Flags []bool `db:"flags,boolean[]"`
-
-// Float array
-Prices []float64 `db:"prices,double precision[]"`
-```
-
-## Custom PostgreSQL Types
-
-### Enums (Future Support)
-
-```sql
-CREATE TYPE status AS ENUM ('pending', 'active', 'archived');
-
--- In Go (current workaround):
-type Status string
-
-const (
-    StatusPending  Status = "pending"
-    StatusActive   Status = "active"
-    StatusArchived Status = "archived"
-)
-```
-
-## Performance Tips
-
-### JSONB Indexing
-
-```sql
--- GIN index for JSONB
-CREATE INDEX idx_metadata_gin ON documents USING GIN (metadata);
-
--- Index specific JSONB path
-CREATE INDEX idx_metadata_author ON documents ((metadata->>'author'));
-```
-
-### Array Indexing
-
-```sql
--- GIN index for arrays
-CREATE INDEX idx_tags_gin ON documents USING GIN (tags);
-```
-
-### UUID Performance
-
-```sql
--- Use UUID v7 for better indexing (time-ordered)
--- Or stick with BIGSERIAL for maximum performance
-```
-
-## Learn More
-
-- **PostgreSQL JSONB**: https://www.postgresql.org/docs/current/datatype-json.html
-- **PostgreSQL Arrays**: https://www.postgresql.org/docs/current/arrays.html
-- **PostgreSQL UUID**: https://www.postgresql.org/docs/current/datatype-uuid.html
-- **Geometric Types**: https://www.postgresql.org/docs/current/datatype-geometric.html
-
-## Key Takeaways
-
-1. **JSONB** - Perfect for flexible, schema-less data
-2. **Arrays** - Native multi-value support (no junction tables needed)
-3. **UUID** - Great for distributed systems
-4. **Type Safety** - Pebble handles PostgreSQL types in Go
-5. **Performance** - Use appropriate indexes for each type
-
-**This example shows how to leverage PostgreSQL's powerful type system!** 🚀
+</details>

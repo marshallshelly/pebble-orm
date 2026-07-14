@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.16.6] - 2026-07-15
+
+### Security
+
+- Upgrade `github.com/jackc/pgx/v5` from `v5.9.1` to `v5.10.0`. Includes the fix for SQL injection via placeholder confusion with dollar-quoted string literals (GHSA-j88v-2chj-qfwx, fixed in v5.9.2) — relevant because the migration executor runs statements with `QueryExecModeExec` (simple protocol) — plus v5.10.0 hardening against malicious/compromised servers (bounded binary decoders, capped SCRAM iteration counts, TLS-encrypted cancel requests, `require_auth`).
+
 ## [1.16.5] - 2026-03-27
 
 ### Changed
@@ -471,7 +477,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - golangci-lint integration.
 - GoReleaser configuration for multi-platform releases.
 
-[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.16.5...HEAD
+[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.16.6...HEAD
+[1.16.6]: https://github.com/marshallshelly/pebble-orm/compare/v1.16.5...v1.16.6
 [1.16.5]: https://github.com/marshallshelly/pebble-orm/compare/v1.16.4...v1.16.5
 [1.16.4]: https://github.com/marshallshelly/pebble-orm/compare/v1.16.3...v1.16.4
 [1.16.3]: https://github.com/marshallshelly/pebble-orm/compare/v1.16.2...v1.16.3
