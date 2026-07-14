@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/marshallshelly/pebble-orm/pkg/schema"
@@ -29,6 +30,7 @@ func scanIntoStruct(rows pgx.Rows, dest interface{}, table *schema.TableMetadata
 	// Create scan targets
 	scanTargets := make([]interface{}, len(fieldDescriptions))
 	jsonbTargets := make(map[int]*jsonbScanTarget) // Track JSONB columns for post-processing
+	var arrayTargets []*arrayScanTarget            // Track named-slice array columns for post-processing
 	columnMap := make(map[string]int)              // Map column name to field description index
 
 	for i, fd := range fieldDescriptions {
@@ -53,6 +55,13 @@ func scanIntoStruct(rows pgx.Rows, dest interface{}, table *schema.TableMetadata
 			target := &jsonbScanTarget{field: field}
 			scanTargets[idx] = target
 			jsonbTargets[idx] = target
+		} else if target := newArrayScanTarget(col, field); target != nil {
+			// Named Scanner slices (schema.StringArray etc.) on array columns:
+			// scan through pgx's native array decoding instead of sql.Scanner,
+			// which would receive raw binary wire bytes under the default
+			// extended protocol.
+			scanTargets[idx] = target.dest.Interface()
+			arrayTargets = append(arrayTargets, target)
 		} else {
 			// Create a pointer to the field for scanning
 			scanTargets[idx] = field.Addr().Interface()
@@ -79,7 +88,40 @@ func scanIntoStruct(rows pgx.Rows, dest interface{}, table *schema.TableMetadata
 		}
 	}
 
+	// Post-process array targets - convert underlying slices to the named types
+	for _, target := range arrayTargets {
+		target.field.Set(target.dest.Elem().Convert(target.field.Type()))
+	}
+
 	return nil
+}
+
+// arrayScanTarget scans an array column into the field's underlying slice
+// type (e.g. []string for schema.StringArray) so pgx decodes it natively in
+// both text and binary formats, then converts to the named field type.
+type arrayScanTarget struct {
+	field reflect.Value
+	dest  reflect.Value // pointer to a value of the underlying slice type
+}
+
+// newArrayScanTarget returns an intermediate target for array columns whose
+// field is a named slice type implementing sql.Scanner (other than []byte),
+// or nil if direct scanning should be used.
+func newArrayScanTarget(col schema.ColumnMetadata, field reflect.Value) *arrayScanTarget {
+	t := field.Type()
+	if !strings.HasSuffix(col.SQLType, "[]") {
+		return nil
+	}
+	if t.Kind() != reflect.Slice || t.Elem().Kind() == reflect.Uint8 {
+		return nil
+	}
+	if t.Name() == "" || !implementsScanner(t) {
+		return nil // plain slices ([]string etc.) already decode natively
+	}
+	return &arrayScanTarget{
+		field: field,
+		dest:  reflect.New(reflect.SliceOf(t.Elem())),
+	}
 }
 
 // jsonbScanTarget is an intermediate scan target for JSONB columns

@@ -311,7 +311,7 @@ type Product struct {
 }
 ```
 
-**Arrays** — native `[]string`/`[]int64` etc. with the default pgx protocol; `schema.StringArray`, `schema.Int32Array`, … for PgBouncer / `simple_protocol` mode, where arrays arrive as `{a,b,c}` text.
+**Arrays** — native `[]string`/`[]int64` etc. just work; `schema.StringArray`, `schema.Int32Array`, … add text-format (`{a,b,c}`) parsing for PgBouncer / `simple_protocol` mode, and scan correctly through the builders in every query exec mode.
 
 **Enums** — `po:"status,enum(pending,active,completed)"` on a named string type generates the `CREATE TYPE` and uses it in the column. New values diff to `ALTER TYPE ... ADD VALUE`.
 

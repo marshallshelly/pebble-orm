@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `schema.StringArray`, `schema.Int32Array`, `schema.Int64Array`, `schema.Float64Array`, and `schema.BoolArray` failed to scan under pgx's default query exec mode (`cache_statement`/`cache_describe`), where array results arrive in binary format and the `sql.Scanner` received raw wire bytes (`invalid array format: must be enclosed in braces`). The query builders now route named Scanner slices on array columns through pgx's native array decoding, so these types work in every exec mode. Direct `rows.Scan` outside the builders remains text-format only.
+
 ## [1.16.6] - 2026-07-15
 
 ### Security

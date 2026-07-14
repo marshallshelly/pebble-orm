@@ -514,3 +514,79 @@ func TestIntegration_ComplexQueries(t *testing.T) {
 		}
 	})
 }
+
+// TestIntegration_NamedArrayTypes verifies schema.StringArray and friends
+// scan correctly under pgx's default extended protocol, where array results
+// arrive in binary format. Regression test for named Scanner slices receiving
+// raw wire bytes instead of decoded values.
+func TestIntegration_NamedArrayTypes(t *testing.T) {
+	_, connStr, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	runtimeDB, err := runtime.ConnectWithURL(ctx, connStr)
+	if err != nil {
+		t.Fatalf("Failed to connect: %v", err)
+	}
+	defer runtimeDB.Close()
+
+	type ScheduleItem struct {
+		ID     int                 `po:"id,primaryKey,serial"`
+		Days   schema.StringArray  `po:"days,text[]"`
+		Counts schema.Int32Array   `po:"counts,integer[]"`
+		Rates  schema.Float64Array `po:"rates,double precision[]"`
+		Flags  schema.BoolArray    `po:"flags,boolean[]"`
+	}
+
+	if err := registry.Register(ScheduleItem{}); err != nil {
+		t.Fatalf("Failed to register ScheduleItem: %v", err)
+	}
+
+	_, err = runtimeDB.Pool().Exec(ctx, `
+		CREATE TABLE schedule_item (
+			id serial PRIMARY KEY, days text[], counts integer[],
+			rates double precision[], flags boolean[]
+		)`)
+	if err != nil {
+		t.Fatalf("Failed to create table: %v", err)
+	}
+
+	qb := builder.New(runtimeDB)
+
+	item := ScheduleItem{
+		Days:   schema.StringArray{"monday", "friday, with a comma"},
+		Counts: schema.Int32Array{1, 2, 3},
+		Rates:  schema.Float64Array{1.5, 2.25},
+		Flags:  schema.BoolArray{true, false},
+	}
+
+	returned, err := builder.Insert[ScheduleItem](qb).Values(item).Returning("*").ExecReturning(ctx)
+	if err != nil {
+		t.Fatalf("ExecReturning failed: %v", err)
+	}
+	if len(returned) != 1 || len(returned[0].Days) != 2 || returned[0].Days[1] != "friday, with a comma" {
+		t.Errorf("ExecReturning: unexpected Days: %v", returned[0].Days)
+	}
+
+	fetched, err := builder.Select[ScheduleItem](qb).All(ctx)
+	if err != nil {
+		t.Fatalf("Select failed: %v", err)
+	}
+	if len(fetched) != 1 {
+		t.Fatalf("Expected 1 row, got %d", len(fetched))
+	}
+	got := fetched[0]
+	if len(got.Days) != 2 || got.Days[0] != "monday" || got.Days[1] != "friday, with a comma" {
+		t.Errorf("Days: got %v", got.Days)
+	}
+	if len(got.Counts) != 3 || got.Counts[2] != 3 {
+		t.Errorf("Counts: got %v", got.Counts)
+	}
+	if len(got.Rates) != 2 || got.Rates[1] != 2.25 {
+		t.Errorf("Rates: got %v", got.Rates)
+	}
+	if len(got.Flags) != 2 || !got.Flags[0] || got.Flags[1] {
+		t.Errorf("Flags: got %v", got.Flags)
+	}
+}

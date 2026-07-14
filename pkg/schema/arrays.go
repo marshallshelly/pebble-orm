@@ -8,10 +8,12 @@ import (
 	"strings"
 )
 
-// StringArray is a custom type for PostgreSQL text[] arrays that handles
-// both binary and text format scanning. This is particularly useful when
-// using simple_protocol mode (required for PgBouncer transaction pooling),
-// where PostgreSQL returns arrays as text format strings like {a,b,c}.
+// StringArray is a custom type for PostgreSQL text[] arrays. Its Scan method
+// parses the text format ({a,b,c}) used by simple_protocol mode (required for
+// PgBouncer transaction pooling). When scanned through pebble's query
+// builders, binary-format results (pgx's default extended protocol) are
+// decoded natively by pgx and converted, so the type works in every query
+// exec mode. Direct rows.Scan outside the builders only supports text format.
 //
 // Usage:
 //
