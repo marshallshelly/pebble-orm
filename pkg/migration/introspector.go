@@ -505,12 +505,11 @@ func parseReferenceAction(rule string) schema.ReferenceAction {
 // getEnumTypes retrieves enum types used by columns in this table.
 func (i *Introspector) getEnumTypes(ctx context.Context, tableName string) ([]schema.EnumType, error) {
 	query := `
-		SELECT DISTINCT
+		SELECT
 			t.typname as enum_name,
 			array_agg(e.enumlabel ORDER BY e.enumsortorder) as enum_values
 		FROM pg_type t
 		JOIN pg_enum e ON t.oid = e.enumtypid
-		JOIN pg_class c ON c.oid = t.oid
 		WHERE t.typname IN (
 			SELECT udt_name
 			FROM information_schema.columns

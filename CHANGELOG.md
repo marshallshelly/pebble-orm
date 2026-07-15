@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.17.2] - 2026-07-15
+
+### Fixed
+
+- **Multi-row INSERT could write values into the wrong columns.** The column list was derived from the first row, but each subsequent row independently re-ran the zero-value/default/identity skip logic, so a row whose skipped-column set differed from row 0 misaligned its values against the column list — silently inserting a value into the wrong column, or failing with "INSERT has more expressions than target columns". Rows 2..N now emit values for exactly the first row's column list.
+- **`pebble migrate up --all` failed on any partially-migrated database.** It passed every migration (including already-applied ones) to the executor, which errors on an applied version, so the command aborted on the first one and never reached the pending migrations. Applied versions are now filtered out before applying.
+- **Existing database enum types were invisible to introspection.** `getEnumTypes` joined `pg_class ON c.oid = t.oid`, but enum types have no `pg_class` row, so the query always returned zero rows — every `pebble generate --db` re-emitted `CREATE TYPE` (without `IF NOT EXISTS`), which failed at apply time, and new enum values were never detected. The spurious join is removed.
+
 ## [1.17.1] - 2026-07-15
 
 ### Security
@@ -497,7 +505,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - golangci-lint integration.
 - GoReleaser configuration for multi-platform releases.
 
-[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.17.1...HEAD
+[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.17.2...HEAD
+[1.17.2]: https://github.com/marshallshelly/pebble-orm/compare/v1.17.1...v1.17.2
 [1.17.1]: https://github.com/marshallshelly/pebble-orm/compare/v1.17.0...v1.17.1
 [1.17.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.16.6...v1.17.0
 [1.16.6]: https://github.com/marshallshelly/pebble-orm/compare/v1.16.5...v1.16.6

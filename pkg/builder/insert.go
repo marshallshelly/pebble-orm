@@ -75,7 +75,7 @@ func (q *InsertQuery[T]) ToSQL() (string, []interface{}, error) {
 		if i == 0 {
 			rowValues = firstRowValues
 		} else {
-			_, rowValues, err = structToValues(val, q.table, true)
+			rowValues, err = valuesForColumns(val, q.table, columns)
 			if err != nil {
 				return "", nil, fmt.Errorf("failed to extract values from row %d: %w", i, err)
 			}

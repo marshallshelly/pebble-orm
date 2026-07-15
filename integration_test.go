@@ -590,3 +590,91 @@ func TestIntegration_NamedArrayTypes(t *testing.T) {
 		t.Errorf("Flags: got %v", got.Flags)
 	}
 }
+
+// TestIntegration_BulkInsertColumnAlignment is a regression test for the
+// multi-row INSERT bug where per-row default-skipping could misalign values
+// against the column list derived from row 0. Row 1 leaves a defaulted column
+// zero while row 0 sets it; both must still land in the correct columns.
+func TestIntegration_BulkInsertColumnAlignment(t *testing.T) {
+	_, connStr, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	runtimeDB, err := runtime.ConnectWithURL(ctx, connStr)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer runtimeDB.Close()
+
+	type Item struct {
+		ID   int    `po:"id,primaryKey,serial"`
+		Name string `po:"name,text,notNull"`
+		Note string `po:"note,text,default('none')"`
+	}
+	if err := registry.Register(Item{}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	if _, err := runtimeDB.Pool().Exec(ctx,
+		`CREATE TABLE item (id serial PRIMARY KEY, name text NOT NULL, note text DEFAULT 'none')`); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	qb := builder.New(runtimeDB)
+	// Row 0 sets Note (so "note" is in the column list); row 1 leaves it zero.
+	got, err := builder.Insert[Item](qb).Values(
+		Item{Name: "a", Note: "row0-note"},
+		Item{Name: "b"},
+	).Returning("*").ExecReturning(ctx)
+	if err != nil {
+		t.Fatalf("bulk insert: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(got))
+	}
+	byName := map[string]Item{got[0].Name: got[0], got[1].Name: got[1]}
+	if byName["a"].Note != "row0-note" {
+		t.Errorf("row a Note: got %q, want row0-note", byName["a"].Note)
+	}
+	// Row b passed the column list from row 0 (which includes note), so its
+	// explicit zero value "" is inserted — not misaligned into another column.
+	if byName["b"].Name != "b" {
+		t.Errorf("row b Name misaligned: got %q, want b", byName["b"].Name)
+	}
+	if byName["b"].Note != "" {
+		t.Errorf("row b Note: got %q, want empty string (explicit zero)", byName["b"].Note)
+	}
+}
+
+// TestIntegration_EnumIntrospection verifies existing database enum types are
+// visible to the introspector (regression for the bad pg_class join that made
+// getEnumTypes always return zero rows).
+func TestIntegration_EnumIntrospection(t *testing.T) {
+	_, connStr, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	runtimeDB, err := runtime.ConnectWithURL(ctx, connStr)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer runtimeDB.Close()
+
+	if _, err := runtimeDB.Pool().Exec(ctx, `
+		CREATE TYPE order_status AS ENUM ('pending', 'active', 'completed');
+		CREATE TABLE orders (id serial PRIMARY KEY, status order_status NOT NULL)`); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	introspector := migration.NewIntrospector(runtimeDB.Pool())
+	table, err := introspector.IntrospectTable(ctx, "orders")
+	if err != nil {
+		t.Fatalf("introspect: %v", err)
+	}
+	if len(table.EnumTypes) != 1 {
+		t.Fatalf("expected 1 enum type, got %d: %+v", len(table.EnumTypes), table.EnumTypes)
+	}
+	et := table.EnumTypes[0]
+	if et.Name != "order_status" || len(et.Values) != 3 || et.Values[0] != "pending" || et.Values[2] != "completed" {
+		t.Errorf("enum mismatch: %+v", et)
+	}
+}

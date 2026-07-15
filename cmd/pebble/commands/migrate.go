@@ -96,6 +96,24 @@ func init() {
 	migrateDownCmd.Flags().StringVar(&target, "target", "", "Rollback to specific version")
 }
 
+// selectPendingMigrations returns the migrations to apply: all pending ones
+// when all is true, otherwise the first `steps` pending ones. Already-applied
+// versions are always skipped, so it is safe to call on a partially-migrated
+// database (Executor.Apply errors on an already-applied version).
+func selectPendingMigrations(migrations []migration.Migration, applied map[string]bool, all bool, steps int) []migration.Migration {
+	var toApply []migration.Migration
+	for _, mig := range migrations {
+		if applied[mig.Version] {
+			continue
+		}
+		toApply = append(toApply, mig)
+		if !all && len(toApply) >= steps {
+			break
+		}
+	}
+	return toApply
+}
+
 func runMigrateUp() error {
 	if dbURL == "" {
 		return fmt.Errorf("--db flag is required")
@@ -153,33 +171,24 @@ func runMigrateUp() error {
 		migrations = append(migrations, *mig)
 	}
 
-	// Determine which migrations to apply
-	var toApply []migration.Migration
-	if all {
-		toApply = migrations
-	} else if steps > 0 {
-		// Get applied migrations
-		applied, err := executor.GetAppliedMigrations(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to get applied migrations: %w", err)
-		}
-		appliedMap := make(map[string]bool)
-		for _, m := range applied {
-			appliedMap[m.Version] = true
-		}
-
-		// Find first N pending migrations
-		for _, mig := range migrations {
-			if !appliedMap[mig.Version] {
-				toApply = append(toApply, mig)
-				if len(toApply) >= steps {
-					break
-				}
-			}
-		}
-	} else {
+	if !all && steps <= 0 {
 		return fmt.Errorf("must specify --all or --steps")
 	}
+
+	// Only pending migrations are candidates; Executor.Apply errors on an
+	// already-applied version, so a partially-migrated database must have the
+	// applied ones filtered out here (otherwise --all aborts on the first one).
+	applied, err := executor.GetAppliedMigrations(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get applied migrations: %w", err)
+	}
+	appliedMap := make(map[string]bool)
+	for _, m := range applied {
+		appliedMap[m.Version] = true
+	}
+
+	// Determine which pending migrations to apply
+	toApply := selectPendingMigrations(migrations, appliedMap, all, steps)
 
 	if len(toApply) == 0 {
 		output.Info("No pending migrations")
