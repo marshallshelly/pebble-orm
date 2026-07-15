@@ -1,6 +1,9 @@
 package builder
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // PostgreSQL-specific functions and operators
 
@@ -53,22 +56,25 @@ func JSONBHasAllKeys(column string, keys []string) Condition {
 
 // JSONBPath extracts value at specified path
 // Usage: JSONBPath("data", "user", "name") -> data->'user'->'name'
+// Path segments are embedded as SQL string literals with single quotes escaped.
 func JSONBPath(column string, path ...string) string {
 	result := column
 	for _, p := range path {
-		result += fmt.Sprintf("->'%s'", p)
+		result += fmt.Sprintf("->'%s'", strings.ReplaceAll(p, "'", "''"))
 	}
 	return result
 }
 
 // JSONBPathText extracts value at specified path as text
 // Usage: JSONBPathText("data", "user", "name") -> data->'user'->>'name'
+// Path segments are embedded as SQL string literals with single quotes escaped.
 func JSONBPathText(column string, path ...string) string {
 	if len(path) == 0 {
 		return column
 	}
 	result := column
 	for i, p := range path {
+		p = strings.ReplaceAll(p, "'", "''")
 		if i == len(path)-1 {
 			result += fmt.Sprintf("->>'%s'", p)
 		} else {
@@ -151,18 +157,21 @@ func ToTSVector(column string) string {
 	return fmt.Sprintf("to_tsvector(%s)", column)
 }
 
-// ToTSQuery converts text to tsquery for full-text search
+// ToTSQuery converts text to tsquery for full-text search.
+// The query text is embedded as a SQL string literal with single quotes
+// escaped. Prefer TSMatch, which binds the query as a parameter.
 func ToTSQuery(query string) string {
-	return fmt.Sprintf("to_tsquery('%s')", query)
+	return fmt.Sprintf("to_tsquery('%s')", strings.ReplaceAll(query, "'", "''"))
 }
 
-// TSMatch performs full-text search match
+// TSMatch performs a full-text search match. The query is bound as a
+// parameter (to_tsquery($n)), so untrusted search input cannot be injected.
 func TSMatch(column string, query string) Condition {
 	return Condition{
 		Column:   fmt.Sprintf("to_tsvector(%s)", column),
 		Operator: "@@",
-		Value:    fmt.Sprintf("to_tsquery('%s')", query),
-		Raw:      true, // Don't parameterize the value
+		Value:    query,
+		ValueSQL: "to_tsquery(%s)",
 	}
 }
 

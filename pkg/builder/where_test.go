@@ -261,7 +261,7 @@ func TestPostgreSQLOperatorsToSQL(t *testing.T) {
 		{"ArrayOverlap", ArrayOverlap("tags", []string{"go"}), "WHERE tags && $1", 1},
 		{"RegexpMatch", RegexpMatch("email", "^a"), "WHERE email ~ $1", 1},
 		{"RegexpMatchInsensitive", RegexpMatchInsensitive("email", "^a"), "WHERE email ~* $1", 1},
-		{"TSMatch", TSMatch("bio", "word"), "WHERE to_tsvector(bio) @@ to_tsquery('word')", 0},
+		{"TSMatch", TSMatch("bio", "word"), "WHERE to_tsvector(bio) @@ to_tsquery($1)", 1},
 		{"InSubquery", InSubquery("id", NewSubquery("SELECT id FROM t")), "WHERE id IN (SELECT id FROM t)", 0},
 		{"ExistsSubquery", ExistsSubquery(NewSubquery("SELECT 1")), "WHERE EXISTS (SELECT 1)", 0},
 		{"NotExistsSubquery", NotExistsSubquery(NewSubquery("SELECT 1")), "WHERE NOT EXISTS (SELECT 1)", 0},
@@ -305,5 +305,38 @@ func TestQuoteReservedIdentInBuilders(t *testing.T) {
 	}
 	if got := schema.QuoteReservedIdent("order"); got != `"order"` {
 		t.Errorf(`QuoteReservedIdent("order") = %s, want quoted`, got)
+	}
+}
+
+// TestTSMatchInjection verifies the full-text query is bound as a parameter,
+// so a single-quote payload cannot break out of the SQL. Regression for the
+// v1.17.0 injection (fixed in v1.17.1).
+func TestTSMatchInjection(t *testing.T) {
+	payload := `x') OR 1=1 --`
+	wb := NewWhereBuilder()
+	wb.Add(TSMatch("body", payload))
+	sql, args, err := wb.Build()
+	if err != nil {
+		t.Fatalf("Build() error: %v", err)
+	}
+	if sql != "WHERE to_tsvector(body) @@ to_tsquery($1)" {
+		t.Errorf("SQL: got %q, want parameterized to_tsquery($1)", sql)
+	}
+	if len(args) != 1 || args[0] != payload {
+		t.Errorf("args: got %v, want the raw payload bound as one parameter", args)
+	}
+	if strings.Contains(sql, "OR 1=1") {
+		t.Errorf("payload leaked into SQL text: %q", sql)
+	}
+}
+
+func TestJSONBPathEscaping(t *testing.T) {
+	// A single quote in a path segment must be escaped, not break the literal.
+	got := JSONBPathText("data", "a'b")
+	if got != "data->>'a''b'" {
+		t.Errorf("got %q, want single quote doubled", got)
+	}
+	if got := ToTSQuery("a'b"); got != "to_tsquery('a''b')" {
+		t.Errorf("ToTSQuery: got %q, want single quote doubled", got)
 	}
 }

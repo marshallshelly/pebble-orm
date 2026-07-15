@@ -7,7 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.17.0] - 2026-07-15
+## [1.17.1] - 2026-07-15
+
+### Security
+
+- **Fixed SQL injection in `TSMatch`** (full-text search). `TSMatch` built `to_tsquery('<query>')` by string interpolation and emitted it as raw SQL, so a single quote in the search term broke out of the string literal — reachable through the helper's most natural use, a user-supplied search box (`Where(TSMatch("body", userInput))`). The query is now bound as a parameter (`to_tsvector(col) @@ to_tsquery($n)`). Introduced in v1.17.0, which made the previously-erroring helper emit SQL. Reported by an internal security review.
+- Hardened the sibling raw-SQL helpers that share the same root cause: `ToTSQuery`, `JSONBPath`, and `JSONBPathText` now escape single quotes in the literals they embed. Prefer `TSMatch` (parameterized) over `ToTSQuery` for untrusted input.
 
 ### Fixed
 
@@ -492,7 +497,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - golangci-lint integration.
 - GoReleaser configuration for multi-platform releases.
 
-[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.17.0...HEAD
+[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.17.1...HEAD
+[1.17.1]: https://github.com/marshallshelly/pebble-orm/compare/v1.17.0...v1.17.1
 [1.17.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.16.6...v1.17.0
 [1.16.6]: https://github.com/marshallshelly/pebble-orm/compare/v1.16.5...v1.16.6
 [1.16.5]: https://github.com/marshallshelly/pebble-orm/compare/v1.16.4...v1.16.5

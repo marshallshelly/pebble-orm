@@ -72,6 +72,11 @@ type Condition struct {
 	Not      bool
 	Group    []Condition // For grouped conditions
 	Raw      bool        // true if Value should be used as raw SQL instead of parameterized
+	// ValueSQL optionally wraps the bound placeholder in a SQL expression.
+	// It is a template containing exactly one %s, which receives the "$n"
+	// placeholder; Value is still passed as a bound parameter. Used to
+	// parameterize function-wrapped operands like to_tsquery($n).
+	ValueSQL string
 }
 
 // Join represents a JOIN clause.

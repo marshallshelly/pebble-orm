@@ -174,7 +174,12 @@ func (w *WhereBuilder) buildCondition(cond Condition, paramNum int) (string, []i
 		if operator == "" {
 			return "", nil, fmt.Errorf("missing operator")
 		}
-		return fmt.Sprintf("%s %s $%d", column, operator, paramNum), []interface{}{value}, nil
+		placeholder := fmt.Sprintf("$%d", paramNum)
+		if cond.ValueSQL != "" {
+			// Wrap the placeholder in a SQL expression (e.g. to_tsquery($n)).
+			placeholder = fmt.Sprintf(cond.ValueSQL, placeholder)
+		}
+		return fmt.Sprintf("%s %s %s", column, operator, placeholder), []interface{}{value}, nil
 	}
 }
 
