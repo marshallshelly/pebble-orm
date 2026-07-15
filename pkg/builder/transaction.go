@@ -3,7 +3,6 @@ package builder
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/marshallshelly/pebble-orm/pkg/registry"
@@ -32,6 +31,11 @@ func (d *DB) BeginTx(ctx context.Context, txOptions pgx.TxOptions) (*Tx, error) 
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	return &Tx{tx: tx, ctx: ctx}, nil
+}
+
+// exec returns the transaction as a queryExecutor for the shared query core.
+func (t *Tx) exec() queryExecutor {
+	return txExecutor{t.tx}
 }
 
 // Commit commits the transaction.
@@ -406,121 +410,11 @@ func (q *TxSelectQuery[T]) Having(condition Condition) *TxSelectQuery[T] {
 
 // ToSQL generates the SQL query and arguments.
 func (q *TxSelectQuery[T]) ToSQL() (string, []interface{}, error) {
-	if q.table == nil {
-		return "", nil, fmt.Errorf("table metadata not available")
-	}
-
-	var sql strings.Builder
-	var args []interface{}
-	paramNum := 1
-
-	// SELECT clause
-	sql.WriteString("SELECT ")
-	if q.distinct {
-		sql.WriteString("DISTINCT ")
-	}
-
-	if len(q.columns) == 0 || (len(q.columns) == 1 && q.columns[0] == "*") {
-		sql.WriteString("*")
-	} else {
-		sql.WriteString(strings.Join(q.columns, ", "))
-	}
-
-	// FROM clause
-	sql.WriteString(" FROM ")
-	sql.WriteString(schema.QuoteReservedIdent(q.table.Name))
-
-	// JOIN clauses. Each join condition's own $1.. placeholders are renumbered
-	// to start at the running parameter position so join args don't collide
-	// with each other or with the WHERE/HAVING args that follow.
-	for _, join := range q.joins {
-		sql.WriteString(" ")
-		sql.WriteString(string(join.Type))
-		sql.WriteString(" ")
-		if join.Lateral {
-			sql.WriteString("LATERAL ")
-		}
-		sql.WriteString(join.Table)
-		sql.WriteString(" ON ")
-		sql.WriteString(shiftPlaceholders(join.Condition, paramNum-1))
-
-		for _, arg := range join.Args {
-			args = append(args, arg)
-			paramNum++
-		}
-	}
-
-	// WHERE clause — numbered continuing from any join args.
-	if len(q.where) > 0 {
-		whereBuilder := NewWhereBuilderWithStart(paramNum)
-		whereBuilder.conditions = q.where
-		whereSql, whereArgs, err := whereBuilder.Build()
-		if err != nil {
-			return "", nil, fmt.Errorf("failed to build WHERE clause: %w", err)
-		}
-
-		if whereSql != "" {
-			sql.WriteString(" ")
-			sql.WriteString(whereSql)
-			args = append(args, whereArgs...)
-			paramNum += len(whereArgs)
-		}
-	}
-
-	// GROUP BY clause
-	if len(q.groupBy) > 0 {
-		sql.WriteString(" GROUP BY ")
-		sql.WriteString(strings.Join(q.groupBy, ", "))
-	}
-
-	// HAVING clause — numbered continuing from WHERE args.
-	if len(q.having) > 0 {
-		havingBuilder := NewWhereBuilderWithStart(paramNum)
-		havingBuilder.conditions = q.having
-		havingSql, havingArgs, err := havingBuilder.Build()
-		if err != nil {
-			return "", nil, fmt.Errorf("failed to build HAVING clause: %w", err)
-		}
-
-		if havingSql != "" {
-			// Replace WHERE with HAVING
-			havingSql = strings.Replace(havingSql, "WHERE", "HAVING", 1)
-			sql.WriteString(" ")
-			sql.WriteString(havingSql)
-			args = append(args, havingArgs...)
-			paramNum += len(havingArgs)
-		}
-	}
-
-	// ORDER BY clause
-	if len(q.orderBy) > 0 {
-		sql.WriteString(" ORDER BY ")
-		orderParts := make([]string, len(q.orderBy))
-		for i, order := range q.orderBy {
-			orderParts[i] = order.Column + " " + string(order.Direction)
-			if order.NullsPos != NullsDefault {
-				orderParts[i] += " " + string(order.NullsPos)
-			}
-		}
-		sql.WriteString(strings.Join(orderParts, ", "))
-	}
-
-	// LIMIT clause
-	if q.limit != nil {
-		sql.WriteString(fmt.Sprintf(" LIMIT %d", *q.limit))
-	}
-
-	// OFFSET clause
-	if q.offset != nil {
-		sql.WriteString(fmt.Sprintf(" OFFSET %d", *q.offset))
-	}
-
-	// FOR UPDATE clause
-	if q.forUpdate {
-		sql.WriteString(" FOR UPDATE")
-	}
-
-	return sql.String(), args, nil
+	return buildSelectSQL(selectSpec{
+		table: q.table, distinct: q.distinct, columns: q.columns, joins: q.joins,
+		where: q.where, groupBy: q.groupBy, having: q.having, orderBy: q.orderBy,
+		limit: q.limit, offset: q.offset, forUpdate: q.forUpdate,
+	})
 }
 
 // All executes the query and returns all results.
@@ -529,44 +423,12 @@ func (q *TxSelectQuery[T]) All() ([]T, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	rows, err := q.tx.tx.Query(q.tx.ctx, sql, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var results []T
-	for rows.Next() {
-		var item T
-		if err := scanIntoStruct(rows, &item, q.table); err != nil {
-			return nil, err
-		}
-		results = append(results, item)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	// Load preloaded relationships through the transaction. The transaction is
-	// a single connection, so the result rows must be fully closed before
-	// issuing the preload queries.
-	if len(q.preloads) > 0 && len(results) > 0 {
-		rows.Close()
-		loader := &relationshipLoader{query: q.tx.tx.Query, table: q.table, preloads: q.preloads}
-		if err := loader.loadRelationships(q.tx.ctx, &results); err != nil {
-			return nil, err
-		}
-	}
-
-	return results, nil
+	return queryRows[T](q.tx.ctx, q.tx.exec(), q.table, sql, args, q.preloads)
 }
 
 // First executes the query and returns the first result.
 func (q *TxSelectQuery[T]) First() (T, error) {
 	q.Limit(1)
-
 	results, err := q.All()
 	if err != nil {
 		var zero T
@@ -576,46 +438,16 @@ func (q *TxSelectQuery[T]) First() (T, error) {
 		var zero T
 		return zero, pgx.ErrNoRows
 	}
-
 	return results[0], nil
 }
 
 // Count executes a COUNT query.
 func (q *TxSelectQuery[T]) Count() (int64, error) {
-	if q.table == nil {
-		return 0, fmt.Errorf("table metadata not available")
-	}
-
-	// Build COUNT query
-	var sql strings.Builder
-	sql.WriteString("SELECT COUNT(*) FROM ")
-	sql.WriteString(schema.QuoteReservedIdent(q.table.Name))
-
-	var args []interface{}
-
-	// Add WHERE clause
-	if len(q.where) > 0 {
-		whereBuilder := NewWhereBuilder()
-		whereBuilder.conditions = q.where
-		whereSql, whereArgs, err := whereBuilder.Build()
-		if err != nil {
-			return 0, err
-		}
-
-		if whereSql != "" {
-			sql.WriteString(" ")
-			sql.WriteString(whereSql)
-			args = append(args, whereArgs...)
-		}
-	}
-
-	var count int64
-	err := q.tx.tx.QueryRow(q.tx.ctx, sql.String(), args...).Scan(&count)
+	sql, args, err := buildCountSQL(q.table, q.where)
 	if err != nil {
 		return 0, err
 	}
-
-	return count, nil
+	return queryCount(q.tx.ctx, q.tx.exec(), sql, args)
 }
 
 // Exists checks if any rows match the query.
@@ -669,95 +501,12 @@ func (q *TxInsertQuery[T]) OnConflictDoUpdate(columns []string, updates map[stri
 
 // ToSQL generates the INSERT SQL and arguments.
 func (q *TxInsertQuery[T]) ToSQL() (string, []interface{}, error) {
-	if q.table == nil {
-		return "", nil, fmt.Errorf("table metadata not available")
-	}
-
-	if len(q.values) == 0 {
-		return "", nil, fmt.Errorf("no values to insert")
-	}
-
-	var sql strings.Builder
-	var args []interface{}
-	paramNum := 1
-
-	sql.WriteString("INSERT INTO ")
-	sql.WriteString(schema.QuoteReservedIdent(q.table.Name))
-
-	// Get columns and values from the first row
-	columns, firstRowValues, err := structToValues(q.values[0], q.table, true)
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to extract values: %w", err)
-	}
-
-	// Column names
-	sql.WriteString(" (")
-	sql.WriteString(strings.Join(schema.QuoteReservedIdents(columns), ", "))
-	sql.WriteString(") VALUES ")
-
-	// Values for all rows
-	valueClauses := make([]string, len(q.values))
-	for i, val := range q.values {
-		var rowValues []interface{}
-
-		if i == 0 {
-			rowValues = firstRowValues
-		} else {
-			rowValues, err = valuesForColumns(val, q.table, columns)
-			if err != nil {
-				return "", nil, fmt.Errorf("failed to extract values from row %d: %w", i, err)
-			}
-		}
-
-		// Build placeholders for this row
-		placeholders := make([]string, len(rowValues))
-		for j := range rowValues {
-			placeholders[j] = fmt.Sprintf("$%d", paramNum)
-			paramNum++
-			args = append(args, rowValues[j])
-		}
-
-		valueClauses[i] = "(" + strings.Join(placeholders, ", ") + ")"
-	}
-
-	sql.WriteString(strings.Join(valueClauses, ", "))
-
-	// ON CONFLICT clause
-	if q.onConflict != nil {
-		sql.WriteString(" ON CONFLICT")
-
-		if len(q.onConflict.Columns) > 0 {
-			sql.WriteString(" (")
-			sql.WriteString(strings.Join(q.onConflict.Columns, ", "))
-			sql.WriteString(")")
-		}
-
-		if q.onConflict.Action == DoNothing {
-			sql.WriteString(" DO NOTHING")
-		} else if q.onConflict.Action == DoUpdate {
-			sql.WriteString(" ")
-			sql.WriteString(string(DoUpdate))
-
-			if len(q.onConflict.Updates) > 0 {
-				updates := make([]string, 0, len(q.onConflict.Updates))
-				for col, val := range q.onConflict.Updates {
-					updates = append(updates, fmt.Sprintf("%s = $%d", col, paramNum))
-					paramNum++
-					args = append(args, val)
-				}
-				sql.WriteString(" ")
-				sql.WriteString(strings.Join(updates, ", "))
-			}
-		}
-	}
-
-	// RETURNING clause
-	if len(q.returning) > 0 {
-		sql.WriteString(" RETURNING ")
-		sql.WriteString(strings.Join(q.returning, ", "))
-	}
-
-	return sql.String(), args, nil
+	return buildInsertSQL(insertSpec{
+		table:      q.table,
+		rows:       q.values,
+		returning:  q.returning,
+		onConflict: q.onConflict,
+	})
 }
 
 // Exec executes the INSERT query.
@@ -766,63 +515,19 @@ func (q *TxInsertQuery[T]) Exec() (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-
-	// If no RETURNING clause, use simple Exec
-	if len(q.returning) == 0 {
-		tag, err := q.tx.tx.Exec(q.tx.ctx, sql, args...)
-		if err != nil {
-			return 0, fmt.Errorf("failed to execute insert: %w", err)
-		}
-		return tag.RowsAffected(), nil
-	}
-
-	// With RETURNING clause, count the returned rows
-	rows, err := q.tx.tx.Query(q.tx.ctx, sql, args...)
-	if err != nil {
-		return 0, fmt.Errorf("failed to execute insert: %w", err)
-	}
-	defer rows.Close()
-
-	var count int64
-	for rows.Next() {
-		count++
-	}
-
-	return count, rows.Err()
+	return execWrite(q.tx.ctx, q.tx.exec(), sql, args, len(q.returning) > 0)
 }
 
 // ExecReturning executes the INSERT and scans the RETURNING values.
 func (q *TxInsertQuery[T]) ExecReturning() ([]T, error) {
-	// Ensure we have RETURNING clause
 	if len(q.returning) == 0 {
 		q.Returning("*")
 	}
-
 	sql, args, err := q.ToSQL()
 	if err != nil {
 		return nil, err
 	}
-
-	rows, err := q.tx.tx.Query(q.tx.ctx, sql, args...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute insert: %w", err)
-	}
-	defer rows.Close()
-
-	var results []T
-	for rows.Next() {
-		var item T
-		if err := scanIntoStruct(rows, &item, q.table); err != nil {
-			return nil, err
-		}
-		results = append(results, item)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return results, nil
+	return queryRows[T](q.tx.ctx, q.tx.exec(), q.table, sql, args, nil)
 }
 
 // TxUpdateQuery represents an UPDATE query within a transaction.
@@ -874,54 +579,12 @@ func (q *TxUpdateQuery[T]) Returning(columns ...string) *TxUpdateQuery[T] {
 
 // ToSQL generates the UPDATE SQL and arguments.
 func (q *TxUpdateQuery[T]) ToSQL() (string, []interface{}, error) {
-	if q.table == nil {
-		return "", nil, fmt.Errorf("table metadata not available")
-	}
-
-	if len(q.sets) == 0 {
-		return "", nil, fmt.Errorf("no columns to update")
-	}
-
-	var sql strings.Builder
-	var args []interface{}
-	paramNum := 1
-
-	sql.WriteString("UPDATE ")
-	sql.WriteString(schema.QuoteReservedIdent(q.table.Name))
-	sql.WriteString(" SET ")
-
-	// SET clause
-	setClauses := make([]string, 0, len(q.sets))
-	for col, val := range q.sets {
-		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", schema.QuoteReservedIdent(col), paramNum))
-		args = append(args, val)
-		paramNum++
-	}
-	sql.WriteString(strings.Join(setClauses, ", "))
-
-	// WHERE clause
-	if len(q.where) > 0 {
-		whereBuilder := NewWhereBuilderWithStart(paramNum)
-		whereBuilder.conditions = q.where
-		whereSql, whereArgs, err := whereBuilder.Build()
-		if err != nil {
-			return "", nil, fmt.Errorf("failed to build WHERE clause: %w", err)
-		}
-
-		if whereSql != "" {
-			sql.WriteString(" ")
-			sql.WriteString(whereSql)
-			args = append(args, whereArgs...)
-		}
-	}
-
-	// RETURNING clause
-	if len(q.returning) > 0 {
-		sql.WriteString(" RETURNING ")
-		sql.WriteString(strings.Join(q.returning, ", "))
-	}
-
-	return sql.String(), args, nil
+	return buildUpdateSQL(updateSpec{
+		table:     q.table,
+		sets:      q.sets,
+		where:     q.where,
+		returning: q.returning,
+	})
 }
 
 // Exec executes the UPDATE query.
@@ -930,63 +593,19 @@ func (q *TxUpdateQuery[T]) Exec() (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-
-	// If no RETURNING clause, use simple Exec
-	if len(q.returning) == 0 {
-		tag, err := q.tx.tx.Exec(q.tx.ctx, sql, args...)
-		if err != nil {
-			return 0, fmt.Errorf("failed to execute update: %w", err)
-		}
-		return tag.RowsAffected(), nil
-	}
-
-	// With RETURNING clause, count the returned rows
-	rows, err := q.tx.tx.Query(q.tx.ctx, sql, args...)
-	if err != nil {
-		return 0, fmt.Errorf("failed to execute update: %w", err)
-	}
-	defer rows.Close()
-
-	var count int64
-	for rows.Next() {
-		count++
-	}
-
-	return count, rows.Err()
+	return execWrite(q.tx.ctx, q.tx.exec(), sql, args, len(q.returning) > 0)
 }
 
 // ExecReturning executes the UPDATE and scans the RETURNING values.
 func (q *TxUpdateQuery[T]) ExecReturning() ([]T, error) {
-	// Ensure we have RETURNING clause
 	if len(q.returning) == 0 {
 		q.Returning("*")
 	}
-
 	sql, args, err := q.ToSQL()
 	if err != nil {
 		return nil, err
 	}
-
-	rows, err := q.tx.tx.Query(q.tx.ctx, sql, args...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute update: %w", err)
-	}
-	defer rows.Close()
-
-	var results []T
-	for rows.Next() {
-		var item T
-		if err := scanIntoStruct(rows, &item, q.table); err != nil {
-			return nil, err
-		}
-		results = append(results, item)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return results, nil
+	return queryRows[T](q.tx.ctx, q.tx.exec(), q.table, sql, args, nil)
 }
 
 // TxDeleteQuery represents a DELETE query within a transaction.
@@ -1023,39 +642,11 @@ func (q *TxDeleteQuery[T]) Returning(columns ...string) *TxDeleteQuery[T] {
 
 // ToSQL generates the DELETE SQL and arguments.
 func (q *TxDeleteQuery[T]) ToSQL() (string, []interface{}, error) {
-	if q.table == nil {
-		return "", nil, fmt.Errorf("table metadata not available")
-	}
-
-	var sql strings.Builder
-	var args []interface{}
-
-	sql.WriteString("DELETE FROM ")
-	sql.WriteString(schema.QuoteReservedIdent(q.table.Name))
-
-	// WHERE clause
-	if len(q.where) > 0 {
-		whereBuilder := NewWhereBuilder()
-		whereBuilder.conditions = q.where
-		whereSql, whereArgs, err := whereBuilder.Build()
-		if err != nil {
-			return "", nil, fmt.Errorf("failed to build WHERE clause: %w", err)
-		}
-
-		if whereSql != "" {
-			sql.WriteString(" ")
-			sql.WriteString(whereSql)
-			args = append(args, whereArgs...)
-		}
-	}
-
-	// RETURNING clause
-	if len(q.returning) > 0 {
-		sql.WriteString(" RETURNING ")
-		sql.WriteString(strings.Join(q.returning, ", "))
-	}
-
-	return sql.String(), args, nil
+	return buildDeleteSQL(deleteSpec{
+		table:     q.table,
+		where:     q.where,
+		returning: q.returning,
+	})
 }
 
 // Exec executes the DELETE query.
@@ -1064,61 +655,17 @@ func (q *TxDeleteQuery[T]) Exec() (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-
-	// If no RETURNING clause, use simple Exec
-	if len(q.returning) == 0 {
-		tag, err := q.tx.tx.Exec(q.tx.ctx, sql, args...)
-		if err != nil {
-			return 0, fmt.Errorf("failed to execute delete: %w", err)
-		}
-		return tag.RowsAffected(), nil
-	}
-
-	// With RETURNING clause, count the returned rows
-	rows, err := q.tx.tx.Query(q.tx.ctx, sql, args...)
-	if err != nil {
-		return 0, fmt.Errorf("failed to execute delete: %w", err)
-	}
-	defer rows.Close()
-
-	var count int64
-	for rows.Next() {
-		count++
-	}
-
-	return count, rows.Err()
+	return execWrite(q.tx.ctx, q.tx.exec(), sql, args, len(q.returning) > 0)
 }
 
 // ExecReturning executes the DELETE and scans the RETURNING values.
 func (q *TxDeleteQuery[T]) ExecReturning() ([]T, error) {
-	// Ensure we have RETURNING clause
 	if len(q.returning) == 0 {
 		q.Returning("*")
 	}
-
 	sql, args, err := q.ToSQL()
 	if err != nil {
 		return nil, err
 	}
-
-	rows, err := q.tx.tx.Query(q.tx.ctx, sql, args...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute delete: %w", err)
-	}
-	defer rows.Close()
-
-	var results []T
-	for rows.Next() {
-		var item T
-		if err := scanIntoStruct(rows, &item, q.table); err != nil {
-			return nil, err
-		}
-		results = append(results, item)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return results, nil
+	return queryRows[T](q.tx.ctx, q.tx.exec(), q.table, sql, args, nil)
 }

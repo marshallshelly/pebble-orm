@@ -3,9 +3,6 @@ package builder
 import (
 	"context"
 	"fmt"
-	"strings"
-
-	"github.com/marshallshelly/pebble-orm/pkg/schema"
 )
 
 // Columns specifies which columns to select.
@@ -167,121 +164,11 @@ func (q *SelectQuery[T]) LeftLateralJoin(table string, condition string, args ..
 
 // ToSQL generates the SQL query and arguments.
 func (q *SelectQuery[T]) ToSQL() (string, []interface{}, error) {
-	if q.table == nil {
-		return "", nil, fmt.Errorf("table metadata not available")
-	}
-
-	var sql strings.Builder
-	var args []interface{}
-	paramNum := 1
-
-	// SELECT clause
-	sql.WriteString("SELECT ")
-	if q.distinct {
-		sql.WriteString("DISTINCT ")
-	}
-
-	if len(q.columns) == 0 || (len(q.columns) == 1 && q.columns[0] == "*") {
-		sql.WriteString("*")
-	} else {
-		sql.WriteString(strings.Join(q.columns, ", "))
-	}
-
-	// FROM clause
-	sql.WriteString(" FROM ")
-	sql.WriteString(schema.QuoteReservedIdent(q.table.Name))
-
-	// JOIN clauses. Each join condition's own $1.. placeholders are renumbered
-	// to start at the running parameter position so join args don't collide
-	// with each other or with the WHERE/HAVING args that follow.
-	for _, join := range q.joins {
-		sql.WriteString(" ")
-		sql.WriteString(string(join.Type))
-		sql.WriteString(" ")
-		if join.Lateral {
-			sql.WriteString("LATERAL ")
-		}
-		sql.WriteString(join.Table)
-		sql.WriteString(" ON ")
-		sql.WriteString(shiftPlaceholders(join.Condition, paramNum-1))
-
-		for _, arg := range join.Args {
-			args = append(args, arg)
-			paramNum++
-		}
-	}
-
-	// WHERE clause — numbered continuing from any join args.
-	if len(q.where) > 0 {
-		whereBuilder := NewWhereBuilderWithStart(paramNum)
-		whereBuilder.conditions = q.where
-		whereSql, whereArgs, err := whereBuilder.Build()
-		if err != nil {
-			return "", nil, fmt.Errorf("failed to build WHERE clause: %w", err)
-		}
-
-		if whereSql != "" {
-			sql.WriteString(" ")
-			sql.WriteString(whereSql)
-			args = append(args, whereArgs...)
-			paramNum += len(whereArgs)
-		}
-	}
-
-	// GROUP BY clause
-	if len(q.groupBy) > 0 {
-		sql.WriteString(" GROUP BY ")
-		sql.WriteString(strings.Join(q.groupBy, ", "))
-	}
-
-	// HAVING clause — numbered continuing from WHERE args.
-	if len(q.having) > 0 {
-		havingBuilder := NewWhereBuilderWithStart(paramNum)
-		havingBuilder.conditions = q.having
-		havingSql, havingArgs, err := havingBuilder.Build()
-		if err != nil {
-			return "", nil, fmt.Errorf("failed to build HAVING clause: %w", err)
-		}
-
-		if havingSql != "" {
-			// Replace WHERE with HAVING
-			havingSql = strings.Replace(havingSql, "WHERE", "HAVING", 1)
-			sql.WriteString(" ")
-			sql.WriteString(havingSql)
-			args = append(args, havingArgs...)
-			paramNum += len(havingArgs)
-		}
-	}
-
-	// ORDER BY clause
-	if len(q.orderBy) > 0 {
-		sql.WriteString(" ORDER BY ")
-		orderParts := make([]string, len(q.orderBy))
-		for i, order := range q.orderBy {
-			orderParts[i] = order.Column + " " + string(order.Direction)
-			if order.NullsPos != NullsDefault {
-				orderParts[i] += " " + string(order.NullsPos)
-			}
-		}
-		sql.WriteString(strings.Join(orderParts, ", "))
-	}
-
-	// LIMIT clause
-	if q.limit != nil {
-		sql.WriteString(fmt.Sprintf(" LIMIT %d", *q.limit))
-	}
-
-	// OFFSET clause
-	if q.offset != nil {
-		sql.WriteString(fmt.Sprintf(" OFFSET %d", *q.offset))
-	}
-
-	// FOR UPDATE clause
-	if q.forUpdate {
-		sql.WriteString(" FOR UPDATE")
-	}
-
-	return sql.String(), args, nil
+	return buildSelectSQL(selectSpec{
+		table: q.table, distinct: q.distinct, columns: q.columns, joins: q.joins,
+		where: q.where, groupBy: q.groupBy, having: q.having, orderBy: q.orderBy,
+		limit: q.limit, offset: q.offset, forUpdate: q.forUpdate,
+	})
 }
 
 // All executes the query and returns all results.
@@ -290,90 +177,29 @@ func (q *SelectQuery[T]) All(ctx context.Context) ([]T, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	rows, err := q.db.db.Query(ctx, sql, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var results []T
-	for rows.Next() {
-		var item T
-		if err := scanIntoStruct(rows, &item, q.table); err != nil {
-			return nil, err
-		}
-		results = append(results, item)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	// Load preloaded relationships
-	if len(q.preloads) > 0 && len(results) > 0 {
-		loader := &relationshipLoader{query: q.db.db.Query, table: q.table, preloads: q.preloads}
-		if err := loader.loadRelationships(ctx, &results); err != nil {
-			return nil, err
-		}
-	}
-
-	return results, nil
+	return queryRows[T](ctx, q.db.db, q.table, sql, args, q.preloads)
 }
 
 // First executes the query and returns the first result.
 func (q *SelectQuery[T]) First(ctx context.Context) (*T, error) {
-	// Limit to 1 result
 	q.Limit(1)
-
 	results, err := q.All(ctx)
 	if err != nil {
 		return nil, err
 	}
-
 	if len(results) == 0 {
 		return nil, fmt.Errorf("no rows found")
 	}
-
 	return &results[0], nil
 }
 
 // Count executes a COUNT query.
 func (q *SelectQuery[T]) Count(ctx context.Context) (int64, error) {
-	if q.table == nil {
-		return 0, fmt.Errorf("table metadata not available")
-	}
-
-	// Build COUNT query
-	var sql strings.Builder
-	sql.WriteString("SELECT COUNT(*) FROM ")
-	sql.WriteString(schema.QuoteReservedIdent(q.table.Name))
-
-	var args []interface{}
-
-	// Add WHERE clause
-	if len(q.where) > 0 {
-		whereBuilder := NewWhereBuilder()
-		whereBuilder.conditions = q.where
-		whereSql, whereArgs, err := whereBuilder.Build()
-		if err != nil {
-			return 0, err
-		}
-
-		if whereSql != "" {
-			sql.WriteString(" ")
-			sql.WriteString(whereSql)
-			args = append(args, whereArgs...)
-		}
-	}
-
-	var count int64
-	err := q.db.db.QueryRow(ctx, sql.String(), args...).Scan(&count)
+	sql, args, err := buildCountSQL(q.table, q.where)
 	if err != nil {
 		return 0, err
 	}
-
-	return count, nil
+	return queryCount(ctx, q.db.db, sql, args)
 }
 
 // Exists checks if any rows match the query.

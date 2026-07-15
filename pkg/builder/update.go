@@ -2,10 +2,6 @@ package builder
 
 import (
 	"context"
-	"fmt"
-	"strings"
-
-	"github.com/marshallshelly/pebble-orm/pkg/schema"
 )
 
 // Set sets a column value for the UPDATE.
@@ -48,54 +44,12 @@ func (q *UpdateQuery[T]) Returning(columns ...string) *UpdateQuery[T] {
 
 // ToSQL generates the UPDATE SQL and arguments.
 func (q *UpdateQuery[T]) ToSQL() (string, []interface{}, error) {
-	if q.table == nil {
-		return "", nil, fmt.Errorf("table metadata not available")
-	}
-
-	if len(q.sets) == 0 {
-		return "", nil, fmt.Errorf("no columns to update")
-	}
-
-	var sql strings.Builder
-	var args []interface{}
-	paramNum := 1
-
-	sql.WriteString("UPDATE ")
-	sql.WriteString(schema.QuoteReservedIdent(q.table.Name))
-	sql.WriteString(" SET ")
-
-	// SET clause
-	setClauses := make([]string, 0, len(q.sets))
-	for col, val := range q.sets {
-		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", schema.QuoteReservedIdent(col), paramNum))
-		args = append(args, val)
-		paramNum++
-	}
-	sql.WriteString(strings.Join(setClauses, ", "))
-
-	// WHERE clause
-	if len(q.where) > 0 {
-		whereBuilder := NewWhereBuilderWithStart(paramNum)
-		whereBuilder.conditions = q.where
-		whereSql, whereArgs, err := whereBuilder.Build()
-		if err != nil {
-			return "", nil, fmt.Errorf("failed to build WHERE clause: %w", err)
-		}
-
-		if whereSql != "" {
-			sql.WriteString(" ")
-			sql.WriteString(whereSql)
-			args = append(args, whereArgs...)
-		}
-	}
-
-	// RETURNING clause
-	if len(q.returning) > 0 {
-		sql.WriteString(" RETURNING ")
-		sql.WriteString(strings.Join(q.returning, ", "))
-	}
-
-	return sql.String(), args, nil
+	return buildUpdateSQL(updateSpec{
+		table:     q.table,
+		sets:      q.sets,
+		where:     q.where,
+		returning: q.returning,
+	})
 }
 
 // Exec executes the UPDATE query and returns the number of affected rows.
@@ -104,57 +58,17 @@ func (q *UpdateQuery[T]) Exec(ctx context.Context) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-
-	// If no RETURNING clause, use simple Exec
-	if len(q.returning) == 0 {
-		return q.db.db.Exec(ctx, sql, args...)
-	}
-
-	// With RETURNING clause, count the returned rows
-	rows, err := q.db.db.Query(ctx, sql, args...)
-	if err != nil {
-		return 0, err
-	}
-	defer rows.Close()
-
-	var count int64
-	for rows.Next() {
-		count++
-	}
-
-	return count, rows.Err()
+	return execWrite(ctx, q.db.db, sql, args, len(q.returning) > 0)
 }
 
 // ExecReturning executes the UPDATE and returns the updated rows.
 func (q *UpdateQuery[T]) ExecReturning(ctx context.Context) ([]T, error) {
-	// Ensure we have RETURNING clause
 	if len(q.returning) == 0 {
 		q.Returning("*")
 	}
-
 	sql, args, err := q.ToSQL()
 	if err != nil {
 		return nil, err
 	}
-
-	rows, err := q.db.db.Query(ctx, sql, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var results []T
-	for rows.Next() {
-		var item T
-		if err := scanIntoStruct(rows, &item, q.table); err != nil {
-			return nil, err
-		}
-		results = append(results, item)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return results, nil
+	return queryRows[T](ctx, q.db.db, q.table, sql, args, nil)
 }

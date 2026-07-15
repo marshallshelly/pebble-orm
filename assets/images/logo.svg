@@ -1,0 +1,25 @@
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="s1" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3B4252"/><stop offset="1" stop-color="#272C36"/>
+    </linearGradient>
+    <linearGradient id="s2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#48505F"/><stop offset="1" stop-color="#353C49"/>
+    </linearGradient>
+    <linearGradient id="s3" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#22C7EF"/><stop offset="1" stop-color="#0090C4"/>
+    </linearGradient>
+  </defs>
+  <!-- base stone -->
+  <ellipse cx="51" cy="73" rx="31" ry="12.5" fill="url(#s1)"/>
+  <ellipse cx="51" cy="70.4" rx="31" ry="12.5" fill="#4B5464" opacity="0.55"/>
+  <ellipse cx="51" cy="72.3" rx="31" ry="12.5" fill="url(#s1)"/>
+  <!-- middle stone, nudged left -->
+  <ellipse cx="48.5" cy="52.5" rx="24" ry="10" fill="url(#s2)"/>
+  <ellipse cx="48.5" cy="50.6" rx="24" ry="10" fill="#5A6373" opacity="0.5"/>
+  <ellipse cx="48.5" cy="52" rx="24" ry="10" fill="url(#s2)"/>
+  <!-- crown stone (Go cyan), nudged right -->
+  <ellipse cx="53" cy="34.5" rx="16.5" ry="7.8" fill="url(#s3)"/>
+  <ellipse cx="53" cy="33" rx="16.5" ry="7.8" fill="#5FE0FF" opacity="0.5"/>
+  <ellipse cx="53" cy="34.1" rx="16.5" ry="7.8" fill="url(#s3)"/>
+</svg>

@@ -2,10 +2,6 @@ package builder
 
 import (
 	"context"
-	"fmt"
-	"strings"
-
-	"github.com/marshallshelly/pebble-orm/pkg/schema"
 )
 
 // Values sets the values to insert (single or multiple rows).
@@ -41,95 +37,12 @@ func (q *InsertQuery[T]) OnConflictDoUpdate(columns []string, updates map[string
 
 // ToSQL generates the INSERT SQL and arguments.
 func (q *InsertQuery[T]) ToSQL() (string, []interface{}, error) {
-	if q.table == nil {
-		return "", nil, fmt.Errorf("table metadata not available")
-	}
-
-	if len(q.values) == 0 {
-		return "", nil, fmt.Errorf("no values to insert")
-	}
-
-	var sql strings.Builder
-	var args []interface{}
-	paramNum := 1
-
-	sql.WriteString("INSERT INTO ")
-	sql.WriteString(schema.QuoteReservedIdent(q.table.Name))
-
-	// Get columns and values from the first row
-	columns, firstRowValues, err := structToValues(q.values[0], q.table, true)
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to extract values: %w", err)
-	}
-
-	// Column names
-	sql.WriteString(" (")
-	sql.WriteString(strings.Join(schema.QuoteReservedIdents(columns), ", "))
-	sql.WriteString(") VALUES ")
-
-	// Values for all rows
-	valueClauses := make([]string, len(q.values))
-	for i, val := range q.values {
-		var rowValues []interface{}
-
-		if i == 0 {
-			rowValues = firstRowValues
-		} else {
-			rowValues, err = valuesForColumns(val, q.table, columns)
-			if err != nil {
-				return "", nil, fmt.Errorf("failed to extract values from row %d: %w", i, err)
-			}
-		}
-
-		// Build placeholders for this row
-		placeholders := make([]string, len(rowValues))
-		for j := range rowValues {
-			placeholders[j] = fmt.Sprintf("$%d", paramNum)
-			paramNum++
-			args = append(args, rowValues[j])
-		}
-
-		valueClauses[i] = "(" + strings.Join(placeholders, ", ") + ")"
-	}
-
-	sql.WriteString(strings.Join(valueClauses, ", "))
-
-	// ON CONFLICT clause
-	if q.onConflict != nil {
-		sql.WriteString(" ON CONFLICT")
-
-		if len(q.onConflict.Columns) > 0 {
-			sql.WriteString(" (")
-			sql.WriteString(strings.Join(q.onConflict.Columns, ", "))
-			sql.WriteString(")")
-		}
-
-		if q.onConflict.Action == DoNothing {
-			sql.WriteString(" DO NOTHING")
-		} else if q.onConflict.Action == DoUpdate {
-			sql.WriteString(" ")
-			sql.WriteString(string(DoUpdate))
-
-			if len(q.onConflict.Updates) > 0 {
-				updates := make([]string, 0, len(q.onConflict.Updates))
-				for col, val := range q.onConflict.Updates {
-					updates = append(updates, fmt.Sprintf("%s = $%d", col, paramNum))
-					paramNum++
-					args = append(args, val)
-				}
-				sql.WriteString(" ")
-				sql.WriteString(strings.Join(updates, ", "))
-			}
-		}
-	}
-
-	// RETURNING clause
-	if len(q.returning) > 0 {
-		sql.WriteString(" RETURNING ")
-		sql.WriteString(strings.Join(q.returning, ", "))
-	}
-
-	return sql.String(), args, nil
+	return buildInsertSQL(insertSpec{
+		table:      q.table,
+		rows:       toAnySlice(q.values),
+		returning:  q.returning,
+		onConflict: q.onConflict,
+	})
 }
 
 // Exec executes the INSERT query and returns the number of inserted rows.
@@ -138,58 +51,17 @@ func (q *InsertQuery[T]) Exec(ctx context.Context) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-
-	// If no RETURNING clause, use simple Exec
-	if len(q.returning) == 0 {
-		return q.db.db.Exec(ctx, sql, args...)
-	}
-
-	// With RETURNING clause, we need to count the returned rows
-	rows, err := q.db.db.Query(ctx, sql, args...)
-	if err != nil {
-		return 0, err
-	}
-	defer rows.Close()
-
-	var count int64
-	for rows.Next() {
-		count++
-	}
-
-	return count, rows.Err()
+	return execWrite(ctx, q.db.db, sql, args, len(q.returning) > 0)
 }
 
 // ExecReturning executes the INSERT and returns the inserted rows.
 func (q *InsertQuery[T]) ExecReturning(ctx context.Context) ([]T, error) {
-	// Ensure we have RETURNING clause
 	if len(q.returning) == 0 {
-		// Default to returning all columns
 		q.Returning("*")
 	}
-
 	sql, args, err := q.ToSQL()
 	if err != nil {
 		return nil, err
 	}
-
-	rows, err := q.db.db.Query(ctx, sql, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var results []T
-	for rows.Next() {
-		var item T
-		if err := scanIntoStruct(rows, &item, q.table); err != nil {
-			return nil, err
-		}
-		results = append(results, item)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return results, nil
+	return queryRows[T](ctx, q.db.db, q.table, sql, args, nil)
 }
