@@ -148,9 +148,16 @@ func (q *relationshipLoader) loadNestedRelationships(ctx context.Context, result
 				continue
 			}
 
-			// Append all items from this slice to our collection
+			// Append a pointer to each item so nested loads mutate the real
+			// slice elements. Value-element slices ([]Post) need Addr(); pointer
+			// slices ([]*Post) are already pointers. Appending a value directly
+			// into the []*Parent collection would panic.
 			for j := 0; j < relationField.Len(); j++ {
-				parentObjects = reflect.Append(parentObjects, relationField.Index(j))
+				elem := relationField.Index(j)
+				if elem.Kind() != reflect.Pointer {
+					elem = elem.Addr()
+				}
+				parentObjects = reflect.Append(parentObjects, elem)
 			}
 		}
 	} else {
@@ -636,10 +643,57 @@ func (q *relationshipLoader) loadManyToMany(ctx context.Context, results reflect
 	sourceFKCol := toSnakeCase(q.table.GoType.Name()) + "_id"
 	targetFKCol := toSnakeCase(targetTable.GoType.Name()) + "_id"
 
+	// Junction PKs must be scanned into the SAME Go type as the struct PK
+	// fields. Scanning into bare interface{} yields pgx's raw decoded types
+	// (int32 for an int field, [16]byte for a uuid string, etc.), which never
+	// compare equal to the struct-derived map keys — silently returning empty
+	// relations. Resolve the source/target PK field types up front.
+	refField := toPascalCase(rel.References)
+	sourceKeyType, err := pkFieldType(q.table.GoType, refField)
+	if err != nil {
+		return fmt.Errorf("source %w", err)
+	}
+	targetKeyType, err := pkFieldType(targetTable.GoType, refField)
+	if err != nil {
+		return fmt.Errorf("target %w", err)
+	}
+
 	// Convert []interface{} to typed slice for pgx encoding
 	typedKeys := convertToTypedSlice(primaryKeys)
 
-	// Query through junction table with JOIN
+	// Query the junction table first and drain it fully before the next query,
+	// so the two result sets never overlap on a single (transaction) connection.
+	junctionSQL := fmt.Sprintf(
+		"SELECT %s, %s FROM %s WHERE %s = ANY($1)",
+		schema.QuoteReservedIdent(sourceFKCol),
+		schema.QuoteReservedIdent(targetFKCol),
+		schema.QuoteReservedIdent(*rel.JoinTable),
+		schema.QuoteReservedIdent(sourceFKCol),
+	)
+
+	junctionRows, err := q.query(ctx, junctionSQL, typedKeys)
+	if err != nil {
+		return fmt.Errorf("failed to query junction table: %w", err)
+	}
+
+	// Build a map of source PK -> target PKs (keys typed to the struct fields).
+	junctionMap := make(map[interface{}][]interface{})
+	for junctionRows.Next() {
+		sourcePtr := reflect.New(sourceKeyType)
+		targetPtr := reflect.New(targetKeyType)
+		if err := junctionRows.Scan(sourcePtr.Interface(), targetPtr.Interface()); err != nil {
+			junctionRows.Close()
+			return fmt.Errorf("failed to scan junction row: %w", err)
+		}
+		sk := sourcePtr.Elem().Interface()
+		junctionMap[sk] = append(junctionMap[sk], targetPtr.Elem().Interface())
+	}
+	junctionRows.Close()
+	if err := junctionRows.Err(); err != nil {
+		return err
+	}
+
+	// Query through the junction with a JOIN to fetch the target records.
 	sql := fmt.Sprintf(
 		"SELECT t.* FROM %s t INNER JOIN %s j ON t.%s = j.%s WHERE j.%s = ANY($1)",
 		schema.QuoteReservedIdent(targetTable.Name),
@@ -653,53 +707,25 @@ func (q *relationshipLoader) loadManyToMany(ctx context.Context, results reflect
 	if err != nil {
 		return fmt.Errorf("failed to query related records: %w", err)
 	}
-	defer rows.Close()
 
-	// We need to query the junction table to get the associations
-	junctionSQL := fmt.Sprintf(
-		"SELECT %s, %s FROM %s WHERE %s = ANY($1)",
-		schema.QuoteReservedIdent(sourceFKCol),
-		schema.QuoteReservedIdent(targetFKCol),
-		schema.QuoteReservedIdent(*rel.JoinTable),
-		schema.QuoteReservedIdent(sourceFKCol),
-	)
-
-	junctionRows, err := q.query(ctx, junctionSQL, typedKeys)
-	if err != nil {
-		return fmt.Errorf("failed to query junction table: %w", err)
-	}
-	defer junctionRows.Close()
-
-	// Build a map of source PK -> target PKs
-	junctionMap := make(map[interface{}][]interface{})
-	for junctionRows.Next() {
-		var sourcePK, targetPK interface{}
-		if err := junctionRows.Scan(&sourcePK, &targetPK); err != nil {
-			return fmt.Errorf("failed to scan junction row: %w", err)
-		}
-		junctionMap[sourcePK] = append(junctionMap[sourcePK], targetPK)
-	}
-
-	if err := junctionRows.Err(); err != nil {
-		return err
-	}
-
-	// Build a map of target records by their PK
+	// Build a map of target records by their PK.
 	targetMap := make(map[interface{}]reflect.Value)
 	for rows.Next() {
 		related := reflect.New(targetTable.GoType)
 		if err := scanIntoStruct(rows, related.Interface(), targetTable); err != nil {
+			rows.Close()
 			return fmt.Errorf("failed to scan related record: %w", err)
 		}
 
 		// Get the ID value from the related record
 		relatedElem := related.Elem()
-		idField := relatedElem.FieldByName(toPascalCase(rel.References))
+		idField := relatedElem.FieldByName(refField)
 		if !idField.IsValid() {
 			continue
 		}
 		targetMap[idField.Interface()] = related
 	}
+	rows.Close()
 
 	if err := rows.Err(); err != nil {
 		return err
@@ -1130,6 +1156,24 @@ func isZeroValue(v interface{}) bool {
 	default:
 		return val.IsZero()
 	}
+}
+
+// pkFieldType returns the type of the named struct field, dereferenced if it is
+// a pointer, so junction-table values can be scanned into the same type the
+// struct uses for that primary key.
+func pkFieldType(structType reflect.Type, fieldName string) (reflect.Type, error) {
+	if structType == nil {
+		return nil, fmt.Errorf("primary key field %s: struct type not available", fieldName)
+	}
+	f, ok := structType.FieldByName(fieldName)
+	if !ok {
+		return nil, fmt.Errorf("primary key field %s not found on %s", fieldName, structType.Name())
+	}
+	t := f.Type
+	if t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	return t, nil
 }
 
 // convertToTypedSlice converts []interface{} to a properly typed slice for pgx encoding.

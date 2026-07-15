@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.17.3] - 2026-07-15
+
+### Fixed
+
+- **`manyToMany` preloads silently returned empty slices.** Junction-table primary keys were scanned into bare `interface{}`, yielding pgx's raw decoded types (`int32` for an `int` field, `[16]byte` for a `uuid` string), which never compared equal to the struct-derived map keys — so `Preload("Roles")` matched nothing and returned no error. Junction values are now scanned into the same Go type as the struct primary key fields. The junction and target queries were also reordered to never overlap on a single connection, so manyToMany preloads work inside transactions too.
+- **Nested preloads panicked on value-element slices.** `Preload("Posts.Comments")` where `Posts` is a `[]Post` (value elements, not `[]*Post`) crashed with `reflect: value of type Post is not assignable to type *Post`. Value elements are now addressed before collection, and the loaded nested relations correctly mutate the real slice elements.
+
 ## [1.17.2] - 2026-07-15
 
 ### Fixed
@@ -505,7 +512,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - golangci-lint integration.
 - GoReleaser configuration for multi-platform releases.
 
-[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.17.2...HEAD
+[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.17.3...HEAD
+[1.17.3]: https://github.com/marshallshelly/pebble-orm/compare/v1.17.2...v1.17.3
 [1.17.2]: https://github.com/marshallshelly/pebble-orm/compare/v1.17.1...v1.17.2
 [1.17.1]: https://github.com/marshallshelly/pebble-orm/compare/v1.17.0...v1.17.1
 [1.17.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.16.6...v1.17.0

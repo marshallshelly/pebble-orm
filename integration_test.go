@@ -678,3 +678,124 @@ func TestIntegration_EnumIntrospection(t *testing.T) {
 		t.Errorf("enum mismatch: %+v", et)
 	}
 }
+
+// TestIntegration_ManyToManyPreload is a regression test for junction PKs being
+// scanned into bare interface{} (pgx int32) that never matched the struct's int
+// keys, so manyToMany Preload silently returned empty slices.
+func TestIntegration_ManyToManyPreload(t *testing.T) {
+	_, connStr, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	runtimeDB, err := runtime.ConnectWithURL(ctx, connStr)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer runtimeDB.Close()
+
+	type Role struct {
+		ID   int    `po:"id,primaryKey,serial"`
+		Name string `po:"name,text,notNull"`
+	}
+	type Account struct {
+		ID    int    `po:"id,primaryKey,serial"`
+		Name  string `po:"name,text,notNull"`
+		Roles []Role `po:"-,manyToMany,joinTable(account_roles),foreignKey(account_id)"`
+	}
+	if err := registry.Register(Role{}); err != nil {
+		t.Fatalf("register Role: %v", err)
+	}
+	if err := registry.Register(Account{}); err != nil {
+		t.Fatalf("register Account: %v", err)
+	}
+	if _, err := runtimeDB.Pool().Exec(ctx, `
+		CREATE TABLE account (id serial PRIMARY KEY, name text NOT NULL);
+		CREATE TABLE role (id serial PRIMARY KEY, name text NOT NULL);
+		CREATE TABLE account_roles (account_id integer NOT NULL, role_id integer NOT NULL);
+		INSERT INTO account (id, name) VALUES (1, 'alice'), (2, 'bob');
+		INSERT INTO role (id, name) VALUES (1, 'admin'), (2, 'editor'), (3, 'viewer');
+		INSERT INTO account_roles (account_id, role_id) VALUES (1,1), (1,2), (2,3);`); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	qb := builder.New(runtimeDB)
+	accounts, err := builder.Select[Account](qb).OrderByAsc("id").Preload("Roles").All(ctx)
+	if err != nil {
+		t.Fatalf("preload: %v", err)
+	}
+	if len(accounts) != 2 {
+		t.Fatalf("expected 2 accounts, got %d", len(accounts))
+	}
+	if len(accounts[0].Roles) != 2 {
+		t.Errorf("alice: expected 2 roles, got %d (%+v)", len(accounts[0].Roles), accounts[0].Roles)
+	}
+	if len(accounts[1].Roles) != 1 || accounts[1].Roles[0].Name != "viewer" {
+		t.Errorf("bob: expected [viewer], got %+v", accounts[1].Roles)
+	}
+}
+
+// TestIntegration_NestedPreloadValueSlice is a regression test for nested
+// preloads panicking when the intermediate hasMany field is a value slice
+// ([]Post rather than []*Post).
+func TestIntegration_NestedPreloadValueSlice(t *testing.T) {
+	_, connStr, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	runtimeDB, err := runtime.ConnectWithURL(ctx, connStr)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer runtimeDB.Close()
+
+	type Comment struct {
+		ID     int    `po:"id,primaryKey,serial"`
+		PostID int    `po:"post_id,integer,notNull"`
+		Body   string `po:"body,text,notNull"`
+	}
+	type BlogPost struct {
+		ID       int       `po:"id,primaryKey,serial"`
+		AuthorID int       `po:"author_id,integer,notNull"`
+		Title    string    `po:"title,text,notNull"`
+		Comments []Comment `po:"-,hasMany,foreignKey(post_id),references(id)"`
+	}
+	type Writer struct {
+		ID    int        `po:"id,primaryKey,serial"`
+		Name  string     `po:"name,text,notNull"`
+		Posts []BlogPost `po:"-,hasMany,foreignKey(author_id),references(id)"` // value slice
+	}
+	for _, m := range []interface{}{Comment{}, BlogPost{}, Writer{}} {
+		if err := registry.Register(m); err != nil {
+			t.Fatalf("register: %v", err)
+		}
+	}
+	if _, err := runtimeDB.Pool().Exec(ctx, `
+		CREATE TABLE writer (id serial PRIMARY KEY, name text NOT NULL);
+		CREATE TABLE blog_post (id serial PRIMARY KEY, author_id integer NOT NULL, title text NOT NULL);
+		CREATE TABLE comment (id serial PRIMARY KEY, post_id integer NOT NULL, body text NOT NULL);
+		INSERT INTO writer (id, name) VALUES (1, 'ann');
+		INSERT INTO blog_post (id, author_id, title) VALUES (1, 1, 'hello'), (2, 1, 'world');
+		INSERT INTO comment (id, post_id, body) VALUES (1, 1, 'nice'), (2, 1, 'agree'), (3, 2, 'ok');`); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	qb := builder.New(runtimeDB)
+	// Must not panic; must load Comments onto each value-slice Post.
+	writers, err := builder.Select[Writer](qb).Preload("Posts.Comments").All(ctx)
+	if err != nil {
+		t.Fatalf("nested preload: %v", err)
+	}
+	if len(writers) != 1 || len(writers[0].Posts) != 2 {
+		t.Fatalf("expected 1 writer with 2 posts, got %d writers", len(writers))
+	}
+	byTitle := map[string]BlogPost{}
+	for _, p := range writers[0].Posts {
+		byTitle[p.Title] = p
+	}
+	if len(byTitle["hello"].Comments) != 2 {
+		t.Errorf("post 'hello': expected 2 comments, got %d", len(byTitle["hello"].Comments))
+	}
+	if len(byTitle["world"].Comments) != 1 {
+		t.Errorf("post 'world': expected 1 comment, got %d", len(byTitle["world"].Comments))
+	}
+}
