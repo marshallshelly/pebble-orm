@@ -120,14 +120,14 @@ func TestGetSQLTypeFromOptions_JSONB(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			opts := parseTag(tt.tag)
+			opts, _ := schema.ParseTag(tt.tag)
 			if opts == nil {
-				t.Fatalf("parseTag returned nil for tag %q", tt.tag)
+				t.Fatalf("ParseTag returned nil for tag %q", tt.tag)
 			}
 
-			got := getSQLTypeFromOptions(opts)
+			got := opts.GetSQLType()
 			if got != tt.expected {
-				t.Errorf("getSQLTypeFromOptions() = %q, want %q", got, tt.expected)
+				t.Errorf("GetSQLType() = %q, want %q", got, tt.expected)
 			}
 		})
 	}
@@ -158,14 +158,14 @@ func TestGetSQLTypeFromOptions_TimestampTZ(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			opts := parseTag(tt.tag)
+			opts, _ := schema.ParseTag(tt.tag)
 			if opts == nil {
-				t.Fatalf("parseTag returned nil for tag %q", tt.tag)
+				t.Fatalf("ParseTag returned nil for tag %q", tt.tag)
 			}
 
-			got := getSQLTypeFromOptions(opts)
+			got := opts.GetSQLType()
 			if got != tt.expected {
-				t.Errorf("getSQLTypeFromOptions() = %q, want %q", got, tt.expected)
+				t.Errorf("GetSQLType() = %q, want %q", got, tt.expected)
 			}
 		})
 	}
@@ -191,14 +191,14 @@ func TestGetSQLTypeFromOptions_Serial(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			opts := parseTag(tt.tag)
+			opts, _ := schema.ParseTag(tt.tag)
 			if opts == nil {
-				t.Fatalf("parseTag returned nil for tag %q", tt.tag)
+				t.Fatalf("ParseTag returned nil for tag %q", tt.tag)
 			}
 
-			got := getSQLTypeFromOptions(opts)
+			got := opts.GetSQLType()
 			if got != tt.expected {
-				t.Errorf("getSQLTypeFromOptions() = %q, want %q", got, tt.expected)
+				t.Errorf("GetSQLType() = %q, want %q", got, tt.expected)
 			}
 		})
 	}
@@ -219,14 +219,14 @@ func TestGetSQLTypeFromOptions_AllTypes(t *testing.T) {
 	for _, sqlType := range types {
 		t.Run(sqlType, func(t *testing.T) {
 			tag := "column," + sqlType
-			opts := parseTag(tag)
+			opts, _ := schema.ParseTag(tag)
 			if opts == nil {
-				t.Fatalf("parseTag returned nil for tag %q", tag)
+				t.Fatalf("ParseTag returned nil for tag %q", tag)
 			}
 
-			got := getSQLTypeFromOptions(opts)
+			got := opts.GetSQLType()
 			if got != sqlType {
-				t.Errorf("getSQLTypeFromOptions() = %q, want %q", got, sqlType)
+				t.Errorf("GetSQLType() = %q, want %q", got, sqlType)
 			}
 		})
 	}
@@ -272,14 +272,14 @@ func TestGetSQLTypeFromOptions_ArrayTypes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			opts := parseTag(tt.tag)
+			opts, _ := schema.ParseTag(tt.tag)
 			if opts == nil {
-				t.Fatalf("parseTag returned nil for tag %q", tt.tag)
+				t.Fatalf("ParseTag returned nil for tag %q", tt.tag)
 			}
 
-			got := getSQLTypeFromOptions(opts)
+			got := opts.GetSQLType()
 			if got != tt.expected {
-				t.Errorf("getSQLTypeFromOptions() = %q, want %q", got, tt.expected)
+				t.Errorf("GetSQLType() = %q, want %q", got, tt.expected)
 			}
 		})
 	}
@@ -310,14 +310,14 @@ func TestGetSQLTypeFromOptions_WithSize(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			opts := parseTag(tt.tag)
+			opts, _ := schema.ParseTag(tt.tag)
 			if opts == nil {
-				t.Fatalf("parseTag returned nil for tag %q", tt.tag)
+				t.Fatalf("ParseTag returned nil for tag %q", tt.tag)
 			}
 
-			got := getSQLTypeFromOptions(opts)
+			got := opts.GetSQLType()
 			if got != tt.expected {
-				t.Errorf("getSQLTypeFromOptions() = %q, want %q", got, tt.expected)
+				t.Errorf("GetSQLType() = %q, want %q", got, tt.expected)
 			}
 		})
 	}

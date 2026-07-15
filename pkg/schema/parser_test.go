@@ -449,10 +449,10 @@ func TestParser_ArrayColumnType(t *testing.T) {
 	parser := NewParser()
 
 	type TestTeam struct {
-		ID          string    `po:"id,primaryKey,uuid,default(gen_random_uuid())"`
-		Skills      *[]string `po:"skills,text[]"`
-		Certs       *[]string `po:"certifications,text[]"`
-		Languages   *[]string `po:"languages_spoken,text[]"`
+		ID        string    `po:"id,primaryKey,uuid,default(gen_random_uuid())"`
+		Skills    *[]string `po:"skills,text[]"`
+		Certs     *[]string `po:"certifications,text[]"`
+		Languages *[]string `po:"languages_spoken,text[]"`
 	}
 
 	table, err := parser.Parse(reflect.TypeFor[TestTeam]())

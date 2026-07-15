@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.18.0] - 2026-07-15
+
+### Changed
+
+- **Unified the reflection parser and the AST loader onto a shared tag interpreter.** The CLI loader (`pkg/loader`, used by `pebble generate --models`) and the runtime reflection parser (`pkg/schema`) previously reimplemented tag parsing separately and had drifted — every new tag option had to be written twice. Both now funnel through one interpretation (`schema.ParseTag`, `schema.BuildColumn`, `schema.ColumnIndex`, `schema.ColumnForeignKey`, `schema.CollectEnumTypes`, `schema.UniqueConstraintsFor`), differing only in how they extract Go-type facts (reflection vs AST). A parity test asserts the two paths produce identical metadata so they cannot silently diverge again. Net ~340 fewer lines.
+
+### Fixed
+
+- **The CLI loader silently dropped `index`, `enum(...)`, and `generated(...)` tags.** `pebble generate --models` (offline, no database) omitted tag-defined indexes, enum type creation, and generated columns, and with `--db` the differ would even DROP a production index because the code schema looked index-free. The loader now parses all of these (plus identity nullability and table-level `// index:` comment directives), matching the runtime parser exactly.
+- **`fk:table(column)` foreign keys were not parsed by the reflection parser.** Tag parsing checked for `(` before `:`, so `fk:users(id)` was split into the key `fk:users` instead of `fk` = `users(id)`. Runtime-registered models therefore produced no foreign key from the `fk:` tag (the CLI loader had worked around it with a separate colon parser, now removed). Colon-format options whose value contains parentheses are parsed correctly on both paths.
+- The AST loader now infers PostgreSQL types for common Go built-in and standard-library types (matching the reflection type mapper) instead of defaulting untyped fields to `text`.
+
 ## [1.17.4] - 2026-07-15
 
 ### Fixed
@@ -522,7 +534,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - golangci-lint integration.
 - GoReleaser configuration for multi-platform releases.
 
-[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.17.4...HEAD
+[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.18.0...HEAD
+[1.18.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.17.4...v1.18.0
 [1.17.4]: https://github.com/marshallshelly/pebble-orm/compare/v1.17.3...v1.17.4
 [1.17.3]: https://github.com/marshallshelly/pebble-orm/compare/v1.17.2...v1.17.3
 [1.17.2]: https://github.com/marshallshelly/pebble-orm/compare/v1.17.1...v1.17.2

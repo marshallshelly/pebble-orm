@@ -9,7 +9,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/marshallshelly/pebble-orm/pkg/schema"
@@ -123,6 +122,18 @@ func loadModelsFromFile(filename string, registrar ModelRegistrar) (int, error) 
 			// Build TableMetadata directly from AST
 			table := buildTableMetadataFromAST(tableName, structType)
 
+			// Table-level index directives from the struct's comments.
+			for _, cg := range []*ast.CommentGroup{genDecl.Doc, typeSpec.Comment} {
+				if cg == nil {
+					continue
+				}
+				for _, comment := range cg.List {
+					if idx := schema.ParseIndexFromComment(comment.Text); idx != nil {
+						table.Indexes = append(table.Indexes, *idx)
+					}
+				}
+			}
+
 			if err := registrar.RegisterMetadata(table); err != nil {
 				return modelsRegistered, fmt.Errorf("failed to register %s: %w", structName, err)
 			}
@@ -134,7 +145,11 @@ func loadModelsFromFile(filename string, registrar ModelRegistrar) (int, error) 
 	return modelsRegistered, nil
 }
 
-// buildTableMetadataFromAST creates TableMetadata by parsing the AST struct definition
+// buildTableMetadataFromAST creates TableMetadata by parsing the AST struct
+// definition. Go-type facts are extracted from the AST expressions and the tag
+// is interpreted through the shared schema helpers, so the AST loader produces
+// the same metadata as the reflection parser (index/enum/generated/identity/FK
+// included).
 func buildTableMetadataFromAST(tableName string, structType *ast.StructType) *schema.TableMetadata {
 	table := &schema.TableMetadata{
 		Name:        tableName,
@@ -151,73 +166,33 @@ func buildTableMetadataFromAST(tableName string, structType *ast.StructType) *sc
 
 	position := 0
 	for _, field := range structType.Fields.List {
-		if len(field.Names) == 0 {
-			continue //  Embedded field
+		if len(field.Names) == 0 || field.Tag == nil {
+			continue // Embedded or untagged field
+		}
+
+		poTag := parseStructTag(strings.Trim(field.Tag.Value, "`")).Get("po")
+		if poTag == "" || poTag == "-" {
+			continue
+		}
+		opts, err := schema.ParseTag(poTag)
+		if err != nil {
+			continue
+		}
+		if schema.IsRelationshipTag(opts) {
+			continue
 		}
 
 		for _, fieldName := range field.Names {
-			// Get the tag
-			if field.Tag == nil {
-				continue
+			fm := schema.FieldMeta{
+				GoField:      fieldName.Name,
+				TypeName:     astTypeName(field.Type),
+				Nullable:     astNullable(field.Type),
+				InferredType: astInferPGType(field.Type),
+				Position:     position,
 			}
+			column := schema.BuildColumn(opts, fm)
 
-			tagValue := strings.Trim(field.Tag.Value, "`")
-			tag := parseStructTag(tagValue)
-
-			poTag := tag.Get("po")
-			if poTag == "" || poTag == "-" {
-				continue // Not a database column
-			}
-
-			// Parse the po tag
-			opts := parseTag(poTag)
-			if opts == nil {
-				continue
-			}
-
-			// Skip relationship fields
-			if isRelationshipTag(opts) {
-				continue
-			}
-
-			// Create column metadata
-			column := schema.ColumnMetadata{
-				Name:     opts.name,
-				GoField:  fieldName.Name,
-				GoType:   nil, // Can't determine from AST alone
-				Position: position,
-			}
-
-			// Determine SQL type from tag
-			column.SQLType = getSQLTypeFromOptions(opts)
-			if column.SQLType == "" {
-				column.SQLType = "text" // Default
-			}
-
-			// Set properties from tags
-			column.Nullable = !hasOption(opts, "notNull") && !hasOption(opts, "primaryKey")
-			column.Unique = hasOption(opts, "unique")
-			column.AutoIncrement = hasOption(opts, "serial") || hasOption(opts, "bigserial") || hasOption(opts, "autoIncrement")
-
-			// Handle identity columns
-			if hasOption(opts, "identity") || hasOption(opts, "identityAlways") {
-				column.Identity = &schema.IdentityColumn{
-					Generation: schema.IdentityAlways,
-				}
-				column.Nullable = false // Identity columns are implicitly NOT NULL
-			} else if hasOption(opts, "identityByDefault") {
-				column.Identity = &schema.IdentityColumn{
-					Generation: schema.IdentityByDefault,
-				}
-				column.Nullable = false
-			}
-
-			if defaultVal := getOptionValue(opts, "default"); defaultVal != "" {
-				column.Default = &defaultVal
-			}
-
-			// Handle primary key
-			if hasOption(opts, "primaryKey") {
+			if opts.Has("primaryKey") {
 				if table.PrimaryKey == nil {
 					table.PrimaryKey = &schema.PrimaryKeyMetadata{
 						Columns: []string{column.Name},
@@ -228,153 +203,125 @@ func buildTableMetadataFromAST(tableName string, structType *ast.StructType) *sc
 				}
 			}
 
-			// Note: UNIQUE columns automatically create indexes in PostgreSQL
-			// No need to explicitly create separate UNIQUE indexes - they're implicit
-
 			table.Columns = append(table.Columns, column)
+
+			if idx, ok := schema.ColumnIndex(opts, tableName); ok {
+				table.Indexes = append(table.Indexes, idx)
+			}
+			if fk, ok := schema.ColumnForeignKey(opts, tableName); ok {
+				table.ForeignKeys = append(table.ForeignKeys, fk)
+			}
 			position++
 		}
 	}
 
-	// Create UNIQUE constraints for columns marked as unique
-	// This allows the migration system to detect and manage UNIQUE constraints
-	for _, col := range table.Columns {
-		if col.Unique {
-			constraint := schema.ConstraintMetadata{
-				Name:    fmt.Sprintf("%s_%s_key", table.Name, col.Name),
-				Type:    schema.UniqueConstraint,
-				Columns: []string{col.Name},
-			}
-			table.Constraints = append(table.Constraints, constraint)
-		}
-	}
-
-	// Parse foreign keys from column tags (fk:table(column) / onDelete:action)
-	for _, field := range structType.Fields.List {
-		if len(field.Names) == 0 || field.Tag == nil {
-			continue
-		}
-		tagValue := strings.Trim(field.Tag.Value, "`")
-		tag := parseStructTag(tagValue)
-		poTag := tag.Get("po")
-		if poTag == "" || poTag == "-" {
-			continue
-		}
-		opts := parseTag(poTag)
-		if opts == nil || isRelationshipTag(opts) {
-			continue
-		}
-
-		fkStr := getColonValue(opts, "fk")
-		if fkStr == "" {
-			continue
-		}
-
-		// Parse "table(column)" format
-		var refTable, refColumn string
-		if idx := strings.Index(fkStr, "("); idx > 0 && strings.HasSuffix(fkStr, ")") {
-			refTable = fkStr[:idx]
-			refColumn = fkStr[idx+1 : len(fkStr)-1]
-		} else if strings.Contains(fkStr, ".") {
-			parts := strings.SplitN(fkStr, ".", 2)
-			if len(parts) == 2 {
-				refTable, refColumn = parts[0], parts[1]
-			}
-		}
-		if refTable == "" || refColumn == "" {
-			continue
-		}
-
-		fk := schema.ForeignKeyMetadata{
-			Name:              fmt.Sprintf("fk_%s_%s_%s", tableName, opts.name, refTable),
-			Columns:           []string{opts.name},
-			ReferencedTable:   refTable,
-			ReferencedColumns: []string{refColumn},
-			OnDelete:          loaderParseReferenceAction(getColonValue(opts, "onDelete")),
-			OnUpdate:          loaderParseReferenceAction(getColonValue(opts, "onUpdate")),
-		}
-		table.ForeignKeys = append(table.ForeignKeys, fk)
-	}
+	table.Constraints = append(table.Constraints, schema.UniqueConstraintsFor(tableName, table.Columns)...)
+	table.EnumTypes = schema.CollectEnumTypes(table.Columns)
 
 	return table
 }
 
-// getColonValue extracts the value from a colon-format option like "fk:table(col)" -> "table(col)".
-func getColonValue(opts *tagOptions, key string) string {
-	prefix := key + ":"
-	for _, opt := range opts.options {
-		if strings.HasPrefix(opt, prefix) {
-			return opt[len(prefix):]
-		}
-	}
-	return ""
-}
-
-// loaderParseReferenceAction converts an onDelete/onUpdate string to a ReferenceAction.
-func loaderParseReferenceAction(action string) schema.ReferenceAction {
-	switch strings.ToUpper(strings.TrimSpace(action)) {
-	case "CASCADE":
-		return schema.Cascade
-	case "RESTRICT":
-		return schema.Restrict
-	case "SETNULL", "SET NULL":
-		return schema.SetNull
-	case "SETDEFAULT", "SET DEFAULT":
-		return schema.SetDefault
+// astTypeName returns the base named type of an AST type expression, unwrapping
+// pointers and slices (e.g. *OrderStatus -> "OrderStatus", []string -> "string",
+// time.Time -> "Time"). Used for enum type naming.
+func astTypeName(expr ast.Expr) string {
+	switch t := expr.(type) {
+	case *ast.StarExpr:
+		return astTypeName(t.X)
+	case *ast.ArrayType:
+		return astTypeName(t.Elt)
+	case *ast.Ident:
+		return t.Name
+	case *ast.SelectorExpr:
+		return t.Sel.Name
 	default:
-		return schema.NoAction
+		return ""
 	}
 }
 
-// Simple tag option struct
-type tagOptions struct {
-	name    string
-	options []string
-}
-
-// parseTag parses a po tag value
-func parseTag(tag string) *tagOptions {
-	var parts []string
-	var buffer strings.Builder
-	inParens := 0
-
-	for _, r := range tag {
-		switch r {
-		case '(':
-			inParens++
-			buffer.WriteRune(r)
-		case ')':
-			inParens--
-			buffer.WriteRune(r)
-		case ',':
-			if inParens == 0 {
-				parts = append(parts, buffer.String())
-				buffer.Reset()
-			} else {
-				buffer.WriteRune(r)
-			}
-		default:
-			buffer.WriteRune(r)
+// astNullable reports whether an AST type expression is nullable (a pointer or
+// a database/sql Null* type).
+func astNullable(expr ast.Expr) bool {
+	switch t := expr.(type) {
+	case *ast.StarExpr:
+		return true
+	case *ast.SelectorExpr:
+		if x, ok := t.X.(*ast.Ident); ok && x.Name == "sql" && strings.HasPrefix(t.Sel.Name, "Null") {
+			return true
 		}
 	}
-	if buffer.Len() > 0 {
-		parts = append(parts, buffer.String())
-	}
+	return false
+}
 
-	if len(parts) == 0 {
-		return nil
+// astInferPGType infers the PostgreSQL type for an AST type expression, matching
+// schema.DefaultTypeMapper for the common Go built-in and standard-library
+// types. Returns "" for named or unknown types (the shared BuildColumn then
+// falls back to the explicit tag type or text).
+func astInferPGType(expr ast.Expr) string {
+	switch t := expr.(type) {
+	case *ast.StarExpr:
+		return astInferPGType(t.X)
+	case *ast.ArrayType:
+		if id, ok := t.Elt.(*ast.Ident); ok && (id.Name == "byte" || id.Name == "uint8") {
+			return "bytea"
+		}
+		if elem := astInferPGType(t.Elt); elem != "" {
+			return elem + "[]"
+		}
+		return ""
+	case *ast.MapType:
+		if k, ok := t.Key.(*ast.Ident); ok && k.Name == "string" {
+			if _, ok := t.Value.(*ast.InterfaceType); ok {
+				return "jsonb"
+			}
+		}
+		return ""
+	case *ast.SelectorExpr:
+		x, ok := t.X.(*ast.Ident)
+		if !ok {
+			return ""
+		}
+		if x.Name == "time" && t.Sel.Name == "Time" {
+			return "timestamp with time zone"
+		}
+		if x.Name == "sql" {
+			switch t.Sel.Name {
+			case "NullString":
+				return "text"
+			case "NullInt64":
+				return "bigint"
+			case "NullInt32":
+				return "integer"
+			case "NullFloat64":
+				return "double precision"
+			case "NullBool":
+				return "boolean"
+			case "NullTime":
+				return "timestamp with time zone"
+			}
+		}
+		return ""
+	case *ast.Ident:
+		switch t.Name {
+		case "string":
+			return "text"
+		case "bool":
+			return "boolean"
+		case "int8", "int16", "uint8":
+			return "smallint"
+		case "int32", "int", "uint16":
+			return "integer"
+		case "int64", "uint32", "uint64":
+			return "bigint"
+		case "float32":
+			return "real"
+		case "float64":
+			return "double precision"
+		}
+		return ""
+	default:
+		return ""
 	}
-
-	opts := &tagOptions{
-		name:    strings.TrimSpace(parts[0]),
-		options: make([]string, 0),
-	}
-
-	for i := 1; i < len(parts); i++ {
-		opts.options = append(opts.options, strings.TrimSpace(parts[i]))
-	}
-
-	return opts
 }
 
 // parseStructTag parses a complete struct tag
@@ -401,74 +348,6 @@ func (t *structTag) Get(key string) string {
 	}
 
 	return t.value[start : start+end]
-}
-
-// hasOption checks if an option exists
-func hasOption(opts *tagOptions, option string) bool {
-	for _, opt := range opts.options {
-		if opt == option {
-			return true
-		}
-		if strings.HasPrefix(opt, option+"(") {
-			return true
-		}
-	}
-	return false
-}
-
-// getOptionValue gets the value of an option like default(value)
-func getOptionValue(opts *tagOptions, option string) string {
-	for _, opt := range opts.options {
-		if strings.HasPrefix(opt, option) {
-			// Check for parentheses format: option(value)
-			if idx := strings.Index(opt, "("); idx != -1 {
-				if strings.HasSuffix(opt, ")") {
-					return opt[idx+1 : len(opt)-1]
-				}
-			}
-		}
-	}
-	return ""
-}
-
-// getSQLTypeFromOptions extracts SQL type from tag options
-func getSQLTypeFromOptions(opts *tagOptions) string {
-	// IMPORTANT: Order matters! More specific types must come before their prefixes.
-	// - jsonb before json (jsonb starts with "json")
-	// - timestamptz before timestamp (timestamptz starts with "timestamp")
-	// - bigserial before serial (bigserial contains "serial")
-	pgTypes := []string{
-		"uuid", "varchar", "text", "char",
-		"smallint", "integer", "bigint", "bigserial", "serial",
-		"numeric", "decimal", "real", "double precision",
-		"boolean", "bool",
-		"timestamptz", "timestamp", "date", "time", "interval",
-		"jsonb", "json",
-		"bytea",
-	}
-
-	for _, opt := range opts.options {
-		for _, pgType := range pgTypes {
-			if strings.HasPrefix(opt, pgType) {
-				// Return opt directly: preserves size params like varchar(255)
-				// and array suffixes like text[], integer[]
-				return opt
-			}
-		}
-	}
-
-	return ""
-}
-
-// isRelationshipTag checks if options indicate a relationship
-func isRelationshipTag(opts *tagOptions) bool {
-	relationships := []string{"belongsTo", "hasOne", "hasMany", "manyToMany"}
-	for _, opt := range opts.options {
-		if slices.Contains(relationships, opt) {
-			return true
-		}
-	}
-	return false
 }
 
 // toSnakeCase converts PascalCase to snake_case
