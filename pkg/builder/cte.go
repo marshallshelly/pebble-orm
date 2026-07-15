@@ -107,8 +107,10 @@ func (q *CTESelect[T]) ToSQL() (string, []interface{}, error) {
 		return "", nil, err
 	}
 
-	// Combine
+	// Combine. CTE args come first in the parameter list, so the main query's
+	// $n placeholders (numbered from $1) are shifted past them to stay aligned.
 	if cteSQL != "" {
+		mainSQL = shiftPlaceholders(mainSQL, len(cteArgs))
 		mainSQL = cteSQL + " " + mainSQL
 		allArgs := append(cteArgs, mainArgs...)
 		return mainSQL, allArgs, nil

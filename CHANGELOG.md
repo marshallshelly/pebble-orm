@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.17.4] - 2026-07-15
+
+### Fixed
+
+- **Query parameter placeholders collided across clauses.** WHERE and HAVING each restarted numbering at `$1`, JOIN args weren't offset, and CTE args weren't accounted for in the main query — so a query combining any two arg-bearing clauses (e.g. `Where(...).Having(...)`, a JOIN with args plus a WHERE, or `WithCTE(sql, arg).Where(...)`) emitted duplicate `$1`s and failed with a bind-count error or bound the wrong value. Placeholders are now numbered sequentially across JOIN → WHERE → HAVING, join/CTE fragments are renumbered to their position, and `CTESelect.ToSQL` shifts the main query past the CTE args.
+- **Subquery condition helpers dropped their bound arguments.** `InSubquery`, `ExistsSubquery`, `GtSubquery`, and the rest built with `NewSubquery(sql, args...)` embedded the subquery SQL but discarded its args, so a parameterized subquery failed with "there is no parameter $1" or bound to the wrong outer value. The subquery's args are now carried through and its placeholders renumbered to the outer query's position.
+- **Migrations with dollar-quoted bodies or semicolons in string literals were split incorrectly.** The executor split on every semicolon with no string/`$$` awareness, shattering `CREATE FUNCTION ... $$ ... ; ... $$` and `INSERT ... VALUES ('a;b')` mid-statement. A shared, dollar-quote- and string-literal-aware splitter now backs both migration execution and offline schema reconstruction.
+- **The migration advisory lock ran on different pooled connections.** `pg_advisory_lock` is session-scoped, but Lock and Unlock issued their queries through the pool, so Unlock could land on a different connection ("lock was not held") while the lock leaked on an idle one. The lock is now held on a dedicated connection for its lifetime.
+- `TxSelect` join rendering now emits the `LATERAL` keyword, matching the non-transaction builder.
+
 ## [1.17.3] - 2026-07-15
 
 ### Fixed
@@ -512,7 +522,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - golangci-lint integration.
 - GoReleaser configuration for multi-platform releases.
 
-[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.17.3...HEAD
+[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.17.4...HEAD
+[1.17.4]: https://github.com/marshallshelly/pebble-orm/compare/v1.17.3...v1.17.4
 [1.17.3]: https://github.com/marshallshelly/pebble-orm/compare/v1.17.2...v1.17.3
 [1.17.2]: https://github.com/marshallshelly/pebble-orm/compare/v1.17.1...v1.17.2
 [1.17.1]: https://github.com/marshallshelly/pebble-orm/compare/v1.17.0...v1.17.1

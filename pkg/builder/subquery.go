@@ -37,45 +37,49 @@ func (s *Subquery) ToSQL() (string, []interface{}) {
 
 // InSubquery creates an IN condition with a subquery
 func InSubquery(column string, subquery *Subquery) Condition {
-	sql, _ := subquery.ToSQL()
+	sql, args := subquery.ToSQL()
 	return Condition{
 		Column:   column,
 		Operator: OpIn,
 		Value:    sql,
 		Raw:      true,
+		Args:     args,
 	}
 }
 
 // NotInSubquery creates a NOT IN condition with a subquery
 func NotInSubquery(column string, subquery *Subquery) Condition {
-	sql, _ := subquery.ToSQL()
+	sql, args := subquery.ToSQL()
 	return Condition{
 		Column:   column,
 		Operator: OpNotIn,
 		Value:    sql,
 		Raw:      true,
+		Args:     args,
 	}
 }
 
 // ExistsSubquery creates an EXISTS condition with a subquery
 func ExistsSubquery(subquery *Subquery) Condition {
-	sql, _ := subquery.ToSQL()
+	sql, args := subquery.ToSQL()
 	return Condition{
 		Column:   "",
 		Operator: "EXISTS",
 		Value:    sql,
 		Raw:      true,
+		Args:     args,
 	}
 }
 
 // NotExistsSubquery creates a NOT EXISTS condition with a subquery
 func NotExistsSubquery(subquery *Subquery) Condition {
-	sql, _ := subquery.ToSQL()
+	sql, args := subquery.ToSQL()
 	return Condition{
 		Column:   "",
 		Operator: "NOT EXISTS",
 		Value:    sql,
 		Raw:      true,
+		Args:     args,
 	}
 }
 
@@ -83,67 +87,73 @@ func NotExistsSubquery(subquery *Subquery) Condition {
 
 // GtSubquery creates a > (subquery) condition
 func GtSubquery(column string, subquery *Subquery) Condition {
-	sql, _ := subquery.ToSQL()
+	sql, args := subquery.ToSQL()
 	return Condition{
 		Column:   column,
 		Operator: OpGreaterThan,
 		Value:    sql,
 		Raw:      true,
+		Args:     args,
 	}
 }
 
 // GteSubquery creates a >= (subquery) condition
 func GteSubquery(column string, subquery *Subquery) Condition {
-	sql, _ := subquery.ToSQL()
+	sql, args := subquery.ToSQL()
 	return Condition{
 		Column:   column,
 		Operator: OpGreaterThanOrEqual,
 		Value:    sql,
 		Raw:      true,
+		Args:     args,
 	}
 }
 
 // LtSubquery creates a < (subquery) condition
 func LtSubquery(column string, subquery *Subquery) Condition {
-	sql, _ := subquery.ToSQL()
+	sql, args := subquery.ToSQL()
 	return Condition{
 		Column:   column,
 		Operator: OpLessThan,
 		Value:    sql,
 		Raw:      true,
+		Args:     args,
 	}
 }
 
 // LteSubquery creates a <= (subquery) condition
 func LteSubquery(column string, subquery *Subquery) Condition {
-	sql, _ := subquery.ToSQL()
+	sql, args := subquery.ToSQL()
 	return Condition{
 		Column:   column,
 		Operator: OpLessThanOrEqual,
 		Value:    sql,
 		Raw:      true,
+		Args:     args,
 	}
 }
 
 // EqSubquery creates a = (subquery) condition
 func EqSubquery(column string, subquery *Subquery) Condition {
-	sql, _ := subquery.ToSQL()
+	sql, args := subquery.ToSQL()
 	return Condition{
 		Column:   column,
 		Operator: OpEqual,
 		Value:    sql,
 		Raw:      true,
+		Args:     args,
 	}
 }
 
 // NotEqSubquery creates a != (subquery) condition
 func NotEqSubquery(column string, subquery *Subquery) Condition {
-	sql, _ := subquery.ToSQL()
+	sql, args := subquery.ToSQL()
 	return Condition{
 		Column:   column,
 		Operator: OpNotEqual,
 		Value:    sql,
 		Raw:      true,
+		Args:     args,
 	}
 }
 
@@ -152,35 +162,38 @@ func NotEqSubquery(column string, subquery *Subquery) Condition {
 // AllSubquery creates an ALL (subquery) condition
 // Example: price > ALL (SELECT price FROM products WHERE category = 'electronics')
 func AllSubquery(column string, operator Operator, subquery *Subquery) Condition {
-	sql, _ := subquery.ToSQL()
+	sql, args := subquery.ToSQL()
 	return Condition{
 		Column:   column,
 		Operator: operator,
 		Value:    fmt.Sprintf("ALL %s", sql),
 		Raw:      true,
+		Args:     args,
 	}
 }
 
 // AnySubquery creates an ANY (subquery) condition
 // Example: price > ANY (SELECT price FROM products WHERE category = 'electronics')
 func AnySubquery(column string, operator Operator, subquery *Subquery) Condition {
-	sql, _ := subquery.ToSQL()
+	sql, args := subquery.ToSQL()
 	return Condition{
 		Column:   column,
 		Operator: operator,
 		Value:    fmt.Sprintf("ANY %s", sql),
 		Raw:      true,
+		Args:     args,
 	}
 }
 
 // SomeSubquery creates a SOME (subquery) condition (synonym for ANY)
 func SomeSubquery(column string, operator Operator, subquery *Subquery) Condition {
-	sql, _ := subquery.ToSQL()
+	sql, args := subquery.ToSQL()
 	return Condition{
 		Column:   column,
 		Operator: operator,
 		Value:    fmt.Sprintf("SOME %s", sql),
 		Raw:      true,
+		Args:     args,
 	}
 }
 

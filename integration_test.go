@@ -5,6 +5,8 @@ package pebbleorm_test
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -463,6 +465,12 @@ func TestIntegration_ComplexQueries(t *testing.T) {
 	for _, user := range users {
 		_, _ = builder.Insert[User](qb).Values(user).Exec(ctx)
 	}
+	// Charlie's Active:false is omitted from INSERT (zero value on a defaulted
+	// column, by design), so persist the inactive state explicitly via UPDATE,
+	// which does not skip zero values.
+	if _, err := builder.Update[User](qb).Set("active", false).Where(builder.Eq("name", "Charlie")).Exec(ctx); err != nil {
+		t.Fatalf("failed to deactivate Charlie: %v", err)
+	}
 
 	t.Run("Complex WHERE conditions", func(t *testing.T) {
 		results, err := builder.Select[User](qb).
@@ -797,5 +805,120 @@ func TestIntegration_NestedPreloadValueSlice(t *testing.T) {
 	}
 	if len(byTitle["world"].Comments) != 1 {
 		t.Errorf("post 'world': expected 1 comment, got %d", len(byTitle["world"].Comments))
+	}
+}
+
+// TestIntegration_MigrationDollarQuotedBody verifies a migration containing a
+// dollar-quoted function body (with interior semicolons) applies as a single
+// statement instead of being shattered by the SQL splitter.
+func TestIntegration_MigrationDollarQuotedBody(t *testing.T) {
+	_, connStr, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, connStr)
+	if err != nil {
+		t.Fatalf("pool: %v", err)
+	}
+	defer pool.Close()
+
+	dir := t.TempDir()
+	up := `CREATE TABLE widget (id serial PRIMARY KEY, updated_at timestamptz);
+
+CREATE FUNCTION touch_widget() RETURNS trigger AS $$
+BEGIN
+  NEW.updated_at := now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER widget_touch BEFORE UPDATE ON widget
+FOR EACH ROW EXECUTE FUNCTION touch_widget();
+`
+	if err := os.WriteFile(filepath.Join(dir, "20260101000000_fn.up.sql"), []byte(up), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "20260101000000_fn.down.sql"),
+		[]byte("DROP TABLE IF EXISTS widget; DROP FUNCTION IF EXISTS touch_widget();"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	executor := migration.NewExecutor(pool, dir)
+	if err := executor.Initialize(ctx); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	gen := migration.NewGenerator(dir)
+	files, err := gen.ListMigrations()
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	mig, err := gen.ReadMigration(files[0])
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if err := executor.Apply(ctx, *mig, false); err != nil {
+		t.Fatalf("apply dollar-quoted migration: %v", err)
+	}
+
+	// The trigger works → the function body was applied intact.
+	if _, err := pool.Exec(ctx, "INSERT INTO widget (id) VALUES (1)"); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	if _, err := pool.Exec(ctx, "UPDATE widget SET id = 1 WHERE id = 1"); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	var updatedAt *string
+	if err := pool.QueryRow(ctx, "SELECT updated_at::text FROM widget WHERE id = 1").Scan(&updatedAt); err != nil {
+		t.Fatalf("select: %v", err)
+	}
+	if updatedAt == nil {
+		t.Error("trigger did not fire; function body was not applied intact")
+	}
+}
+
+// TestIntegration_AdvisoryLockLifecycle verifies the advisory lock is held on a
+// dedicated connection so Unlock succeeds on the same session, and a second
+// executor cannot acquire it while held.
+func TestIntegration_AdvisoryLockLifecycle(t *testing.T) {
+	_, connStr, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, connStr)
+	if err != nil {
+		t.Fatalf("pool: %v", err)
+	}
+	defer pool.Close()
+
+	e1 := migration.NewExecutor(pool, t.TempDir())
+	if err := e1.Lock(ctx); err != nil {
+		t.Fatalf("e1 lock: %v", err)
+	}
+
+	// A second executor must not be able to grab the same lock while held.
+	e2 := migration.NewExecutor(pool, t.TempDir())
+	got, err := e2.TryLock(ctx)
+	if err != nil {
+		t.Fatalf("e2 trylock: %v", err)
+	}
+	if got {
+		t.Error("e2 acquired the lock while e1 holds it")
+		_ = e2.Unlock(ctx)
+	}
+
+	// Unlock must succeed on the same session (previously failed on the pool).
+	if err := e1.Unlock(ctx); err != nil {
+		t.Fatalf("e1 unlock: %v", err)
+	}
+
+	// Now e2 can acquire it.
+	got, err = e2.TryLock(ctx)
+	if err != nil {
+		t.Fatalf("e2 trylock after release: %v", err)
+	}
+	if !got {
+		t.Error("e2 could not acquire lock after e1 released it")
+	} else if err := e2.Unlock(ctx); err != nil {
+		t.Fatalf("e2 unlock: %v", err)
 	}
 }

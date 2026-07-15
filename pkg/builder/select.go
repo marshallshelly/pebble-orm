@@ -191,7 +191,9 @@ func (q *SelectQuery[T]) ToSQL() (string, []interface{}, error) {
 	sql.WriteString(" FROM ")
 	sql.WriteString(schema.QuoteReservedIdent(q.table.Name))
 
-	// JOIN clauses
+	// JOIN clauses. Each join condition's own $1.. placeholders are renumbered
+	// to start at the running parameter position so join args don't collide
+	// with each other or with the WHERE/HAVING args that follow.
 	for _, join := range q.joins {
 		sql.WriteString(" ")
 		sql.WriteString(string(join.Type))
@@ -201,18 +203,17 @@ func (q *SelectQuery[T]) ToSQL() (string, []interface{}, error) {
 		}
 		sql.WriteString(join.Table)
 		sql.WriteString(" ON ")
-		sql.WriteString(join.Condition)
+		sql.WriteString(shiftPlaceholders(join.Condition, paramNum-1))
 
-		// Add join arguments
 		for _, arg := range join.Args {
 			args = append(args, arg)
 			paramNum++
 		}
 	}
 
-	// WHERE clause
+	// WHERE clause — numbered continuing from any join args.
 	if len(q.where) > 0 {
-		whereBuilder := NewWhereBuilder()
+		whereBuilder := NewWhereBuilderWithStart(paramNum)
 		whereBuilder.conditions = q.where
 		whereSql, whereArgs, err := whereBuilder.Build()
 		if err != nil {
@@ -233,11 +234,11 @@ func (q *SelectQuery[T]) ToSQL() (string, []interface{}, error) {
 		sql.WriteString(strings.Join(q.groupBy, ", "))
 	}
 
-	// HAVING clause
+	// HAVING clause — numbered continuing from WHERE args.
 	if len(q.having) > 0 {
-		whereBuilder := NewWhereBuilder()
-		whereBuilder.conditions = q.having
-		havingSql, havingArgs, err := whereBuilder.Build()
+		havingBuilder := NewWhereBuilderWithStart(paramNum)
+		havingBuilder.conditions = q.having
+		havingSql, havingArgs, err := havingBuilder.Build()
 		if err != nil {
 			return "", nil, fmt.Errorf("failed to build HAVING clause: %w", err)
 		}

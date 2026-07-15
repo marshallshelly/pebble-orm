@@ -2,8 +2,27 @@ package builder
 
 import (
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 )
+
+// placeholderRe matches PostgreSQL positional parameter placeholders ($1, $2, …).
+var placeholderRe = regexp.MustCompile(`\$(\d+)`)
+
+// shiftPlaceholders renumbers every $n placeholder in sql by offset, so a
+// fragment written with $1.. can be embedded at a later parameter position.
+// It operates on builder-generated or convention-numbered SQL, which contains
+// no string literals with a literal "$n".
+func shiftPlaceholders(sql string, offset int) string {
+	if offset == 0 {
+		return sql
+	}
+	return placeholderRe.ReplaceAllStringFunc(sql, func(m string) string {
+		n, _ := strconv.Atoi(m[1:])
+		return "$" + strconv.Itoa(n+offset)
+	})
+}
 
 // WhereBuilder helps build WHERE clauses.
 type WhereBuilder struct {
@@ -107,17 +126,21 @@ func (w *WhereBuilder) buildCondition(cond Condition, paramNum int) (string, []i
 	value := cond.Value
 
 	// Raw conditions embed Value directly as SQL instead of parameterizing it.
-	// Used by subquery helpers (InSubquery, ExistsSubquery, ...) and TSMatch.
+	// Used by the subquery helpers (InSubquery, ExistsSubquery, ...). Any $n
+	// placeholders inside the raw SQL are renumbered to start at paramNum, and
+	// cond.Args are returned so the outer builder appends them and advances the
+	// parameter counter.
 	if cond.Raw {
 		raw, ok := value.(string)
 		if !ok {
 			return "", nil, fmt.Errorf("raw condition requires string value, got %T", value)
 		}
+		raw = shiftPlaceholders(raw, paramNum-1)
 		if column == "" {
 			// EXISTS (subquery) / NOT EXISTS (subquery)
-			return fmt.Sprintf("%s %s", operator, raw), nil, nil
+			return fmt.Sprintf("%s %s", operator, raw), cond.Args, nil
 		}
-		return fmt.Sprintf("%s %s %s", column, operator, raw), nil, nil
+		return fmt.Sprintf("%s %s %s", column, operator, raw), cond.Args, nil
 	}
 
 	switch operator {

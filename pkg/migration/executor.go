@@ -14,7 +14,8 @@ import (
 type Executor struct {
 	pool          *pgxpool.Pool
 	migrationsDir string
-	lockID        int64 // PostgreSQL advisory lock ID
+	lockID        int64         // PostgreSQL advisory lock ID
+	lockConn      *pgxpool.Conn // dedicated connection holding the session-scoped advisory lock
 }
 
 // NewExecutor creates a new migration executor.
@@ -62,20 +63,37 @@ func (e *Executor) Initialize(ctx context.Context) error {
 	return nil
 }
 
-// Lock acquires an advisory lock to prevent concurrent migrations.
+// Lock acquires a session-scoped advisory lock to prevent concurrent
+// migrations. The lock is held on a dedicated connection so that Unlock runs on
+// the same session — issuing lock and unlock through the pool would land on
+// different pooled connections, leaving the lock stuck on an idle one.
 func (e *Executor) Lock(ctx context.Context) error {
-	_, err := e.pool.Exec(ctx, "SELECT pg_advisory_lock($1)", e.lockID)
+	if e.lockConn != nil {
+		return fmt.Errorf("migration lock already held")
+	}
+	conn, err := e.pool.Acquire(ctx)
 	if err != nil {
+		return fmt.Errorf("failed to acquire connection for migration lock: %w", err)
+	}
+	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock($1)", e.lockID); err != nil {
+		conn.Release()
 		return fmt.Errorf("failed to acquire migration lock: %w", err)
 	}
+	e.lockConn = conn
 	return nil
 }
 
-// Unlock releases the advisory lock.
+// Unlock releases the advisory lock on the connection that acquired it.
 func (e *Executor) Unlock(ctx context.Context) error {
+	if e.lockConn == nil {
+		return fmt.Errorf("migration lock not held")
+	}
+	defer func() {
+		e.lockConn.Release()
+		e.lockConn = nil
+	}()
 	var released bool
-	err := e.pool.QueryRow(ctx, "SELECT pg_advisory_unlock($1)", e.lockID).Scan(&released)
-	if err != nil {
+	if err := e.lockConn.QueryRow(ctx, "SELECT pg_advisory_unlock($1)", e.lockID).Scan(&released); err != nil {
 		return fmt.Errorf("failed to release migration lock: %w", err)
 	}
 	if !released {
@@ -84,14 +102,27 @@ func (e *Executor) Unlock(ctx context.Context) error {
 	return nil
 }
 
-// TryLock attempts to acquire an advisory lock without blocking.
+// TryLock attempts to acquire the advisory lock without blocking. On success
+// the lock is held on a dedicated connection until Unlock.
 func (e *Executor) TryLock(ctx context.Context) (bool, error) {
-	var acquired bool
-	err := e.pool.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", e.lockID).Scan(&acquired)
+	if e.lockConn != nil {
+		return true, nil
+	}
+	conn, err := e.pool.Acquire(ctx)
 	if err != nil {
+		return false, fmt.Errorf("failed to acquire connection for migration lock: %w", err)
+	}
+	var acquired bool
+	if err := conn.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", e.lockID).Scan(&acquired); err != nil {
+		conn.Release()
 		return false, fmt.Errorf("failed to try migration lock: %w", err)
 	}
-	return acquired, nil
+	if !acquired {
+		conn.Release()
+		return false, nil
+	}
+	e.lockConn = conn
+	return true, nil
 }
 
 // GetAppliedMigrations returns all migrations that have been applied.
@@ -195,7 +226,7 @@ func (e *Executor) Apply(ctx context.Context, migration Migration, dryRun bool) 
 	}
 
 	// Execute migration SQL using simple query protocol to avoid prepared statement caching
-	statements := splitSQL(migration.UpSQL)
+	statements := splitSQLStatements(migration.UpSQL)
 	for i, stmt := range statements {
 		stmt = strings.TrimSpace(stmt)
 		if stmt == "" || strings.HasPrefix(stmt, "--") {
@@ -258,7 +289,7 @@ func (e *Executor) Rollback(ctx context.Context, migration Migration, dryRun boo
 	defer tx.Rollback(ctx)
 
 	// Execute rollback SQL using simple query protocol to avoid prepared statement caching
-	statements := splitSQL(migration.DownSQL)
+	statements := splitSQLStatements(migration.DownSQL)
 	for i, stmt := range statements {
 		stmt = strings.TrimSpace(stmt)
 		if stmt == "" || strings.HasPrefix(stmt, "--") {
@@ -436,37 +467,4 @@ func (e *Executor) WithTransaction(ctx context.Context, fn func(tx pgx.Tx) error
 	}
 
 	return nil
-}
-
-// splitSQL splits a SQL string into individual statements.
-// This is a simple implementation that splits on semicolons.
-// A more robust implementation would use a proper SQL parser.
-func splitSQL(sql string) []string {
-	// Remove comments
-	lines := strings.Split(sql, "\n")
-	var cleanedLines []string
-	for _, line := range lines {
-		// Skip comment lines
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "--") {
-			continue
-		}
-		cleanedLines = append(cleanedLines, line)
-	}
-
-	cleaned := strings.Join(cleanedLines, "\n")
-
-	// Split on semicolons
-	statements := strings.Split(cleaned, ";")
-
-	// Filter out empty statements
-	var result []string
-	for _, stmt := range statements {
-		stmt = strings.TrimSpace(stmt)
-		if stmt != "" {
-			result = append(result, stmt)
-		}
-	}
-
-	return result
 }

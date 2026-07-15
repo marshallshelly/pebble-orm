@@ -53,7 +53,7 @@ func ReconstructSchemaFromMigrations(dir string) (map[string]*schema.TableMetada
 
 // applySQLToSchema applies DDL statements from sql to the in-memory schema map.
 func applySQLToSchema(tables map[string]*schema.TableMetadata, sql string) {
-	for _, stmt := range splitStatements(sql) {
+	for _, stmt := range splitSQLStatements(sql) {
 		stmt = strings.TrimSpace(stmt)
 		if stmt == "" {
 			continue
@@ -68,33 +68,6 @@ func applySQLToSchema(tables map[string]*schema.TableMetadata, sql string) {
 			applyAlterTable(tables, stmt)
 		}
 	}
-}
-
-// splitStatements splits SQL text into individual statements on semicolons,
-// skipping DO $$ ... END $$ dollar-quoted blocks.
-func splitStatements(sql string) []string {
-	var stmts []string
-	var cur strings.Builder
-	inDollar := false
-
-	for _, line := range strings.Split(sql, "\n") {
-		trimmed := strings.TrimSpace(line)
-		// Toggle dollar-quote state on odd number of $$ in a line.
-		if cnt := strings.Count(trimmed, "$$"); cnt%2 != 0 {
-			inDollar = !inDollar
-		}
-		cur.WriteString(line)
-		cur.WriteByte('\n')
-		if !inDollar && strings.HasSuffix(trimmed, ";") {
-			stmt := strings.TrimSuffix(strings.TrimSpace(cur.String()), ";")
-			stmts = append(stmts, stmt)
-			cur.Reset()
-		}
-	}
-	if s := strings.TrimSpace(cur.String()); s != "" {
-		stmts = append(stmts, s)
-	}
-	return stmts
 }
 
 func applyCreateTable(tables map[string]*schema.TableMetadata, stmt string) {

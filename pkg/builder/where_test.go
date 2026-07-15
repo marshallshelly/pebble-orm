@@ -340,3 +340,46 @@ func TestJSONBPathEscaping(t *testing.T) {
 		t.Errorf("ToTSQuery: got %q, want single quote doubled", got)
 	}
 }
+
+// TestPlaceholderNumbering verifies parameters stay sequentially numbered and
+// aligned with the args slice across WHERE + HAVING + subquery + join clauses.
+// Regressions for the $1-collision bugs fixed in v1.17.4.
+func TestPlaceholderNumbering(t *testing.T) {
+	t.Run("WHERE then HAVING continue numbering", func(t *testing.T) {
+		wb := NewWhereBuilder()
+		wb.Add(Eq("status", "active"))
+		whereSQL, whereArgs, _ := wb.Build()
+		hb := NewWhereBuilderWithStart(1 + len(whereArgs))
+		hb.Add(Gt("total", 5))
+		havingSQL, havingArgs, _ := hb.Build()
+		if whereSQL != "WHERE status = $1" {
+			t.Errorf("where: got %q", whereSQL)
+		}
+		if havingSQL != "WHERE total > $2" {
+			t.Errorf("having should continue at $2: got %q", havingSQL)
+		}
+		if len(whereArgs)+len(havingArgs) != 2 {
+			t.Errorf("expected 2 total args, got %d", len(whereArgs)+len(havingArgs))
+		}
+	})
+
+	t.Run("subquery args renumbered and carried", func(t *testing.T) {
+		// Outer WHERE has one arg ($1); the subquery's own $1 must become $2
+		// and its bound value must be returned.
+		wb := NewWhereBuilder()
+		wb.Add(Eq("region", "eu"))
+		wb.Add(InSubquery("dept_id",
+			NewSubquery("SELECT id FROM departments WHERE location = $1", "NYC")))
+		sql, args, err := wb.Build()
+		if err != nil {
+			t.Fatalf("build: %v", err)
+		}
+		want := "WHERE region = $1 AND dept_id IN (SELECT id FROM departments WHERE location = $2)"
+		if sql != want {
+			t.Errorf("got  %q\nwant %q", sql, want)
+		}
+		if len(args) != 2 || args[0] != "eu" || args[1] != "NYC" {
+			t.Errorf("args: got %v, want [eu NYC]", args)
+		}
+	})
+}

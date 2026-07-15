@@ -77,6 +77,11 @@ type Condition struct {
 	// placeholder; Value is still passed as a bound parameter. Used to
 	// parameterize function-wrapped operands like to_tsquery($n).
 	ValueSQL string
+	// Args holds bound parameters for a Raw condition whose Value SQL contains
+	// its own $n placeholders (e.g. a subquery built with NewSubquery(sql,
+	// args...)). The placeholders are renumbered to the outer query's position
+	// and these args are appended in order.
+	Args []interface{}
 }
 
 // Join represents a JOIN clause.
