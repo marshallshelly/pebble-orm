@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Pebble ORM will be documented in this file.
+All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -67,7 +67,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`WithCTE(...).All(ctx)` executes the WITH clause.** `CTESelect` previously inherited `All`/`First` from the embedded `SelectQuery` via method promotion, silently dropping the CTEs.
 - `schema.StringArray`, `schema.Int32Array`, `schema.Int64Array`, `schema.Float64Array`, and `schema.BoolArray` failed to scan under pgx's default query exec mode (`cache_statement`/`cache_describe`), where array results arrive in binary format and the `sql.Scanner` received raw wire bytes (`invalid array format: must be enclosed in braces`). The query builders now route named Scanner slices on array columns through pgx's native array decoding, so these types work in every exec mode. Direct `rows.Scan` outside the builders remains text-format only.
 
-### Documentation
+### Changed
 
 - Documented the intentional smart-default behavior: zero-valued fields on columns with a `default(...)` are omitted from INSERT so the database default applies; use a pointer field to store an explicit zero.
 
