@@ -132,6 +132,10 @@ func BuildColumn(opts *TagOptions, fm FieldMeta) ColumnMetadata {
 	column.IsJSONB = opts.Has("jsonb") || opts.Has("json") ||
 		sqlTypeLower == "jsonb" || sqlTypeLower == "json" || fm.IsJSONBHint
 
+	if chk := opts.Get("check"); chk != "" {
+		column.Check = chk
+	}
+
 	return column
 }
 
@@ -191,6 +195,23 @@ func ColumnForeignKey(opts *TagOptions, tableName string) (ForeignKeyMetadata, b
 		OnDelete:          ParseReferenceAction(opts.Get("onDelete")),
 		OnUpdate:          ParseReferenceAction(opts.Get("onUpdate")),
 	}, true
+}
+
+// CheckConstraintsFor returns the CHECK constraints implied by columns with a
+// check(...) tag.
+func CheckConstraintsFor(tableName string, columns []ColumnMetadata) []ConstraintMetadata {
+	var constraints []ConstraintMetadata
+	for _, col := range columns {
+		if col.Check != "" {
+			constraints = append(constraints, ConstraintMetadata{
+				Name:       fmt.Sprintf("%s_%s_check", tableName, col.Name),
+				Type:       CheckConstraint,
+				Columns:    []string{col.Name},
+				Expression: "(" + strings.TrimSpace(col.Check) + ")",
+			})
+		}
+	}
+	return constraints
 }
 
 // UniqueConstraintsFor returns the UNIQUE constraints implied by columns marked

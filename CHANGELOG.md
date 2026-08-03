@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.22.0] - 2026-08-03
+
+### Added
+
+- **CHECK constraint tags.** A column-level `check(expr)` tag (e.g. `po:"age,integer,check(age >= 0 AND age < 150)"`) generates a named `CONSTRAINT {table}_{column}_check CHECK (expr)`, and a table-level `// check: <name> <expr>` comment directive generates a multi-column `CONSTRAINT <name> CHECK (expr)`. Both are parsed by the reflection and AST paths, emitted in `CREATE TABLE`/`ALTER TABLE`, and reconstructed from existing migration files. Introspected CHECK constraints are normalized to match the authored form, so incremental `pebble generate` no longer drops a database CHECK it can now express. Expressions with commas and quoted values (`check(status IN ('active', 'closed'))`) are preserved.
+
 ## [1.21.0] - 2026-08-03
 
 ### Added
@@ -554,7 +560,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - golangci-lint integration.
 - GoReleaser configuration for multi-platform releases.
 
-[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.21.0...HEAD
+[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.22.0...HEAD
+[1.22.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.21.0...v1.22.0
 [1.21.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.20.0...v1.21.0
 [1.20.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.19.0...v1.20.0
 [1.19.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.18.0...v1.19.0

@@ -441,6 +441,7 @@ func (i *Introspector) getConstraints(ctx context.Context, tableName string) ([]
 		switch contype {
 		case 'c':
 			c.Type = schema.CheckConstraint
+			c.Expression = strings.TrimSpace(strings.TrimPrefix(c.Expression, "CHECK"))
 		case 'u':
 			c.Type = schema.UniqueConstraint
 			c.Columns = columnNames

@@ -150,7 +150,7 @@ Format: `po:"column_name,option1,option2(value)"`. First element is always the c
 | Category | Options |
 |----------|---------|
 | Types | `uuid`, `varchar(n)`, `text`, `smallint`, `integer`, `bigint`, `numeric(p,s)`, `boolean`, `timestamp`, `timestamptz`, `jsonb`, `text[]`, `bytea`, `inet`, geometric types, range types (`tstzrange`, `int4range`, …), … |
-| Constraints | `primaryKey`, `notNull`, `unique`, `default(expr)` |
+| Constraints | `primaryKey`, `notNull`, `unique`, `default(expr)`, `check(expr)` |
 | Auto-increment | `serial`, `bigserial`, `identity`, `identityAlways`, `identityByDefault` |
 | Foreign keys | `fk:table(column)`, `onDelete:CASCADE`, `onUpdate:SETNULL` |
 | Indexes | `index`, `index(name)`, `index(name,gin)`, `index(name,btree,desc)` |
@@ -158,12 +158,17 @@ Format: `po:"column_name,option1,option2(value)"`. First element is always the c
 | Enums | `enum(a,b,c)` — emits `CREATE TYPE ... AS ENUM` in migrations |
 | Relationships | `belongsTo`, `hasOne`, `hasMany`, `manyToMany` + `foreignKey(...)`, `references(...)`, `joinTable(...)` |
 
-Table-level directives live in comments above the struct:
+Column-level `check(expr)` becomes a named CHECK constraint (`{table}_{column}_check`); multi-column CHECK and exclusion constraints are table-level comment directives:
 
 ```go
 // table_name: users
 // index: idx_active_users ON (email) WHERE deleted_at IS NULL
-type User struct { ... }
+// check: age_range age >= 0 AND age < 150
+// exclude: no_overlap USING gist (room_id WITH =, period WITH &&)
+type User struct {
+    Age    int    `po:"age,integer,check(age >= 0)"`
+    Status string `po:"status,text,check(status IN ('active', 'closed'))"`
+}
 ```
 
 ## Query builder

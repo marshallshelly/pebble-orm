@@ -1083,3 +1083,70 @@ func TestIntegration_RangeAndExclusion(t *testing.T) {
 		}
 	}
 }
+
+func TestIntegration_CheckConstraints(t *testing.T) {
+	_, connStr, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	runtimeDB, err := runtime.ConnectWithURL(ctx, connStr)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer runtimeDB.Close()
+
+	type Account struct {
+		ID     int    `po:"id,primaryKey,serial"`
+		Age    int    `po:"age,integer,notNull,check(age >= 0 AND age < 150)"`
+		Status string `po:"status,text,notNull,check(status IN ('active', 'closed'))"`
+	}
+	if err := registry.Register(Account{}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	if _, err := runtimeDB.Pool().Exec(ctx, `
+		CREATE TABLE account (
+			id serial PRIMARY KEY,
+			age integer NOT NULL,
+			status text NOT NULL,
+			CONSTRAINT account_age_check CHECK (age >= 0 AND age < 150),
+			CONSTRAINT account_status_check CHECK (status IN ('active', 'closed'))
+		)`); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	qb := builder.New(runtimeDB)
+	if _, err := builder.Insert[Account](qb).Values(Account{Age: 30, Status: "active"}).Exec(ctx); err != nil {
+		t.Fatalf("valid insert: %v", err)
+	}
+	if _, err := builder.Insert[Account](qb).Values(Account{Age: -1, Status: "active"}).Exec(ctx); err == nil {
+		t.Error("expected age check violation for age=-1, got nil")
+	}
+	if _, err := builder.Insert[Account](qb).Values(Account{Age: 30, Status: "pending"}).Exec(ctx); err == nil {
+		t.Error("expected status check violation for status='pending', got nil")
+	}
+
+	introspector := migration.NewIntrospector(runtimeDB.Pool())
+	table, err := introspector.IntrospectTable(ctx, "account")
+	if err != nil {
+		t.Fatalf("introspect: %v", err)
+	}
+	names := map[string]bool{}
+	for _, c := range table.Constraints {
+		if c.Type == schema.CheckConstraint {
+			names[c.Name] = true
+		}
+	}
+	if !names["account_age_check"] || !names["account_status_check"] {
+		t.Errorf("introspection missing check constraints: %+v", table.Constraints)
+	}
+
+	code := registry.GetAllTables()["account"]
+	diff := migration.NewDiffer().Compare(
+		map[string]*schema.TableMetadata{"account": code},
+		map[string]*schema.TableMetadata{"account": table})
+	for _, td := range diff.TablesModified {
+		if len(td.ConstraintsAdded) > 0 || len(td.ConstraintsDropped) > 0 {
+			t.Errorf("phantom check diff: added=%+v dropped=%+v", td.ConstraintsAdded, td.ConstraintsDropped)
+		}
+	}
+}

@@ -20,6 +20,7 @@ var (
 	reFKConstraint    = regexp.MustCompile(`(?i)CONSTRAINT\s+(\w+)\s+FOREIGN\s+KEY\s*\(([^)]+)\)\s+REFERENCES\s+"?(\w+)"?\s*\(([^)]+)\)(?:\s+ON\s+DELETE\s+([\w\s]+?))?$`)
 	reAddFKConstraint = regexp.MustCompile(`(?i)^ADD\s+CONSTRAINT\s+(\w+)\s+FOREIGN\s+KEY\s*\(([^)]+)\)\s+REFERENCES\s+"?(\w+)"?\s*\(([^)]+)\)(?:\s+ON\s+DELETE\s+([\w\s]+?))?$`)
 	reExclusion       = regexp.MustCompile(`(?i)^(?:ADD\s+)?CONSTRAINT\s+(\w+)\s+EXCLUDE\s+(.+)$`)
+	reCheck           = regexp.MustCompile(`(?i)^(?:ADD\s+)?CONSTRAINT\s+(\w+)\s+CHECK\s+(.+)$`)
 )
 
 // HasMigrationFiles reports whether any *.up.sql files exist in dir.
@@ -180,6 +181,14 @@ func applyAlterTable(tables map[string]*schema.TableMetadata, stmt string) {
 					Expression: strings.TrimSpace(ex[2]),
 				})
 			}
+		} else if strings.Contains(upper, "CHECK") {
+			if ck := reCheck.FindStringSubmatch(rest); ck != nil {
+				table.Constraints = append(table.Constraints, schema.ConstraintMetadata{
+					Name:       ck[1],
+					Type:       schema.CheckConstraint,
+					Expression: strings.TrimSpace(ck[2]),
+				})
+			}
 		} else if strings.Contains(upper, "FOREIGN KEY") {
 			// ADD CONSTRAINT name FOREIGN KEY (cols) REFERENCES table (cols) [ON DELETE action]
 			fkm := reAddFKConstraint.FindStringSubmatch(rest)
@@ -277,8 +286,13 @@ func parseColumnList(colList string) ([]schema.ColumnMetadata, []string, []schem
 					Type:       schema.ExclusionConstraint,
 					Expression: strings.TrimSpace(ex[2]),
 				})
+			} else if ck := reCheck.FindStringSubmatch(part); ck != nil {
+				exclusions = append(exclusions, schema.ConstraintMetadata{
+					Name:       ck[1],
+					Type:       schema.CheckConstraint,
+					Expression: strings.TrimSpace(ck[2]),
+				})
 			}
-			// UNIQUE and CHECK constraints are handled elsewhere.
 			continue
 		}
 		// Bare FOREIGN KEY (no CONSTRAINT prefix) — skip.

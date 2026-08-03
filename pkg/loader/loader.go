@@ -134,6 +134,9 @@ func loadModelsFromFile(filename string, registrar ModelRegistrar) (int, error) 
 					if ex := schema.ParseExclusionFromComment(comment.Text); ex != nil {
 						table.Constraints = append(table.Constraints, *ex)
 					}
+					if chk := schema.ParseCheckFromComment(comment.Text); chk != nil {
+						table.Constraints = append(table.Constraints, *chk)
+					}
 				}
 			}
 
@@ -219,6 +222,7 @@ func buildTableMetadataFromAST(tableName string, structType *ast.StructType) *sc
 	}
 
 	table.Constraints = append(table.Constraints, schema.UniqueConstraintsFor(tableName, table.Columns)...)
+	table.Constraints = append(table.Constraints, schema.CheckConstraintsFor(tableName, table.Columns)...)
 	table.EnumTypes = schema.CollectEnumTypes(table.Columns)
 
 	return table

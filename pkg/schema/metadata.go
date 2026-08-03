@@ -42,6 +42,7 @@ type ColumnMetadata struct {
 	EnumType      string           // PostgreSQL enum type name (e.g., "order_status"), empty if not enum
 	EnumValues    []string         // Enum values for this column (if enum type)
 	IsJSONB       bool             // Column is JSONB type (for automatic marshaling)
+	Check         string           // CHECK constraint expression from a check(...) tag, empty if none
 }
 
 // IdentityColumn represents a PostgreSQL identity column (GENERATED AS IDENTITY).

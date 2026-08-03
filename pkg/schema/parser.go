@@ -112,6 +112,7 @@ func (p *Parser) Parse(modelType reflect.Type) (*TableMetadata, error) {
 	// Create UNIQUE constraints for columns marked as unique, so the migration
 	// system can detect and manage them.
 	table.Constraints = append(table.Constraints, UniqueConstraintsFor(table.Name, table.Columns)...)
+	table.Constraints = append(table.Constraints, CheckConstraintsFor(table.Name, table.Columns)...)
 
 	// Parse column-level indexes from tags
 	if err := p.parseColumnIndexes(modelType, table); err != nil {
@@ -428,6 +429,23 @@ func ParseExclusionFromComment(comment string) *ConstraintMetadata {
 		Name:       m[1],
 		Type:       ExclusionConstraint,
 		Expression: strings.TrimSpace(m[2]),
+	}
+}
+
+func ParseCheckFromComment(comment string) *ConstraintMetadata {
+	re := regexp.MustCompile(`(?i)//\s*check:\s*(\w+)\s+(.+?)\s*$`)
+	m := re.FindStringSubmatch(comment)
+	if len(m) < 3 {
+		return nil
+	}
+	expr := strings.TrimSpace(m[2])
+	if !strings.HasPrefix(expr, "(") {
+		expr = "(" + expr + ")"
+	}
+	return &ConstraintMetadata{
+		Name:       m[1],
+		Type:       CheckConstraint,
+		Expression: expr,
 	}
 }
 
@@ -791,6 +809,9 @@ func extractIndexesFromFile(filename, structName string) ([]IndexMetadata, []Con
 		}
 		if ex := ParseExclusionFromComment(comment); ex != nil {
 			exclusions = append(exclusions, *ex)
+		}
+		if chk := ParseCheckFromComment(comment); chk != nil {
+			exclusions = append(exclusions, *chk)
 		}
 	}
 
