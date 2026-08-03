@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.20.0] - 2026-07-15
+
+### Added
+
+- **Window functions.** A fluent `builder.Window("expr")` type builds `func(...) OVER (PARTITION BY ... ORDER BY ... frame)` expressions that drop into `Columns(...)` and scan their aliased result into a struct field. Named constructors cover the common functions — `RowNumber`, `Rank`, `DenseRank`, `PercentRank`, `CumeDist`, `Ntile(n)`, `Lag`/`Lead`, `FirstValue`/`LastValue`/`NthValue`, and the aggregate windows `SumOver`/`AvgOver`/`CountOver`/`MinOver`/`MaxOver` — with `.PartitionBy(...)`, `.OrderByAsc/Desc(...)`, `.Frame("ROWS BETWEEN ...")`, and `.As("alias")`. Window expressions carry no bound parameters (operands are developer-supplied column/function names, the same trust model as `Columns`).
+
 ## [1.19.0] - 2026-07-15
 
 ### Changed
@@ -541,7 +547,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - golangci-lint integration.
 - GoReleaser configuration for multi-platform releases.
 
-[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.19.0...HEAD
+[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.20.0...HEAD
+[1.20.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.19.0...v1.20.0
 [1.19.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.18.0...v1.19.0
 [1.18.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.17.4...v1.18.0
 [1.17.4]: https://github.com/marshallshelly/pebble-orm/compare/v1.17.3...v1.17.4

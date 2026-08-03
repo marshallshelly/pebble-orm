@@ -922,3 +922,71 @@ func TestIntegration_AdvisoryLockLifecycle(t *testing.T) {
 		t.Fatalf("e2 unlock: %v", err)
 	}
 }
+
+// TestIntegration_WindowFunctions verifies window-function expressions build
+// and execute, scanning the aliased results into struct fields.
+func TestIntegration_WindowFunctions(t *testing.T) {
+	_, connStr, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	runtimeDB, err := runtime.ConnectWithURL(ctx, connStr)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer runtimeDB.Close()
+
+	type Sale struct {
+		ID           int    `po:"id,primaryKey,serial"`
+		ProductID    int    `po:"product_id,integer,notNull"`
+		Amount       int64  `po:"amount,bigint,notNull"`
+		RunningTotal int64  `po:"running_total"`
+		Rank         int    `po:"rnk"`
+		PrevAmount   *int64 `po:"prev_amount"`
+	}
+	if err := registry.Register(Sale{}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	if _, err := runtimeDB.Pool().Exec(ctx, `
+		CREATE TABLE sale (id serial PRIMARY KEY, product_id integer NOT NULL, amount bigint NOT NULL);
+		INSERT INTO sale (id, product_id, amount) VALUES
+		  (1, 100, 10), (2, 100, 30), (3, 100, 20),
+		  (4, 200, 50), (5, 200, 40);`); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	qb := builder.New(runtimeDB)
+	rows, err := builder.Select[Sale](qb).
+		Columns("id", "product_id", "amount",
+			builder.SumOver("amount").PartitionBy("product_id").OrderByAsc("id").As("running_total"),
+			builder.DenseRank().PartitionBy("product_id").OrderByDesc("amount").As("rnk"),
+			builder.Lag("amount", 1).PartitionBy("product_id").OrderByAsc("id").As("prev_amount")).
+		OrderByAsc("id").
+		All(ctx)
+	if err != nil {
+		t.Fatalf("window query: %v", err)
+	}
+	if len(rows) != 5 {
+		t.Fatalf("expected 5 rows, got %d", len(rows))
+	}
+
+	byID := map[int]Sale{}
+	for _, r := range rows {
+		byID[r.ID] = r
+	}
+	// Running total within product 100: 10, 40, 60 for ids 1,2,3.
+	if byID[1].RunningTotal != 10 || byID[2].RunningTotal != 40 || byID[3].RunningTotal != 60 {
+		t.Errorf("running totals wrong: %d %d %d", byID[1].RunningTotal, byID[2].RunningTotal, byID[3].RunningTotal)
+	}
+	// Dense rank by amount desc within product 100: amount 30 -> 1, 20 -> 2, 10 -> 3.
+	if byID[2].Rank != 1 || byID[3].Rank != 2 || byID[1].Rank != 3 {
+		t.Errorf("ranks wrong: id1=%d id2=%d id3=%d", byID[1].Rank, byID[2].Rank, byID[3].Rank)
+	}
+	// Lag: first row of each partition has NULL prev_amount.
+	if byID[1].PrevAmount != nil {
+		t.Errorf("id1 prev_amount should be NULL, got %v", *byID[1].PrevAmount)
+	}
+	if byID[2].PrevAmount == nil || *byID[2].PrevAmount != 10 {
+		t.Errorf("id2 prev_amount should be 10, got %v", byID[2].PrevAmount)
+	}
+}

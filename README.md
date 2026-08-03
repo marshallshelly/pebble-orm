@@ -194,7 +194,7 @@ n, err = builder.Delete[User](qb).Where(builder.Lt("age", 18)).Exec(ctx)
 ```
 
 <details>
-<summary><strong>Joins, grouping, CTEs, subqueries</strong></summary>
+<summary><strong>Joins, grouping, CTEs, subqueries, window functions</strong></summary>
 
 ```go
 // Joins
@@ -220,6 +220,17 @@ sub := builder.NewSubquery("SELECT AVG(age) FROM users")
 users, err = builder.Select[User](qb).Where(builder.GtSubquery("age", sub)).All(ctx)
 users, err = builder.Select[User](qb).Where(builder.InSubquery("id",
     builder.NewSubquery("SELECT user_id FROM orders WHERE status = 'paid'"))).All(ctx)
+
+// Window functions — drop into Columns(), scan the alias into a struct field
+sales, err := builder.Select[Sale](qb).
+    Columns("product_id", "amount",
+        builder.SumOver("amount").PartitionBy("product_id").OrderByAsc("sale_date").As("running_total"),
+        builder.DenseRank().PartitionBy("product_id").OrderByDesc("amount").As("rank"),
+        builder.Lag("amount", 1).PartitionBy("product_id").OrderByAsc("sale_date").As("prev_amount")).
+    All(ctx)
+// Also: RowNumber, Rank, PercentRank, CumeDist, Ntile(n), Lead, FirstValue,
+// LastValue, NthValue, AvgOver/CountOver/MinOver/MaxOver, and Window("expr")
+// for anything else. Add a moving-window frame with .Frame("ROWS BETWEEN 2 PRECEDING AND CURRENT ROW").
 ```
 
 </details>
