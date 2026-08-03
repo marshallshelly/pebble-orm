@@ -1288,3 +1288,94 @@ func TestIntegration_Domains(t *testing.T) {
 		t.Errorf("planner missing CREATE DOMAIN statement:\n%s", upSQL)
 	}
 }
+
+// TestIntegration_GeometricTypes proves geometric columns work end to end through
+// the existing type, index, value, and operator machinery — a point column, a
+// GiST index, pgx-native pgtype values through the builders, a spatial filter,
+// and a clean introspection round-trip. No geometry-specific code exists; this
+// guards that the generic path keeps supporting it.
+func TestIntegration_GeometricTypes(t *testing.T) {
+	_, connStr, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	runtimeDB, err := runtime.ConnectWithURL(ctx, connStr)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer runtimeDB.Close()
+
+	type Location struct {
+		ID          int          `po:"id,primaryKey,serial"`
+		Name        string       `po:"name,text,notNull"`
+		Coordinates pgtype.Point `po:"coordinates,point,notNull,index(idx_location_coords,gist)"`
+	}
+	if err := registry.Register(Location{}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	// The struct tags generate the geometric DDL: a point column and a GiST index.
+	code := registry.GetAllTables()["location"]
+	up, _ := migration.NewPlanner().GenerateMigration(
+		migration.NewDiffer().Compare(
+			map[string]*schema.TableMetadata{"location": code},
+			map[string]*schema.TableMetadata{}))
+	if !strings.Contains(up, "coordinates point") {
+		t.Errorf("generated DDL missing point column:\n%s", up)
+	}
+	if !strings.Contains(strings.ToLower(up), "using gist") {
+		t.Errorf("generated DDL missing GiST index:\n%s", up)
+	}
+
+	// Apply the generated DDL and exercise the column through the builders.
+	if _, err := runtimeDB.Pool().Exec(ctx, up); err != nil {
+		t.Fatalf("apply generated DDL: %v\n%s", err, up)
+	}
+
+	qb := builder.New(runtimeDB)
+	pt := func(x, y float64) pgtype.Point {
+		return pgtype.Point{P: pgtype.Vec2{X: x, Y: y}, Valid: true}
+	}
+	for _, l := range []Location{
+		{Name: "origin", Coordinates: pt(0, 0)},
+		{Name: "near", Coordinates: pt(1, 1)},
+		{Name: "far", Coordinates: pt(50, 50)},
+	} {
+		if _, err := builder.Insert[Location](qb).Values(l).Exec(ctx); err != nil {
+			t.Fatalf("insert %s: %v", l.Name, err)
+		}
+	}
+
+	// Spatial filter: points contained in the box (0,0)-(10,10) via the <@ operator.
+	box := pgtype.Box{P: [2]pgtype.Vec2{{X: 10, Y: 10}, {X: 0, Y: 0}}, Valid: true}
+	inBox, err := builder.Select[Location](qb).
+		Where(builder.Condition{Column: "coordinates", Operator: "<@", Value: box, ValueSQL: "%s::box"}).
+		OrderByAsc("name").All(ctx)
+	if err != nil {
+		t.Fatalf("spatial query: %v", err)
+	}
+	if len(inBox) != 2 {
+		t.Fatalf("expected 2 points in the box, got %d: %+v", len(inBox), inBox)
+	}
+	if inBox[0].Name != "near" || inBox[1].Name != "origin" {
+		t.Errorf("unexpected spatial result order: %+v", inBox)
+	}
+	if inBox[1].Coordinates.P.X != 0 || inBox[1].Coordinates.P.Y != 0 {
+		t.Errorf("point value did not round-trip: %+v", inBox[1].Coordinates)
+	}
+
+	// The point column and GiST index round-trip through introspection with no
+	// phantom diff against the code schema.
+	dbSchema, err := migration.NewIntrospector(runtimeDB.Pool()).IntrospectSchema(ctx)
+	if err != nil {
+		t.Fatalf("introspect: %v", err)
+	}
+	diff := migration.NewDiffer().Compare(map[string]*schema.TableMetadata{"location": code}, dbSchema)
+	for _, td := range diff.TablesModified {
+		for _, cd := range td.ColumnsModified {
+			if cd.TypeChanged {
+				t.Errorf("phantom point-column type change: %+v", cd)
+			}
+		}
+	}
+}

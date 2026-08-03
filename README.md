@@ -378,7 +378,27 @@ type Reservation struct {
 
 generates `CONSTRAINT no_overlap EXCLUDE USING gist (...)`, and is introspected and diffed like any other constraint.
 
-Also: UUID, identity columns (PostgreSQL 10+), generated columns, partial/covering/expression indexes, full-text search types, geometric types.
+**Geometric types** — `point`, `line`, `lseg`, `box`, `path`, `polygon`, and `circle` columns are declared like any other type, values round-trip through pgx-native `pgtype.Point`/`Box`/… (no wrapper), and a GiST index comes from the index tag:
+
+```go
+type Location struct {
+    Name        string       `po:"name,text,notNull"`
+    Coordinates pgtype.Point `po:"coordinates,point,notNull,index(idx_location_coords,gist)"`
+}
+```
+
+Spatial operators (`@>`, `<@`, `&&`, …) go through the generic operator path; a containment filter reads:
+
+```go
+box := pgtype.Box{P: [2]pgtype.Vec2{{X: 10, Y: 10}, {X: 0, Y: 0}}, Valid: true}
+inBox, _ := builder.Select[Location](qb).
+    Where(builder.Condition{Column: "coordinates", Operator: "<@", Value: box, ValueSQL: "%s::box"}).
+    All(ctx)
+```
+
+For serious geospatial work (SRIDs, geodesics, spatial joins) reach for [PostGIS](https://postgis.net/) — a general ORM stays out of that.
+
+Also: UUID, identity columns (PostgreSQL 10+), generated columns, partial/covering/expression indexes, full-text search types.
 
 ## Development
 
