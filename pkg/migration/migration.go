@@ -32,6 +32,7 @@ type SchemaDiff struct {
 	EnumTypesAdded    []schema.EnumType      // Enum types to create
 	EnumTypesDropped  []schema.EnumType      // Enum types to drop (full metadata for down migration)
 	EnumTypesModified []EnumTypeDiff         // Enum types with new values
+	ExtensionsAdded   []string               // PostgreSQL extensions to create
 }
 
 // TableDiff represents changes to a single table.
@@ -106,7 +107,8 @@ func (d *SchemaDiff) HasChanges() bool {
 		len(d.TablesModified) > 0 ||
 		len(d.EnumTypesAdded) > 0 ||
 		len(d.EnumTypesDropped) > 0 ||
-		len(d.EnumTypesModified) > 0
+		len(d.EnumTypesModified) > 0 ||
+		len(d.ExtensionsAdded) > 0
 }
 
 // HasChanges returns true if the table has any changes.

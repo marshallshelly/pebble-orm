@@ -68,7 +68,38 @@ func (i *Introspector) IntrospectSchema(ctx context.Context) (map[string]*schema
 		tables[tableName] = table
 	}
 
+	// Installed extensions are a database-global fact; attach them to any one
+	// table so the differ's union sees them. plpgsql and other system extensions
+	// come through here but are never dropped (extension diffing is add-only).
+	extensions, err := i.getInstalledExtensions(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get installed extensions: %w", err)
+	}
+	for _, table := range tables {
+		table.Extensions = extensions
+		break
+	}
+
 	return tables, nil
+}
+
+// getInstalledExtensions retrieves the names of extensions installed in the database.
+func (i *Introspector) getInstalledExtensions(ctx context.Context) ([]string, error) {
+	rows, err := i.query(ctx, `SELECT extname FROM pg_extension ORDER BY extname`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var extensions []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		extensions = append(extensions, name)
+	}
+	return extensions, rows.Err()
 }
 
 // IntrospectTable introspects a single table.

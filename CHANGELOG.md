@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.23.0] - 2026-08-04
+
+### Added
+
+- **Extension management.** A table-level `// extension: <name>` comment directive declares a required PostgreSQL extension (e.g. `// extension: pgcrypto`, `// extension: "uuid-ossp"`). `pebble generate` emits `CREATE EXTENSION IF NOT EXISTS "<name>"` ahead of any enum type or table, parsed by both the reflection and AST paths, introspected from `pg_extension`, and reconstructed from existing migration files so incremental runs do not re-add an installed extension. Extension diffing is add-only — an extension is never dropped, since a database carries system extensions Pebble does not manage.
+
 ## [1.22.0] - 2026-08-03
 
 ### Added
@@ -560,7 +566,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - golangci-lint integration.
 - GoReleaser configuration for multi-platform releases.
 
-[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.22.0...HEAD
+[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.23.0...HEAD
+[1.23.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.22.0...v1.23.0
 [1.22.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.21.0...v1.22.0
 [1.21.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.20.0...v1.21.0
 [1.20.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.19.0...v1.20.0

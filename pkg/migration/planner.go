@@ -51,6 +51,13 @@ func (p *Planner) GenerateMigration(diff *SchemaDiff) (upSQL, downSQL string) {
 	// and dropped AFTER tables that use them are dropped.
 
 	// UP migration order:
+	// 0. CREATE EXTENSION — extensions must exist before types/tables reference them.
+	// Extensions are never auto-dropped: a database may carry system extensions
+	// pebble does not manage, and dropping one can cascade to unrelated objects.
+	for _, ext := range diff.ExtensionsAdded {
+		upStatements = append(upStatements, fmt.Sprintf(`CREATE EXTENSION IF NOT EXISTS %q;`, ext))
+	}
+
 	// 1. CREATE TYPE for new enum types
 	for _, enumType := range diff.EnumTypesAdded {
 		upStatements = append(upStatements, p.generateCreateEnumType(enumType))

@@ -3,6 +3,7 @@ package migration
 import (
 	"fmt"
 	"slices"
+	"sort"
 	"strings"
 
 	"github.com/marshallshelly/pebble-orm/pkg/schema"
@@ -56,7 +57,27 @@ func (d *Differ) Compare(codeSchema, dbSchema map[string]*schema.TableMetadata) 
 	// Compare enum types across all tables
 	d.compareEnumTypes(codeSchema, dbSchema, diff)
 
+	// Extensions are add-only: never drop a database extension, since a database
+	// carries system extensions (plpgsql, ...) that pebble does not manage.
+	dbExtensions := collectExtensions(dbSchema)
+	for ext := range collectExtensions(codeSchema) {
+		if !dbExtensions[ext] {
+			diff.ExtensionsAdded = append(diff.ExtensionsAdded, ext)
+		}
+	}
+	sort.Strings(diff.ExtensionsAdded)
+
 	return diff
+}
+
+func collectExtensions(tables map[string]*schema.TableMetadata) map[string]bool {
+	out := make(map[string]bool)
+	for _, table := range tables {
+		for _, ext := range table.Extensions {
+			out[ext] = true
+		}
+	}
+	return out
 }
 
 // compareTable compares two versions of the same table.

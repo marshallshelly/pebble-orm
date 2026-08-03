@@ -432,6 +432,15 @@ func ParseExclusionFromComment(comment string) *ConstraintMetadata {
 	}
 }
 
+func ParseExtensionFromComment(comment string) string {
+	re := regexp.MustCompile(`(?i)//\s*extension:\s*"?([\w-]+)"?\s*$`)
+	m := re.FindStringSubmatch(comment)
+	if len(m) < 2 {
+		return ""
+	}
+	return m[1]
+}
+
 func ParseCheckFromComment(comment string) *ConstraintMetadata {
 	re := regexp.MustCompile(`(?i)//\s*check:\s*(\w+)\s+(.+?)\s*$`)
 	m := re.FindStringSubmatch(comment)
@@ -779,7 +788,7 @@ func (p *Parser) parseTableIndexes(modelType reflect.Type, table *TableMetadata)
 	}
 
 	// Parse the source file and extract indexes
-	indexes, exclusions, err := extractIndexesFromFile(sourceFile, structName)
+	indexes, exclusions, extensions, err := extractIndexesFromFile(sourceFile, structName)
 	if err != nil {
 		return nil // Silently fail - not critical
 	}
@@ -787,21 +796,23 @@ func (p *Parser) parseTableIndexes(modelType reflect.Type, table *TableMetadata)
 	// Add indexes to table
 	table.Indexes = append(table.Indexes, indexes...)
 	table.Constraints = append(table.Constraints, exclusions...)
+	table.Extensions = append(table.Extensions, extensions...)
 
 	return nil
 }
 
 // extractIndexesFromFile parses a Go source file and extracts index definitions from comments.
-func extractIndexesFromFile(filename, structName string) ([]IndexMetadata, []ConstraintMetadata, error) {
+func extractIndexesFromFile(filename, structName string) ([]IndexMetadata, []ConstraintMetadata, []string, error) {
 	fset := token.NewFileSet()
 	// Parse the file
 	file, err := parser.ParseFile(fset, filename, nil, parser.ParseComments)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to parse file: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to parse file: %w", err)
 	}
 
 	var indexes []IndexMetadata
 	var exclusions []ConstraintMetadata
+	var extensions []string
 
 	scan := func(comment string) {
 		if index := ParseIndexFromComment(comment); index != nil {
@@ -812,6 +823,9 @@ func extractIndexesFromFile(filename, structName string) ([]IndexMetadata, []Con
 		}
 		if chk := ParseCheckFromComment(comment); chk != nil {
 			exclusions = append(exclusions, *chk)
+		}
+		if ext := ParseExtensionFromComment(comment); ext != "" {
+			extensions = append(extensions, ext)
 		}
 	}
 
@@ -847,5 +861,5 @@ func extractIndexesFromFile(filename, structName string) ([]IndexMetadata, []Con
 		}
 	}
 
-	return indexes, exclusions, nil
+	return indexes, exclusions, extensions, nil
 }

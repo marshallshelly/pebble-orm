@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -1148,5 +1149,54 @@ func TestIntegration_CheckConstraints(t *testing.T) {
 		if len(td.ConstraintsAdded) > 0 || len(td.ConstraintsDropped) > 0 {
 			t.Errorf("phantom check diff: added=%+v dropped=%+v", td.ConstraintsAdded, td.ConstraintsDropped)
 		}
+	}
+}
+
+func TestIntegration_Extensions(t *testing.T) {
+	_, connStr, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	runtimeDB, err := runtime.ConnectWithURL(ctx, connStr)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer runtimeDB.Close()
+
+	if _, err := runtimeDB.Pool().Exec(ctx, `CREATE EXTENSION IF NOT EXISTS btree_gist`); err != nil {
+		t.Fatalf("create extension: %v", err)
+	}
+	if _, err := runtimeDB.Pool().Exec(ctx, `CREATE TABLE widget (id serial PRIMARY KEY)`); err != nil {
+		t.Fatalf("create table: %v", err)
+	}
+
+	dbSchema, err := migration.NewIntrospector(runtimeDB.Pool()).IntrospectSchema(ctx)
+	if err != nil {
+		t.Fatalf("introspect: %v", err)
+	}
+	installed := map[string]bool{}
+	for _, tbl := range dbSchema {
+		for _, ext := range tbl.Extensions {
+			installed[ext] = true
+		}
+	}
+	if !installed["btree_gist"] {
+		t.Fatalf("introspection missing btree_gist: %+v", installed)
+	}
+
+	code := map[string]*schema.TableMetadata{
+		"widget": {Name: "widget", Extensions: []string{"btree_gist", "pg_trgm"}},
+	}
+	diff := migration.NewDiffer().Compare(code, dbSchema)
+	if len(diff.ExtensionsAdded) != 1 || diff.ExtensionsAdded[0] != "pg_trgm" {
+		t.Fatalf("expected only pg_trgm added, got %v", diff.ExtensionsAdded)
+	}
+
+	upSQL, _ := migration.NewPlanner().GenerateMigration(diff)
+	if !strings.Contains(upSQL, `CREATE EXTENSION IF NOT EXISTS "pg_trgm";`) {
+		t.Errorf("planner missing CREATE EXTENSION statement:\n%s", upSQL)
+	}
+	if strings.Contains(upSQL, "btree_gist") {
+		t.Errorf("already-installed extension should not be re-created:\n%s", upSQL)
 	}
 }

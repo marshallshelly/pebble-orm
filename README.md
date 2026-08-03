@@ -165,11 +165,14 @@ Column-level `check(expr)` becomes a named CHECK constraint (`{table}_{column}_c
 // index: idx_active_users ON (email) WHERE deleted_at IS NULL
 // check: age_range age >= 0 AND age < 150
 // exclude: no_overlap USING gist (room_id WITH =, period WITH &&)
+// extension: pgcrypto
 type User struct {
     Age    int    `po:"age,integer,check(age >= 0)"`
     Status string `po:"status,text,check(status IN ('active', 'closed'))"`
 }
 ```
+
+Required PostgreSQL extensions are declared with a `// extension:` directive; `pebble generate` emits `CREATE EXTENSION IF NOT EXISTS` before any type or table that needs it. Extensions are never auto-dropped.
 
 ## Query builder
 

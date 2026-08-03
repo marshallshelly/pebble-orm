@@ -22,6 +22,7 @@ type TableMetadata struct {
 	Constraints   []ConstraintMetadata   // Additional constraints
 	Relationships []RelationshipMetadata // Relationships to other tables
 	EnumTypes     []EnumType             // Enum types used by this table
+	Extensions    []string               // PostgreSQL extensions required by this table
 	Comment       string                 // Table comment
 }
 

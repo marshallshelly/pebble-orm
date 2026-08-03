@@ -137,6 +137,9 @@ func loadModelsFromFile(filename string, registrar ModelRegistrar) (int, error) 
 					if chk := schema.ParseCheckFromComment(comment.Text); chk != nil {
 						table.Constraints = append(table.Constraints, *chk)
 					}
+					if ext := schema.ParseExtensionFromComment(comment.Text); ext != "" {
+						table.Extensions = append(table.Extensions, ext)
+					}
 				}
 			}
 

@@ -21,6 +21,8 @@ var (
 	reAddFKConstraint = regexp.MustCompile(`(?i)^ADD\s+CONSTRAINT\s+(\w+)\s+FOREIGN\s+KEY\s*\(([^)]+)\)\s+REFERENCES\s+"?(\w+)"?\s*\(([^)]+)\)(?:\s+ON\s+DELETE\s+([\w\s]+?))?$`)
 	reExclusion       = regexp.MustCompile(`(?i)^(?:ADD\s+)?CONSTRAINT\s+(\w+)\s+EXCLUDE\s+(.+)$`)
 	reCheck           = regexp.MustCompile(`(?i)^(?:ADD\s+)?CONSTRAINT\s+(\w+)\s+CHECK\s+(.+)$`)
+	reCreateExtension = regexp.MustCompile(`(?i)^\s*CREATE\s+EXTENSION\s+(?:IF\s+NOT\s+EXISTS\s+)?"?([\w-]+)"?`)
+	reDropExtension   = regexp.MustCompile(`(?i)^\s*DROP\s+EXTENSION\s+(?:IF\s+EXISTS\s+)?"?([\w-]+)"?`)
 )
 
 // HasMigrationFiles reports whether any *.up.sql files exist in dir.
@@ -43,18 +45,34 @@ func ReconstructSchemaFromMigrations(dir string) (map[string]*schema.TableMetada
 	sort.Strings(files) // timestamps make lexicographic order == chronological order
 
 	tables := make(map[string]*schema.TableMetadata)
+	extensions := make(map[string]bool)
 	for _, f := range files {
 		data, err := os.ReadFile(f)
 		if err != nil {
 			return nil, fmt.Errorf("reading %s: %w", filepath.Base(f), err)
 		}
-		applySQLToSchema(tables, string(data))
+		applySQLToSchema(tables, extensions, string(data))
 	}
+
+	// Extensions are a schema-global fact; attach them to any one table so the
+	// differ's union sees them (mirrors the live introspector).
+	if len(extensions) > 0 {
+		names := make([]string, 0, len(extensions))
+		for name := range extensions {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, table := range tables {
+			table.Extensions = names
+			break
+		}
+	}
+
 	return tables, nil
 }
 
 // applySQLToSchema applies DDL statements from sql to the in-memory schema map.
-func applySQLToSchema(tables map[string]*schema.TableMetadata, sql string) {
+func applySQLToSchema(tables map[string]*schema.TableMetadata, extensions map[string]bool, sql string) {
 	for _, stmt := range splitSQLStatements(sql) {
 		stmt = strings.TrimSpace(stmt)
 		if stmt == "" {
@@ -68,6 +86,10 @@ func applySQLToSchema(tables map[string]*schema.TableMetadata, sql string) {
 			applyDropTable(tables, stmt)
 		case strings.HasPrefix(upper, "ALTER TABLE"):
 			applyAlterTable(tables, stmt)
+		case reCreateExtension.MatchString(stmt):
+			extensions[reCreateExtension.FindStringSubmatch(stmt)[1]] = true
+		case reDropExtension.MatchString(stmt):
+			delete(extensions, reDropExtension.FindStringSubmatch(stmt)[1])
 		}
 	}
 }

@@ -34,6 +34,21 @@ func TestParseCheckFromComment(t *testing.T) {
 	}
 }
 
+func TestParseExtensionFromComment(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"// extension: uuid-ossp", "uuid-ossp"},
+		{`// extension: "pg_trgm"`, "pg_trgm"},
+		{"//extension:btree_gist", "btree_gist"},
+		{"// EXTENSION: pgcrypto", "pgcrypto"},
+		{"// check: x >= 0", ""},
+		{"// this extension: is prose", ""},
+	} {
+		if got := ParseExtensionFromComment(tc.in); got != tc.want {
+			t.Errorf("ParseExtensionFromComment(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
 func TestCheckConstraintsFor(t *testing.T) {
 	cols := []ColumnMetadata{{Name: "age", Check: "age >= 0"}, {Name: "name"}}
 	got := CheckConstraintsFor("users", cols)
