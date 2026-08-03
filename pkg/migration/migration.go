@@ -32,6 +32,8 @@ type SchemaDiff struct {
 	EnumTypesAdded    []schema.EnumType      // Enum types to create
 	EnumTypesDropped  []schema.EnumType      // Enum types to drop (full metadata for down migration)
 	EnumTypesModified []EnumTypeDiff         // Enum types with new values
+	DomainsAdded      []schema.DomainType    // Domain types to create
+	DomainsDropped    []schema.DomainType    // Domain types to drop (full metadata for down migration)
 	ExtensionsAdded   []string               // PostgreSQL extensions to create
 }
 
@@ -108,6 +110,8 @@ func (d *SchemaDiff) HasChanges() bool {
 		len(d.EnumTypesAdded) > 0 ||
 		len(d.EnumTypesDropped) > 0 ||
 		len(d.EnumTypesModified) > 0 ||
+		len(d.DomainsAdded) > 0 ||
+		len(d.DomainsDropped) > 0 ||
 		len(d.ExtensionsAdded) > 0
 }
 

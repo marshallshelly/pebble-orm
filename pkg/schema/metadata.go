@@ -11,6 +11,14 @@ type EnumType struct {
 	Values []string // Enum values in order (e.g., ["pending", "active", "completed"])
 }
 
+// DomainType represents a PostgreSQL DOMAIN — a named base type with an optional
+// CHECK constraint (e.g. "email_address AS text CHECK (VALUE ~* '...')").
+type DomainType struct {
+	Name     string // Domain type name (e.g., "email_address")
+	BaseType string // Underlying PostgreSQL type (e.g., "text")
+	Check    string // CHECK (...) constraint text, empty if none
+}
+
 // TableMetadata represents a database table with all its metadata.
 type TableMetadata struct {
 	Name          string                 // Table name in database
@@ -22,6 +30,7 @@ type TableMetadata struct {
 	Constraints   []ConstraintMetadata   // Additional constraints
 	Relationships []RelationshipMetadata // Relationships to other tables
 	EnumTypes     []EnumType             // Enum types used by this table
+	Domains       []DomainType           // Domain types declared by this table
 	Extensions    []string               // PostgreSQL extensions required by this table
 	Comment       string                 // Table comment
 }

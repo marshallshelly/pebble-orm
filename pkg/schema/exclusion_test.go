@@ -49,6 +49,38 @@ func TestParseExtensionFromComment(t *testing.T) {
 	}
 }
 
+func TestParseDomainFromComment(t *testing.T) {
+	d := ParseDomainFromComment(`// domain: email_address AS text CHECK (VALUE ~* '^[^@]+@[^@]+$')`)
+	if d == nil {
+		t.Fatal("expected a domain, got nil")
+	}
+	if d.Name != "email_address" || d.BaseType != "text" {
+		t.Errorf("name/base: got %q / %q", d.Name, d.BaseType)
+	}
+	if d.Check != `CHECK (VALUE ~* '^[^@]+@[^@]+$')` {
+		t.Errorf("check: got %q", d.Check)
+	}
+
+	d2 := ParseDomainFromComment("// domain: positive_int AS integer")
+	if d2 == nil || d2.Name != "positive_int" || d2.BaseType != "integer" || d2.Check != "" {
+		t.Fatalf("no-check domain: got %+v", d2)
+	}
+
+	if ParseDomainFromComment("// this domain: is prose") != nil {
+		t.Error("prose comment should not parse as domain")
+	}
+}
+
+func TestGetSQLTypeDomain(t *testing.T) {
+	opts, err := ParseTag("email,domain(email_address),notNull")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if got := opts.GetSQLType(); got != "email_address" {
+		t.Errorf("GetSQLType = %q, want email_address", got)
+	}
+}
+
 func TestCheckConstraintsFor(t *testing.T) {
 	cols := []ColumnMetadata{{Name: "age", Check: "age >= 0"}, {Name: "name"}}
 	got := CheckConstraintsFor("users", cols)

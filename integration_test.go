@@ -1200,3 +1200,91 @@ func TestIntegration_Extensions(t *testing.T) {
 		t.Errorf("already-installed extension should not be re-created:\n%s", upSQL)
 	}
 }
+
+func TestIntegration_Domains(t *testing.T) {
+	_, connStr, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	runtimeDB, err := runtime.ConnectWithURL(ctx, connStr)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer runtimeDB.Close()
+
+	if _, err := runtimeDB.Pool().Exec(ctx,
+		`CREATE DOMAIN email_address AS text CHECK (VALUE ~* '^[^@]+@[^@]+$')`); err != nil {
+		t.Fatalf("create domain: %v", err)
+	}
+	if _, err := runtimeDB.Pool().Exec(ctx,
+		`CREATE TABLE contact (id serial PRIMARY KEY, email email_address NOT NULL)`); err != nil {
+		t.Fatalf("create table: %v", err)
+	}
+
+	if _, err := runtimeDB.Pool().Exec(ctx,
+		`INSERT INTO contact (email) VALUES ('a@b.com')`); err != nil {
+		t.Fatalf("valid insert: %v", err)
+	}
+	if _, err := runtimeDB.Pool().Exec(ctx,
+		`INSERT INTO contact (email) VALUES ('not-an-email')`); err == nil {
+		t.Error("expected domain CHECK violation for 'not-an-email', got nil")
+	}
+
+	dbSchema, err := migration.NewIntrospector(runtimeDB.Pool()).IntrospectSchema(ctx)
+	if err != nil {
+		t.Fatalf("introspect: %v", err)
+	}
+	var introspected *schema.DomainType
+	for _, tbl := range dbSchema {
+		for i := range tbl.Domains {
+			if tbl.Domains[i].Name == "email_address" {
+				introspected = &tbl.Domains[i]
+			}
+		}
+	}
+	if introspected == nil {
+		t.Fatalf("introspection missing email_address domain")
+	}
+	if introspected.BaseType != "text" || !strings.Contains(introspected.Check, "CHECK") {
+		t.Errorf("unexpected introspected domain: %+v", *introspected)
+	}
+
+	// The contact column type resolves to the domain name, and the code schema
+	// declaring the same domain produces no phantom add/drop or type change.
+	code := map[string]*schema.TableMetadata{
+		"contact": {
+			Name: "contact",
+			Columns: []schema.ColumnMetadata{
+				{Name: "id", SQLType: "integer", AutoIncrement: true},
+				{Name: "email", SQLType: "email_address", Nullable: false},
+			},
+			PrimaryKey: &schema.PrimaryKeyMetadata{Columns: []string{"id"}, Name: "contact_pkey"},
+			Domains:    []schema.DomainType{{Name: "email_address", BaseType: "text", Check: introspected.Check}},
+		},
+	}
+	diff := migration.NewDiffer().Compare(code, dbSchema)
+	if len(diff.DomainsAdded) != 0 || len(diff.DomainsDropped) != 0 {
+		t.Errorf("phantom domain diff: added=%+v dropped=%+v", diff.DomainsAdded, diff.DomainsDropped)
+	}
+	for _, td := range diff.TablesModified {
+		for _, cd := range td.ColumnsModified {
+			if cd.TypeChanged {
+				t.Errorf("phantom domain-column type change: %+v", cd)
+			}
+		}
+	}
+
+	// A domain declared in code but absent from the database is planned for creation.
+	fresh := map[string]*schema.TableMetadata{
+		"contact": {Name: "contact", Domains: []schema.DomainType{
+			{Name: "us_zip", BaseType: "text", Check: "CHECK (VALUE ~ '^[0-9]{5}$')"},
+		}},
+	}
+	planDiff := migration.NewDiffer().Compare(fresh, map[string]*schema.TableMetadata{
+		"contact": {Name: "contact"},
+	})
+	upSQL, _ := migration.NewPlanner().GenerateMigration(planDiff)
+	if !strings.Contains(upSQL, `CREATE DOMAIN us_zip AS text CHECK (VALUE ~ '^[0-9]{5}$');`) {
+		t.Errorf("planner missing CREATE DOMAIN statement:\n%s", upSQL)
+	}
+}

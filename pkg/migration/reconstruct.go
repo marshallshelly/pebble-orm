@@ -23,6 +23,8 @@ var (
 	reCheck           = regexp.MustCompile(`(?i)^(?:ADD\s+)?CONSTRAINT\s+(\w+)\s+CHECK\s+(.+)$`)
 	reCreateExtension = regexp.MustCompile(`(?i)^\s*CREATE\s+EXTENSION\s+(?:IF\s+NOT\s+EXISTS\s+)?"?([\w-]+)"?`)
 	reDropExtension   = regexp.MustCompile(`(?i)^\s*DROP\s+EXTENSION\s+(?:IF\s+EXISTS\s+)?"?([\w-]+)"?`)
+	reCreateDomain    = regexp.MustCompile(`(?i)^\s*CREATE\s+DOMAIN\s+"?(\w+)"?\s+AS\s+(.+?)\s*;?\s*$`)
+	reDropDomain      = regexp.MustCompile(`(?i)^\s*DROP\s+DOMAIN\s+(?:IF\s+EXISTS\s+)?"?(\w+)"?`)
 )
 
 // HasMigrationFiles reports whether any *.up.sql files exist in dir.
@@ -46,24 +48,31 @@ func ReconstructSchemaFromMigrations(dir string) (map[string]*schema.TableMetada
 
 	tables := make(map[string]*schema.TableMetadata)
 	extensions := make(map[string]bool)
+	domains := make(map[string]schema.DomainType)
 	for _, f := range files {
 		data, err := os.ReadFile(f)
 		if err != nil {
 			return nil, fmt.Errorf("reading %s: %w", filepath.Base(f), err)
 		}
-		applySQLToSchema(tables, extensions, string(data))
+		applySQLToSchema(tables, extensions, domains, string(data))
 	}
 
-	// Extensions are a schema-global fact; attach them to any one table so the
-	// differ's union sees them (mirrors the live introspector).
-	if len(extensions) > 0 {
+	// Extensions and domains are schema-global facts; attach them to any one
+	// table so the differ's union sees them (mirrors the live introspector).
+	if len(extensions) > 0 || len(domains) > 0 {
 		names := make([]string, 0, len(extensions))
 		for name := range extensions {
 			names = append(names, name)
 		}
 		sort.Strings(names)
+		doms := make([]schema.DomainType, 0, len(domains))
+		for _, d := range domains {
+			doms = append(doms, d)
+		}
+		sort.Slice(doms, func(a, b int) bool { return doms[a].Name < doms[b].Name })
 		for _, table := range tables {
 			table.Extensions = names
+			table.Domains = doms
 			break
 		}
 	}
@@ -72,7 +81,7 @@ func ReconstructSchemaFromMigrations(dir string) (map[string]*schema.TableMetada
 }
 
 // applySQLToSchema applies DDL statements from sql to the in-memory schema map.
-func applySQLToSchema(tables map[string]*schema.TableMetadata, extensions map[string]bool, sql string) {
+func applySQLToSchema(tables map[string]*schema.TableMetadata, extensions map[string]bool, domains map[string]schema.DomainType, sql string) {
 	for _, stmt := range splitSQLStatements(sql) {
 		stmt = strings.TrimSpace(stmt)
 		if stmt == "" {
@@ -86,6 +95,17 @@ func applySQLToSchema(tables map[string]*schema.TableMetadata, extensions map[st
 			applyDropTable(tables, stmt)
 		case strings.HasPrefix(upper, "ALTER TABLE"):
 			applyAlterTable(tables, stmt)
+		case reCreateDomain.MatchString(stmt):
+			m := reCreateDomain.FindStringSubmatch(stmt)
+			rest := strings.TrimSpace(m[2])
+			base, check := rest, ""
+			if loc := regexp.MustCompile(`(?i)\bCHECK\b`).FindStringIndex(rest); loc != nil {
+				base = strings.TrimSpace(rest[:loc[0]])
+				check = strings.TrimSpace(rest[loc[0]:])
+			}
+			domains[m[1]] = schema.DomainType{Name: m[1], BaseType: base, Check: check}
+		case reDropDomain.MatchString(stmt):
+			delete(domains, reDropDomain.FindStringSubmatch(stmt)[1])
 		case reCreateExtension.MatchString(stmt):
 			extensions[reCreateExtension.FindStringSubmatch(stmt)[1]] = true
 		case reDropExtension.MatchString(stmt):

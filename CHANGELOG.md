@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.24.0] - 2026-08-04
+
+### Added
+
+- **DOMAIN types.** A table-level `// domain: <name> AS <base type> [CHECK (...)]` comment directive declares a reusable PostgreSQL domain (e.g. `// domain: email_address AS text CHECK (VALUE ~* '^[^@]+@[^@]+$')`), and a column adopts it with a `domain(<name>)` tag (`po:"email,domain(email_address),notNull"`). `pebble generate` emits `CREATE DOMAIN` ahead of the tables that use it, parsed by both the reflection and AST paths, introspected from `pg_type`, and reconstructed from existing migration files. Domain-typed columns are introspected by their domain name rather than the underlying base type, so incremental `pebble generate` produces no phantom type change. Domains are diffed by name (add/drop).
+
 ## [1.23.0] - 2026-08-04
 
 ### Added
@@ -566,7 +572,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - golangci-lint integration.
 - GoReleaser configuration for multi-platform releases.
 
-[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.23.0...HEAD
+[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.24.0...HEAD
+[1.24.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.23.0...v1.24.0
 [1.23.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.22.0...v1.23.0
 [1.22.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.21.0...v1.22.0
 [1.21.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.20.0...v1.21.0

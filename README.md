@@ -166,13 +166,17 @@ Column-level `check(expr)` becomes a named CHECK constraint (`{table}_{column}_c
 // check: age_range age >= 0 AND age < 150
 // exclude: no_overlap USING gist (room_id WITH =, period WITH &&)
 // extension: pgcrypto
+// domain: email_address AS text CHECK (VALUE ~* '^[^@]+@[^@]+$')
 type User struct {
+    Email  string `po:"email,domain(email_address),notNull"`
     Age    int    `po:"age,integer,check(age >= 0)"`
     Status string `po:"status,text,check(status IN ('active', 'closed'))"`
 }
 ```
 
 Required PostgreSQL extensions are declared with a `// extension:` directive; `pebble generate` emits `CREATE EXTENSION IF NOT EXISTS` before any type or table that needs it. Extensions are never auto-dropped.
+
+A `// domain:` directive declares a reusable [DOMAIN type](https://www.postgresql.org/docs/current/sql-createdomain.html) — a base type plus an optional `CHECK` — and a column adopts it with a `domain(name)` tag. `pebble generate` emits `CREATE DOMAIN` before the tables that use it, introspects existing domains, and diffs them by name.
 
 ## Query builder
 

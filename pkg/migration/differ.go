@@ -57,6 +57,20 @@ func (d *Differ) Compare(codeSchema, dbSchema map[string]*schema.TableMetadata) 
 	// Compare enum types across all tables
 	d.compareEnumTypes(codeSchema, dbSchema, diff)
 
+	// Compare domain types across all tables (add/drop by name)
+	codeDomains := collectDomains(codeSchema)
+	dbDomains := collectDomains(dbSchema)
+	for name, dom := range codeDomains {
+		if _, exists := dbDomains[name]; !exists {
+			diff.DomainsAdded = append(diff.DomainsAdded, dom)
+		}
+	}
+	for name, dom := range dbDomains {
+		if _, exists := codeDomains[name]; !exists {
+			diff.DomainsDropped = append(diff.DomainsDropped, dom)
+		}
+	}
+
 	// Extensions are add-only: never drop a database extension, since a database
 	// carries system extensions (plpgsql, ...) that pebble does not manage.
 	dbExtensions := collectExtensions(dbSchema)
@@ -68,6 +82,18 @@ func (d *Differ) Compare(codeSchema, dbSchema map[string]*schema.TableMetadata) 
 	sort.Strings(diff.ExtensionsAdded)
 
 	return diff
+}
+
+func collectDomains(tables map[string]*schema.TableMetadata) map[string]schema.DomainType {
+	out := make(map[string]schema.DomainType)
+	for _, table := range tables {
+		for _, dom := range table.Domains {
+			if _, exists := out[dom.Name]; !exists {
+				out[dom.Name] = dom
+			}
+		}
+	}
+	return out
 }
 
 func collectExtensions(tables map[string]*schema.TableMetadata) map[string]bool {

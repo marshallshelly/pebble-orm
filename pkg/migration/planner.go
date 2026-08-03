@@ -72,6 +72,13 @@ func (p *Planner) GenerateMigration(diff *SchemaDiff) (upSQL, downSQL string) {
 		downStatements = append(downStatements, fmt.Sprintf("-- NOTE: Cannot automatically remove enum values from type %s (PostgreSQL limitation)", enumDiff.Name))
 	}
 
+	// 2b. CREATE DOMAIN — domains must exist before tables whose columns use them.
+	// A domain's base type may be an enum, so domains come after enum creation.
+	for _, dom := range diff.DomainsAdded {
+		upStatements = append(upStatements, generateCreateDomain(dom))
+		downStatements = append(downStatements, generateDropDomain(dom.Name))
+	}
+
 	// 3. CREATE TABLE statements — sorted so referenced tables are created first.
 	sorted := topoSortTables(diff.TablesAdded)
 	for _, table := range sorted {
@@ -93,6 +100,12 @@ func (p *Planner) GenerateMigration(diff *SchemaDiff) (upSQL, downSQL string) {
 	for _, table := range diff.TablesDropped {
 		upStatements = append(upStatements, p.generateDropTable(table.Name))
 		downStatements = append(downStatements, p.generateCreateTable(&table))
+	}
+
+	// 5b. DROP DOMAIN for domains no longer used — after dropping tables that use them.
+	for _, dom := range diff.DomainsDropped {
+		upStatements = append(upStatements, generateDropDomain(dom.Name))
+		downStatements = append(downStatements, generateCreateDomain(dom))
 	}
 
 	// 6. DROP TYPE for enum types that are no longer used
@@ -672,6 +685,20 @@ func (p *Planner) generateCreateEnumType(enumType schema.EnumType) string {
 // generateDropEnumType generates a DROP TYPE statement for an enum.
 func (p *Planner) generateDropEnumType(enumName string) string {
 	return fmt.Sprintf("DROP TYPE IF EXISTS %s;", enumName)
+}
+
+// generateCreateDomain generates a CREATE DOMAIN statement.
+func generateCreateDomain(dom schema.DomainType) string {
+	stmt := fmt.Sprintf("CREATE DOMAIN %s AS %s", dom.Name, dom.BaseType)
+	if dom.Check != "" {
+		stmt += " " + dom.Check
+	}
+	return stmt + ";"
+}
+
+// generateDropDomain generates a DROP DOMAIN statement.
+func generateDropDomain(name string) string {
+	return fmt.Sprintf("DROP DOMAIN IF EXISTS %s;", name)
 }
 
 // generateAlterEnumType generates ALTER TYPE statements to add new enum values.

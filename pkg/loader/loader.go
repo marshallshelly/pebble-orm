@@ -140,6 +140,9 @@ func loadModelsFromFile(filename string, registrar ModelRegistrar) (int, error) 
 					if ext := schema.ParseExtensionFromComment(comment.Text); ext != "" {
 						table.Extensions = append(table.Extensions, ext)
 					}
+					if dom := schema.ParseDomainFromComment(comment.Text); dom != nil {
+						table.Domains = append(table.Domains, *dom)
+					}
 				}
 			}
 

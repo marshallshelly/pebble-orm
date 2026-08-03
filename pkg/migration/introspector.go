@@ -68,19 +68,57 @@ func (i *Introspector) IntrospectSchema(ctx context.Context) (map[string]*schema
 		tables[tableName] = table
 	}
 
-	// Installed extensions are a database-global fact; attach them to any one
-	// table so the differ's union sees them. plpgsql and other system extensions
-	// come through here but are never dropped (extension diffing is add-only).
+	// Installed extensions and domains are database-global facts; attach them to
+	// any one table so the differ's union sees them. plpgsql and other system
+	// extensions come through here but are never dropped (extension diffing is
+	// add-only).
 	extensions, err := i.getInstalledExtensions(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get installed extensions: %w", err)
 	}
+	domains, err := i.getDomains(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get domains: %w", err)
+	}
 	for _, table := range tables {
 		table.Extensions = extensions
+		table.Domains = domains
 		break
 	}
 
 	return tables, nil
+}
+
+// getDomains retrieves user-defined DOMAIN types in the public schema.
+func (i *Introspector) getDomains(ctx context.Context) ([]schema.DomainType, error) {
+	query := `
+		SELECT t.typname,
+		       pg_catalog.format_type(t.typbasetype, t.typtypmod) AS base_type,
+		       COALESCE(
+		           (SELECT pg_get_constraintdef(c.oid)
+		              FROM pg_constraint c
+		             WHERE c.contypid = t.oid
+		             LIMIT 1), '') AS constraint_def
+		FROM pg_type t
+		WHERE t.typtype = 'd'
+		  AND t.typnamespace = 'public'::regnamespace
+		ORDER BY t.typname
+	`
+	rows, err := i.query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var domains []schema.DomainType
+	for rows.Next() {
+		var d schema.DomainType
+		if err := rows.Scan(&d.Name, &d.BaseType, &d.Check); err != nil {
+			return nil, err
+		}
+		domains = append(domains, d)
+	}
+	return domains, rows.Err()
 }
 
 // getInstalledExtensions retrieves the names of extensions installed in the database.
@@ -194,6 +232,7 @@ func (i *Introspector) getColumns(ctx context.Context, tableName string) ([]sche
 			column_name,
 			data_type,
 			udt_name,
+			domain_name,
 			character_maximum_length,
 			numeric_precision,
 			numeric_scale,
@@ -215,6 +254,7 @@ func (i *Introspector) getColumns(ctx context.Context, tableName string) ([]sche
 	for rows.Next() {
 		var col schema.ColumnMetadata
 		var dataType, udtName string
+		var domainName *string
 		var maxLength, precision, scale *int
 		var isNullable string
 		var defaultVal *string
@@ -224,6 +264,7 @@ func (i *Introspector) getColumns(ctx context.Context, tableName string) ([]sche
 			&col.Name,
 			&dataType,
 			&udtName,
+			&domainName,
 			&maxLength,
 			&precision,
 			&scale,
@@ -235,8 +276,13 @@ func (i *Introspector) getColumns(ctx context.Context, tableName string) ([]sche
 			return nil, err
 		}
 
-		// Build SQL type
-		col.SQLType = buildSQLType(dataType, udtName, maxLength, precision, scale)
+		// Build SQL type. A domain column's type is the domain itself, not the
+		// domain's underlying base type that information_schema reports as data_type.
+		if domainName != nil && *domainName != "" {
+			col.SQLType = *domainName
+		} else {
+			col.SQLType = buildSQLType(dataType, udtName, maxLength, precision, scale)
+		}
 		col.Nullable = (isNullable == "YES")
 		col.Default = defaultVal
 		col.Position = position - 1 // Zero-indexed

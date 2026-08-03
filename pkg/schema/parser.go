@@ -328,6 +328,10 @@ func (t *TagOptions) Get(key string) string {
 // GetSQLType returns the SQL type from tag options.
 // Checks for: uuid, varchar(n), text, numeric(p,s), smallint, integer, bigint, etc.
 func (t *TagOptions) GetSQLType() string {
+	// A domain(name) option names a user-defined DOMAIN type directly.
+	if domain := t.Get("domain"); domain != "" {
+		return domain
+	}
 	// Check common PostgreSQL types
 	pgTypes := []string{
 		"uuid", "varchar", "text", "char",
@@ -439,6 +443,21 @@ func ParseExtensionFromComment(comment string) string {
 		return ""
 	}
 	return m[1]
+}
+
+func ParseDomainFromComment(comment string) *DomainType {
+	re := regexp.MustCompile(`(?i)//\s*domain:\s*(\w+)\s+AS\s+(.+?)\s*$`)
+	m := re.FindStringSubmatch(comment)
+	if len(m) < 3 {
+		return nil
+	}
+	rest := strings.TrimSpace(m[2])
+	base, check := rest, ""
+	if loc := regexp.MustCompile(`(?i)\bCHECK\b`).FindStringIndex(rest); loc != nil {
+		base = strings.TrimSpace(rest[:loc[0]])
+		check = strings.TrimSpace(rest[loc[0]:])
+	}
+	return &DomainType{Name: m[1], BaseType: base, Check: check}
 }
 
 func ParseCheckFromComment(comment string) *ConstraintMetadata {
@@ -788,7 +807,7 @@ func (p *Parser) parseTableIndexes(modelType reflect.Type, table *TableMetadata)
 	}
 
 	// Parse the source file and extract indexes
-	indexes, exclusions, extensions, err := extractIndexesFromFile(sourceFile, structName)
+	indexes, exclusions, extensions, domains, err := extractIndexesFromFile(sourceFile, structName)
 	if err != nil {
 		return nil // Silently fail - not critical
 	}
@@ -797,22 +816,24 @@ func (p *Parser) parseTableIndexes(modelType reflect.Type, table *TableMetadata)
 	table.Indexes = append(table.Indexes, indexes...)
 	table.Constraints = append(table.Constraints, exclusions...)
 	table.Extensions = append(table.Extensions, extensions...)
+	table.Domains = append(table.Domains, domains...)
 
 	return nil
 }
 
 // extractIndexesFromFile parses a Go source file and extracts index definitions from comments.
-func extractIndexesFromFile(filename, structName string) ([]IndexMetadata, []ConstraintMetadata, []string, error) {
+func extractIndexesFromFile(filename, structName string) ([]IndexMetadata, []ConstraintMetadata, []string, []DomainType, error) {
 	fset := token.NewFileSet()
 	// Parse the file
 	file, err := parser.ParseFile(fset, filename, nil, parser.ParseComments)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to parse file: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("failed to parse file: %w", err)
 	}
 
 	var indexes []IndexMetadata
 	var exclusions []ConstraintMetadata
 	var extensions []string
+	var domains []DomainType
 
 	scan := func(comment string) {
 		if index := ParseIndexFromComment(comment); index != nil {
@@ -826,6 +847,9 @@ func extractIndexesFromFile(filename, structName string) ([]IndexMetadata, []Con
 		}
 		if ext := ParseExtensionFromComment(comment); ext != "" {
 			extensions = append(extensions, ext)
+		}
+		if dom := ParseDomainFromComment(comment); dom != nil {
+			domains = append(domains, *dom)
 		}
 	}
 
@@ -861,5 +885,5 @@ func extractIndexesFromFile(filename, structName string) ([]IndexMetadata, []Con
 		}
 	}
 
-	return indexes, exclusions, extensions, nil
+	return indexes, exclusions, extensions, domains, nil
 }
