@@ -131,6 +131,9 @@ func loadModelsFromFile(filename string, registrar ModelRegistrar) (int, error) 
 					if idx := schema.ParseIndexFromComment(comment.Text); idx != nil {
 						table.Indexes = append(table.Indexes, *idx)
 					}
+					if ex := schema.ParseExclusionFromComment(comment.Text); ex != nil {
+						table.Constraints = append(table.Constraints, *ex)
+					}
 				}
 			}
 

@@ -19,6 +19,7 @@ var (
 	reAddConstraint   = regexp.MustCompile(`(?i)^ADD\s+CONSTRAINT\s+\w+\s+UNIQUE\s*\("?(\w+)"?\)$`)
 	reFKConstraint    = regexp.MustCompile(`(?i)CONSTRAINT\s+(\w+)\s+FOREIGN\s+KEY\s*\(([^)]+)\)\s+REFERENCES\s+"?(\w+)"?\s*\(([^)]+)\)(?:\s+ON\s+DELETE\s+([\w\s]+?))?$`)
 	reAddFKConstraint = regexp.MustCompile(`(?i)^ADD\s+CONSTRAINT\s+(\w+)\s+FOREIGN\s+KEY\s*\(([^)]+)\)\s+REFERENCES\s+"?(\w+)"?\s*\(([^)]+)\)(?:\s+ON\s+DELETE\s+([\w\s]+?))?$`)
+	reExclusion       = regexp.MustCompile(`(?i)^(?:ADD\s+)?CONSTRAINT\s+(\w+)\s+EXCLUDE\s+(.+)$`)
 )
 
 // HasMigrationFiles reports whether any *.up.sql files exist in dir.
@@ -86,13 +87,13 @@ func applyCreateTable(tables map[string]*schema.TableMetadata, stmt string) {
 		return
 	}
 
-	cols, pkCols, fks := parseColumnList(stmt[open+1 : close])
+	cols, pkCols, fks, exclusions := parseColumnList(stmt[open+1 : close])
 
 	table := &schema.TableMetadata{
 		Name:        tableName,
 		Columns:     cols,
 		ForeignKeys: fks,
-		Constraints: make([]schema.ConstraintMetadata, 0),
+		Constraints: exclusions,
 	}
 	if len(pkCols) > 0 {
 		table.PrimaryKey = &schema.PrimaryKeyMetadata{
@@ -171,7 +172,15 @@ func applyAlterTable(tables map[string]*schema.TableMetadata, stmt string) {
 		}
 
 	case strings.HasPrefix(upper, "ADD CONSTRAINT"):
-		if strings.Contains(upper, "FOREIGN KEY") {
+		if strings.Contains(upper, "EXCLUDE") {
+			if ex := reExclusion.FindStringSubmatch(rest); ex != nil {
+				table.Constraints = append(table.Constraints, schema.ConstraintMetadata{
+					Name:       ex[1],
+					Type:       schema.ExclusionConstraint,
+					Expression: strings.TrimSpace(ex[2]),
+				})
+			}
+		} else if strings.Contains(upper, "FOREIGN KEY") {
 			// ADD CONSTRAINT name FOREIGN KEY (cols) REFERENCES table (cols) [ON DELETE action]
 			fkm := reAddFKConstraint.FindStringSubmatch(rest)
 			if fkm != nil {
@@ -237,10 +246,11 @@ func findMatchingCloseParen(s string, pos int) int {
 // parseColumnList splits a CREATE TABLE column list into ColumnMetadata and
 // returns the primary key column names and foreign keys detected from column-level
 // PRIMARY KEY attributes or table-level constraints.
-func parseColumnList(colList string) ([]schema.ColumnMetadata, []string, []schema.ForeignKeyMetadata) {
+func parseColumnList(colList string) ([]schema.ColumnMetadata, []string, []schema.ForeignKeyMetadata, []schema.ConstraintMetadata) {
 	var cols []schema.ColumnMetadata
 	var pkCols []string
 	var fks []schema.ForeignKeyMetadata
+	var exclusions []schema.ConstraintMetadata
 	pos := 0
 
 	for _, part := range splitTopLevelCommas(colList) {
@@ -261,6 +271,12 @@ func parseColumnList(colList string) ([]schema.ColumnMetadata, []string, []schem
 				if fk := parseReconstructFKConstraint(part); fk != nil {
 					fks = append(fks, *fk)
 				}
+			} else if ex := reExclusion.FindStringSubmatch(part); ex != nil {
+				exclusions = append(exclusions, schema.ConstraintMetadata{
+					Name:       ex[1],
+					Type:       schema.ExclusionConstraint,
+					Expression: strings.TrimSpace(ex[2]),
+				})
 			}
 			// UNIQUE and CHECK constraints are handled elsewhere.
 			continue
@@ -284,7 +300,7 @@ func parseColumnList(colList string) ([]schema.ColumnMetadata, []string, []schem
 		cols = append(cols, col)
 		pos++
 	}
-	return cols, pkCols, fks
+	return cols, pkCols, fks, exclusions
 }
 
 // parseReconstructFKConstraint parses a CONSTRAINT ... FOREIGN KEY ... REFERENCES ... line.

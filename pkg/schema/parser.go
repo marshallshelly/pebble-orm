@@ -339,6 +339,7 @@ func (t *TagOptions) GetSQLType() string {
 		"inet", "cidr", "macaddr",
 		"point", "line", "lseg", "box", "path", "polygon", "circle",
 		"tsvector", "tsquery",
+		"int4range", "int8range", "numrange", "tsrange", "tstzrange", "daterange",
 	}
 	for _, pgType := range pgTypes {
 		if t.Has(pgType) {
@@ -417,6 +418,19 @@ func ParseTableNameFromComment(comment string) string {
 //   - // index: idx_active ON (email) WHERE deleted_at IS NULL
 //   - // index: idx_covering ON (email) INCLUDE (name, created_at)
 //   - // index: idx_multi ON (tenant_id, status, created_at DESC)
+func ParseExclusionFromComment(comment string) *ConstraintMetadata {
+	re := regexp.MustCompile(`(?i)exclude:\s*(\w+)\s+(USING\s+.+?)\s*$`)
+	m := re.FindStringSubmatch(comment)
+	if len(m) < 3 {
+		return nil
+	}
+	return &ConstraintMetadata{
+		Name:       m[1],
+		Type:       ExclusionConstraint,
+		Expression: strings.TrimSpace(m[2]),
+	}
+}
+
 func ParseIndexFromComment(comment string) *IndexMetadata {
 	// Match the index directive and name
 	prefixPattern := regexp.MustCompile(`index:\s*(\w+)\s+ON\s+\(`)
@@ -747,27 +761,38 @@ func (p *Parser) parseTableIndexes(modelType reflect.Type, table *TableMetadata)
 	}
 
 	// Parse the source file and extract indexes
-	indexes, err := extractIndexesFromFile(sourceFile, structName)
+	indexes, exclusions, err := extractIndexesFromFile(sourceFile, structName)
 	if err != nil {
 		return nil // Silently fail - not critical
 	}
 
 	// Add indexes to table
 	table.Indexes = append(table.Indexes, indexes...)
+	table.Constraints = append(table.Constraints, exclusions...)
 
 	return nil
 }
 
 // extractIndexesFromFile parses a Go source file and extracts index definitions from comments.
-func extractIndexesFromFile(filename, structName string) ([]IndexMetadata, error) {
+func extractIndexesFromFile(filename, structName string) ([]IndexMetadata, []ConstraintMetadata, error) {
 	fset := token.NewFileSet()
 	// Parse the file
 	file, err := parser.ParseFile(fset, filename, nil, parser.ParseComments)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse file: %w", err)
+		return nil, nil, fmt.Errorf("failed to parse file: %w", err)
 	}
 
 	var indexes []IndexMetadata
+	var exclusions []ConstraintMetadata
+
+	scan := func(comment string) {
+		if index := ParseIndexFromComment(comment); index != nil {
+			indexes = append(indexes, *index)
+		}
+		if ex := ParseExclusionFromComment(comment); ex != nil {
+			exclusions = append(exclusions, *ex)
+		}
+	}
 
 	// Find the struct declaration
 	for _, decl := range file.Decls {
@@ -788,27 +813,18 @@ func extractIndexesFromFile(filename, structName string) ([]IndexMetadata, error
 				continue
 			}
 
-			// Found the struct! Now check for index comments
 			if genDecl.Doc != nil {
 				for _, comment := range genDecl.Doc.List {
-					index := ParseIndexFromComment(comment.Text)
-					if index != nil {
-						indexes = append(indexes, *index)
-					}
+					scan(comment.Text)
 				}
 			}
-
-			// Also check line comments
 			if typeSpec.Comment != nil {
 				for _, comment := range typeSpec.Comment.List {
-					index := ParseIndexFromComment(comment.Text)
-					if index != nil {
-						indexes = append(indexes, *index)
-					}
+					scan(comment.Text)
 				}
 			}
 		}
 	}
 
-	return indexes, nil
+	return indexes, exclusions, nil
 }

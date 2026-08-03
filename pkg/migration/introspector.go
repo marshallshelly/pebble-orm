@@ -417,7 +417,7 @@ func (i *Introspector) getConstraints(ctx context.Context, tableName string) ([]
 		JOIN pg_namespace nsp ON nsp.oid = connamespace
 		WHERE nsp.nspname = 'public'
 			AND rel.relname = $1
-			AND con.contype IN ('c', 'u')
+			AND con.contype IN ('c', 'u', 'x')
 	`
 
 	rows, err := i.query(ctx, query, tableName)
@@ -444,6 +444,9 @@ func (i *Introspector) getConstraints(ctx context.Context, tableName string) ([]
 		case 'u':
 			c.Type = schema.UniqueConstraint
 			c.Columns = columnNames
+		case 'x':
+			c.Type = schema.ExclusionConstraint
+			c.Expression = strings.TrimSpace(strings.TrimPrefix(c.Expression, "EXCLUDE"))
 		}
 
 		constraints = append(constraints, c)

@@ -149,7 +149,7 @@ Format: `po:"column_name,option1,option2(value)"`. First element is always the c
 
 | Category | Options |
 |----------|---------|
-| Types | `uuid`, `varchar(n)`, `text`, `smallint`, `integer`, `bigint`, `numeric(p,s)`, `boolean`, `timestamp`, `timestamptz`, `jsonb`, `text[]`, `bytea`, `inet`, geometric types, … |
+| Types | `uuid`, `varchar(n)`, `text`, `smallint`, `integer`, `bigint`, `numeric(p,s)`, `boolean`, `timestamp`, `timestamptz`, `jsonb`, `text[]`, `bytea`, `inet`, geometric types, range types (`tstzrange`, `int4range`, …), … |
 | Constraints | `primaryKey`, `notNull`, `unique`, `default(expr)` |
 | Auto-increment | `serial`, `bigserial`, `identity`, `identityAlways`, `identityByDefault` |
 | Foreign keys | `fk:table(column)`, `onDelete:CASCADE`, `onUpdate:SETNULL` |
@@ -353,6 +353,18 @@ posts, err := builder.Select[Post](qb).
 **Reserved-word tables** — identifiers that collide with PostgreSQL reserved keywords (`user`, `order`, `group`, …) are quoted automatically in generated SQL and migrations.
 
 **Enums** — `po:"status,enum(pending,active,completed)"` on a named string type generates the `CREATE TYPE` and uses it in the column. New values diff to `ALTER TYPE ... ADD VALUE`.
+
+**Range types & exclusion constraints** — range columns (`tstzrange`, `int4range`, `numrange`, `daterange`, …) use `pgtype.Range[T]` for values and are managed in migrations. Exclusion constraints are a table-level comment directive:
+
+```go
+// exclude: no_overlap USING gist (room_id WITH =, period WITH &&)
+type Reservation struct {
+    RoomID int                              `po:"room_id,integer,notNull"`
+    Period pgtype.Range[pgtype.Timestamptz] `po:"period,tstzrange,notNull"` // needs btree_gist for the WITH = part
+}
+```
+
+generates `CONSTRAINT no_overlap EXCLUDE USING gist (...)`, and is introspected and diffed like any other constraint.
 
 Also: UUID, identity columns (PostgreSQL 10+), generated columns, partial/covering/expression indexes, full-text search types, geometric types.
 

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/marshallshelly/pebble-orm/pkg/builder"
 	"github.com/marshallshelly/pebble-orm/pkg/migration"
@@ -988,5 +989,97 @@ func TestIntegration_WindowFunctions(t *testing.T) {
 	}
 	if byID[2].PrevAmount == nil || *byID[2].PrevAmount != 10 {
 		t.Errorf("id2 prev_amount should be 10, got %v", byID[2].PrevAmount)
+	}
+}
+
+func TestIntegration_RangeAndExclusion(t *testing.T) {
+	_, connStr, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	runtimeDB, err := runtime.ConnectWithURL(ctx, connStr)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer runtimeDB.Close()
+
+	pool := runtimeDB.Pool()
+	if _, err := pool.Exec(ctx, `
+		CREATE EXTENSION IF NOT EXISTS btree_gist;
+		CREATE TABLE reservation (
+			id serial PRIMARY KEY,
+			room_id integer NOT NULL,
+			period tstzrange NOT NULL,
+			CONSTRAINT no_overlap EXCLUDE USING gist (room_id WITH =, period WITH &&)
+		)`); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	type Reservation struct {
+		ID     int                              `po:"id,primaryKey,serial"`
+		RoomID int                              `po:"room_id,integer,notNull"`
+		Period pgtype.Range[pgtype.Timestamptz] `po:"period,tstzrange,notNull"`
+	}
+	if err := registry.Register(Reservation{}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	rng := func(lo, hi string) pgtype.Range[pgtype.Timestamptz] {
+		pt := func(s string) pgtype.Timestamptz {
+			ts, _ := time.Parse("2006-01-02", s)
+			return pgtype.Timestamptz{Time: ts, Valid: true}
+		}
+		return pgtype.Range[pgtype.Timestamptz]{Lower: pt(lo), Upper: pt(hi), LowerType: pgtype.Inclusive, UpperType: pgtype.Exclusive, Valid: true}
+	}
+
+	qb := builder.New(runtimeDB)
+	if _, err := builder.Insert[Reservation](qb).Values(Reservation{RoomID: 1, Period: rng("2024-07-20", "2024-07-25")}).Exec(ctx); err != nil {
+		t.Fatalf("first insert: %v", err)
+	}
+	// Overlapping reservation for the same room must be rejected by the exclusion constraint.
+	if _, err := builder.Insert[Reservation](qb).Values(Reservation{RoomID: 1, Period: rng("2024-07-23", "2024-07-28")}).Exec(ctx); err == nil {
+		t.Error("expected exclusion violation for overlapping reservation, got nil")
+	}
+	// Non-overlapping reservation for the same room is allowed.
+	if _, err := builder.Insert[Reservation](qb).Values(Reservation{RoomID: 1, Period: rng("2024-07-25", "2024-07-30")}).Exec(ctx); err != nil {
+		t.Errorf("non-overlapping insert should succeed: %v", err)
+	}
+	// Same period, different room is allowed.
+	if _, err := builder.Insert[Reservation](qb).Values(Reservation{RoomID: 2, Period: rng("2024-07-20", "2024-07-25")}).Exec(ctx); err != nil {
+		t.Errorf("different-room insert should succeed: %v", err)
+	}
+
+	// Introspection sees the exclusion constraint, and the differ reports no
+	// phantom changes against the code schema.
+	introspector := migration.NewIntrospector(pool)
+	table, err := introspector.IntrospectTable(ctx, "reservation")
+	if err != nil {
+		t.Fatalf("introspect: %v", err)
+	}
+	var foundExcl bool
+	for _, c := range table.Constraints {
+		if c.Type == schema.ExclusionConstraint && c.Name == "no_overlap" {
+			foundExcl = true
+		}
+	}
+	if !foundExcl {
+		t.Errorf("introspection did not find the exclusion constraint: %+v", table.Constraints)
+	}
+
+	codeTable := &schema.TableMetadata{
+		Name:    "reservation",
+		Columns: table.Columns,
+		Constraints: []schema.ConstraintMetadata{{
+			Name:       "no_overlap",
+			Type:       schema.ExclusionConstraint,
+			Expression: "USING gist (room_id WITH =, period WITH &&)",
+		}},
+	}
+	dbSchema := map[string]*schema.TableMetadata{"reservation": table}
+	diff := migration.NewDiffer().Compare(map[string]*schema.TableMetadata{"reservation": codeTable}, dbSchema)
+	for _, td := range diff.TablesModified {
+		if len(td.ConstraintsAdded) > 0 || len(td.ConstraintsDropped) > 0 {
+			t.Errorf("phantom constraint diff: added=%+v dropped=%+v", td.ConstraintsAdded, td.ConstraintsDropped)
+		}
 	}
 }

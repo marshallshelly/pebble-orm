@@ -147,6 +147,8 @@ func (p *Planner) generateCreateTable(table *schema.TableMetadata) string {
 				cols := strings.Join(constraint.Columns, ", ")
 				parts = append(parts, fmt.Sprintf("    CONSTRAINT %s UNIQUE (%s)", constraint.Name, cols))
 			}
+		case schema.ExclusionConstraint:
+			parts = append(parts, fmt.Sprintf("    CONSTRAINT %s EXCLUDE %s", constraint.Name, constraint.Expression))
 		}
 	}
 
@@ -639,6 +641,9 @@ func (p *Planner) generateAddConstraintSQL(tableName string, c schema.Constraint
 			tableName, c.Name, strings.Join(schema.QuoteReservedIdents(c.Columns), ", "))
 	case schema.CheckConstraint:
 		return fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s CHECK %s;",
+			tableName, c.Name, c.Expression)
+	case schema.ExclusionConstraint:
+		return fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s EXCLUDE %s;",
 			tableName, c.Name, c.Expression)
 	default:
 		return fmt.Sprintf("-- Unknown constraint type: %s", c.Type)

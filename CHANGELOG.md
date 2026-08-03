@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.21.0] - 2026-08-03
+
+### Added
+
+- **Range types.** The range column types (`int4range`, `int8range`, `numrange`, `tsrange`, `tstzrange`, `daterange`) are recognized in tags and managed in migrations. Range values round-trip through pgx's native `pgtype.Range[T]` fields with no wrapper type.
+- **Exclusion constraints.** A table-level `// exclude: <name> USING <method> (<elements>)` comment directive generates `CONSTRAINT <name> EXCLUDE USING <method> (...)` in migrations — e.g. `// exclude: no_overlap USING gist (room_id WITH =, period WITH &&)` for non-overlapping reservations. Exclusion constraints are introspected from the database (`pg_constraint` type `x`), diffed, and reconstructed from existing migration files, so incremental `pebble generate` neither drops nor re-adds them.
+
 ## [1.20.0] - 2026-07-15
 
 ### Added
@@ -547,7 +554,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - golangci-lint integration.
 - GoReleaser configuration for multi-platform releases.
 
-[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.20.0...HEAD
+[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.21.0...HEAD
+[1.21.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.20.0...v1.21.0
 [1.20.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.19.0...v1.20.0
 [1.19.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.18.0...v1.19.0
 [1.18.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.17.4...v1.18.0
