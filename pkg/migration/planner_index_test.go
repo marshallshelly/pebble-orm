@@ -425,8 +425,7 @@ func TestGenerateCreateIndex_CompleteAdvanced(t *testing.T) {
 	// Check all components
 	checks := []string{
 		"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_advanced ON users",
-		"email varchar_pattern_ops",
-		`COLLATE "C"`,
+		`email COLLATE "C" varchar_pattern_ops`,
 		"DESC NULLS LAST",
 		"name text_pattern_ops",
 		"INCLUDE (created_at)",
@@ -494,7 +493,7 @@ func TestFormatColumnsWithOrdering_CompleteModifiers(t *testing.T) {
 
 	result := planner.formatColumnsWithOrdering(columns, ordering)
 
-	expected := `email varchar_pattern_ops COLLATE "C" DESC NULLS LAST`
+	expected := `email COLLATE "C" varchar_pattern_ops DESC NULLS LAST`
 	if result != expected {
 		t.Errorf("Expected '%s', got '%s'", expected, result)
 	}

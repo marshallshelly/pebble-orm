@@ -209,6 +209,13 @@ func (e *Executor) Apply(ctx context.Context, migration Migration, dryRun bool) 
 		return nil
 	}
 
+	// CREATE/DROP INDEX CONCURRENTLY cannot run inside a transaction block, so a
+	// migration that contains one is applied statement-by-statement in autocommit
+	// mode (no wrapping transaction — the same trade-off as goose's NO TRANSACTION).
+	if hasNonTransactionalStmt(splitSQLStatements(migration.UpSQL)) {
+		return e.applyAutocommit(ctx, migration)
+	}
+
 	// Start a transaction
 	tx, err := e.pool.Begin(ctx)
 	if err != nil {
@@ -262,6 +269,55 @@ func (e *Executor) Apply(ctx context.Context, migration Migration, dryRun bool) 
 		return fmt.Errorf("failed to commit migration: %w", err)
 	}
 
+	return nil
+}
+
+// hasNonTransactionalStmt reports whether any statement must run outside a
+// transaction block. Currently that is CREATE/DROP INDEX CONCURRENTLY.
+func hasNonTransactionalStmt(statements []string) bool {
+	for _, stmt := range statements {
+		u := strings.ToUpper(stmt)
+		if (strings.Contains(u, "CREATE") || strings.Contains(u, "DROP")) &&
+			strings.Contains(u, "INDEX") && strings.Contains(u, "CONCURRENTLY") {
+			return true
+		}
+	}
+	return false
+}
+
+// applyAutocommit applies a migration statement-by-statement without a wrapping
+// transaction, for migrations that contain a non-transactional statement (e.g.
+// CREATE INDEX CONCURRENTLY). It is not atomic: a failure part-way leaves the
+// already-run statements in place, and the migration is recorded as failed.
+func (e *Executor) applyAutocommit(ctx context.Context, migration Migration) error {
+	if _, err := e.pool.Exec(ctx,
+		"INSERT INTO schema_migrations (version, name, status) VALUES ($1, $2, 'pending') ON CONFLICT (version) DO UPDATE SET status = 'pending'",
+		migration.Version, migration.Name,
+	); err != nil {
+		return fmt.Errorf("failed to record migration: %w", err)
+	}
+
+	for i, stmt := range splitSQLStatements(migration.UpSQL) {
+		stmt = strings.TrimSpace(stmt)
+		if stmt == "" || strings.HasPrefix(stmt, "--") {
+			continue
+		}
+		if _, err := e.pool.Exec(ctx, stmt, pgx.QueryExecModeExec); err != nil {
+			errMsg := fmt.Sprintf("Statement %d failed: %v", i+1, err)
+			_, _ = e.pool.Exec(ctx,
+				"UPDATE schema_migrations SET status = 'failed', error = $1, applied_at = $2 WHERE version = $3",
+				errMsg, time.Now(), migration.Version,
+			)
+			return fmt.Errorf("migration failed at statement %d: %w", i+1, err)
+		}
+	}
+
+	if _, err := e.pool.Exec(ctx,
+		"UPDATE schema_migrations SET status = 'applied', applied_at = $1, error = NULL WHERE version = $2",
+		time.Now(), migration.Version,
+	); err != nil {
+		return fmt.Errorf("failed to update migration status: %w", err)
+	}
 	return nil
 }
 

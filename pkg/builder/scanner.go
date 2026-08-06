@@ -222,6 +222,12 @@ func structToValues(model interface{}, table *schema.TableMetadata, skipPrimaryK
 			continue
 		}
 
+		// Generated columns are always computed by the database; a value can
+		// never be inserted into them (PostgreSQL errors with 428C9).
+		if col.Generated != nil {
+			continue
+		}
+
 		field := modelValue.FieldByName(col.GoField)
 		if !field.IsValid() {
 			continue

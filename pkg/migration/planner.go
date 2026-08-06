@@ -194,7 +194,22 @@ func (p *Planner) generateCreateTable(table *schema.TableMetadata) string {
 
 // generateColumnDefinition generates a column definition.
 func (p *Planner) generateColumnDefinition(col schema.ColumnMetadata) string {
-	parts := []string{schema.QuoteReservedIdent(col.Name), col.SQLType}
+	sqlType := col.SQLType
+	// An autoIncrement column with a plain integer type maps to the matching
+	// serial type so PostgreSQL creates the backing sequence. The builders omit
+	// auto-increment primary keys from INSERT, expecting the database to fill
+	// them — without a sequence that leaves the column NULL.
+	if col.AutoIncrement && col.Identity == nil && col.Generated == nil {
+		switch strings.ToLower(sqlType) {
+		case "bigint", "int8":
+			sqlType = "bigserial"
+		case "integer", "int", "int4":
+			sqlType = "serial"
+		case "smallint", "int2":
+			sqlType = "smallserial"
+		}
+	}
+	parts := []string{schema.QuoteReservedIdent(col.Name), sqlType}
 
 	// Generated columns cannot have NOT NULL, DEFAULT, or UNIQUE constraints
 	// as they are computed from other columns
@@ -336,14 +351,15 @@ func (p *Planner) formatColumnsWithOrdering(columns []string, ordering []schema.
 		part := schema.QuoteReservedIdent(col)
 
 		if ord, ok := orderMap[col]; ok {
+			// PostgreSQL index-element grammar requires COLLATE before the
+			// operator class: "col COLLATE "x" opclass ASC/DESC NULLS ...".
+			if ord.Collation != "" {
+				part += fmt.Sprintf(` COLLATE "%s"`, ord.Collation)
+			}
+
 			// Add operator class if specified
 			if ord.OpClass != "" {
 				part += " " + ord.OpClass
-			}
-
-			// Add collation if specified
-			if ord.Collation != "" {
-				part += fmt.Sprintf(` COLLATE "%s"`, ord.Collation)
 			}
 
 			// Add direction if it's not the default (ASC)
