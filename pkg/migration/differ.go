@@ -529,6 +529,12 @@ func (d *Differ) normalizeType(sqlType string) string {
 	// Convert to lowercase
 	normalized := strings.ToLower(strings.TrimSpace(sqlType))
 
+	// Array types: normalize the element type and re-attach the suffix, so an
+	// authored "integer[]" matches an introspected "int4[]" (udt_name _int4).
+	if elem, ok := strings.CutSuffix(normalized, "[]"); ok {
+		return d.normalizeType(elem) + "[]"
+	}
+
 	// Handle common aliases
 	if strings.HasPrefix(normalized, "decimal") {
 		normalized = strings.Replace(normalized, "decimal", "numeric", 1)

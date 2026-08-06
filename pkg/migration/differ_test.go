@@ -236,6 +236,10 @@ func TestNormalizeType(t *testing.T) {
 		{"smallserial", "smallint"}, // smallserial maps to smallint
 		{"VARCHAR(255)", "varchar(255)"},
 		{"  varchar(100)  ", "varchar(100)"},
+		{"int4[]", "integer[]"}, // array element normalized (introspected _int4)
+		{"integer[]", "integer[]"},
+		{"int8[]", "bigint[]"},
+		{"text[]", "text[]"},
 	}
 
 	for _, test := range tests {

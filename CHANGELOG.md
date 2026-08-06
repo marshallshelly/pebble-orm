@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Generated columns are omitted from generated `INSERT` statements; a value can never be inserted into a `GENERATED ALWAYS` column (SQLSTATE 428C9).
 - A migration containing `CREATE INDEX CONCURRENTLY` (or `DROP INDEX CONCURRENTLY`) is applied in autocommit mode instead of a transaction block, which PostgreSQL forbids. Such a migration is not atomic — a mid-way failure leaves earlier statements applied and the migration marked failed.
 - Expression indexes (`lower(email)`) and partial-index predicates (`WHERE status = 'premium'`) no longer phantom-diff. PostgreSQL rewrites the SQL it stores — adding `::type` casts and parentheses (`lower((email)::text)`, `((subscription_tier)::text = 'premium'::text)`) — so the differ now canonicalizes both the authored and stored forms before comparing.
+- Array columns no longer phantom-diff. The type normalizer now normalizes the element type inside an array, so an authored `integer[]` matches the introspected `int4[]` (and `bigint[]` matches `int8[]`).
 
 ## [1.25.0] - 2026-08-06
 
