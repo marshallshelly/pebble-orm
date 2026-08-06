@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.24.1] - 2026-08-06
+
 ### Fixed
 
 - Partial indexes no longer phantom-diff. The differ now normalizes a `WHERE` predicate before comparing, so an authored `WHERE read = false` matches PostgreSQL's stored `WHERE (read = false)` instead of being dropped and recreated on every `generate`.
@@ -578,7 +580,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - golangci-lint integration.
 - GoReleaser configuration for multi-platform releases.
 
-[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.24.0...HEAD
+[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.24.1...HEAD
+[1.24.1]: https://github.com/marshallshelly/pebble-orm/compare/v1.24.0...v1.24.1
 [1.24.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.23.0...v1.24.0
 [1.23.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.22.0...v1.23.0
 [1.22.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.21.0...v1.22.0
