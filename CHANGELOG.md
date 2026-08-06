@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `autoIncrement` columns now map to the matching serial type (`bigint` → `bigserial`, `integer` → `serial`, `smallint` → `smallserial`) so PostgreSQL creates the backing sequence. Previously the column was emitted as a plain integer with no default, so inserts that relied on a generated key failed with a NOT NULL violation.
 - Generated columns are omitted from generated `INSERT` statements; a value can never be inserted into a `GENERATED ALWAYS` column (SQLSTATE 428C9).
 - A migration containing `CREATE INDEX CONCURRENTLY` (or `DROP INDEX CONCURRENTLY`) is applied in autocommit mode instead of a transaction block, which PostgreSQL forbids. Such a migration is not atomic — a mid-way failure leaves earlier statements applied and the migration marked failed.
+- Expression indexes (`lower(email)`) and partial-index predicates (`WHERE status = 'premium'`) no longer phantom-diff. PostgreSQL rewrites the SQL it stores — adding `::type` casts and parentheses (`lower((email)::text)`, `((subscription_tier)::text = 'premium'::text)`) — so the differ now canonicalizes both the authored and stored forms before comparing.
 
 ## [1.25.0] - 2026-08-06
 

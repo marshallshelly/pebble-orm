@@ -2,6 +2,7 @@ package migration
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -272,33 +273,23 @@ func (d *Differ) compareIndexes(codeTable, dbTable *schema.TableMetadata, diff *
 	}
 }
 
-// normalizeIndexPredicate canonicalizes a partial-index WHERE predicate so an
-// authored form and PostgreSQL's stored form compare equal: it strips balanced
-// surrounding parentheses and collapses internal whitespace.
-func normalizeIndexPredicate(s string) string {
-	s = strings.TrimSpace(s)
-	for len(s) >= 2 && s[0] == '(' && s[len(s)-1] == ')' && parensBalanced(s[1:len(s)-1]) {
-		s = strings.TrimSpace(s[1 : len(s)-1])
-	}
-	return strings.Join(strings.Fields(s), " ")
-}
+// reIndexCast matches a PostgreSQL type cast (::text, ::character varying,
+// ::numeric(10,2), ::regconfig, ::"char", ::integer[]) so it can be stripped.
+// Multi-word type names are listed first so alternation prefers them.
+var reIndexCast = regexp.MustCompile(`(?i)::\s*(?:character varying|bit varying|double precision|timestamp with time zone|timestamp without time zone|time with time zone|time without time zone|"[^"]+"|[a-z_][a-z0-9_]*)(?:\s*\([0-9,\s]*\))?(?:\[\])?`)
 
-// parensBalanced reports whether s has balanced parentheses that never close
-// below zero — i.e. the outer pair in "(a) and (b)" is not a single wrapper.
-func parensBalanced(s string) bool {
-	depth := 0
-	for _, r := range s {
-		switch r {
-		case '(':
-			depth++
-		case ')':
-			depth--
-			if depth < 0 {
-				return false
-			}
-		}
-	}
-	return depth == 0
+// normalizeIndexSQL canonicalizes an index expression or partial-index predicate
+// so an authored form and PostgreSQL's stored form compare equal. PostgreSQL
+// rewrites these when it stores them — adding type casts (lower(email) becomes
+// lower((email)::text)) and parentheses (read = false becomes (read = false)).
+// It strips casts, removes all parentheses, collapses whitespace, and lowercases
+// so the two forms match. Parentheses are dropped for comparison only; a
+// predicate whose meaning depends solely on added grouping is a rare enough case
+// to accept over phantom-diffing every expression and partial index.
+func normalizeIndexSQL(s string) string {
+	s = reIndexCast.ReplaceAllString(s, "")
+	s = strings.NewReplacer("(", " ", ")", " ").Replace(s)
+	return strings.ToLower(strings.Join(strings.Fields(s), " "))
 }
 
 // isSameIndex compares two indexes to determine if they are equivalent.
@@ -322,15 +313,15 @@ func (d *Differ) isSameIndex(idx1, idx2 schema.IndexMetadata) bool {
 		return false
 	}
 
-	// Compare expression indexes
-	if idx1.Expression != idx2.Expression {
+	// Compare expression indexes (functional indexes). PostgreSQL rewrites the
+	// expression it stores (adding casts and parentheses), so normalize both.
+	if normalizeIndexSQL(idx1.Expression) != normalizeIndexSQL(idx2.Expression) {
 		return false
 	}
 
-	// Compare WHERE clause (partial indexes). PostgreSQL stores the predicate
-	// wrapped in parentheses (WHERE (read = false)), so an authored
-	// "read = false" must normalize to the same form to avoid a phantom diff.
-	if normalizeIndexPredicate(idx1.Where) != normalizeIndexPredicate(idx2.Where) {
+	// Compare WHERE clause (partial indexes) through the same normalization —
+	// PostgreSQL stores "read = false" as "(read = false)" and adds ::text casts.
+	if normalizeIndexSQL(idx1.Where) != normalizeIndexSQL(idx2.Where) {
 		return false
 	}
 

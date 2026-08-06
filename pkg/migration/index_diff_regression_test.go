@@ -23,6 +23,37 @@ func TestIsSameIndex_PartialPredicateParens(t *testing.T) {
 	}
 }
 
+// PostgreSQL rewrites expression and partial-index SQL when it stores it (adding
+// ::type casts and parentheses). An authored form must compare equal to the
+// stored form so functional and partial indexes do not phantom-diff.
+func TestIsSameIndex_ExpressionAndPredicateCanonicalization(t *testing.T) {
+	d := NewDiffer()
+	same := func(kind string, a, b schema.IndexMetadata) {
+		if !d.isSameIndex(a, b) {
+			t.Errorf("%s: authored and stored forms should compare equal\n  a=%+v\n  b=%+v", kind, a, b)
+		}
+	}
+	// Expression index: lower(email) vs lower((email)::text)
+	same("lower", schema.IndexMetadata{Name: "i", Type: "btree", Expression: "lower(email)"},
+		schema.IndexMetadata{Name: "i", Type: "btree", Expression: "lower((email)::text)"})
+	// Full-text expression with ::regconfig and ::text casts.
+	same("tsvector",
+		schema.IndexMetadata{Name: "i", Type: "gin", Expression: "to_tsvector('english', title || ' ' || content)"},
+		schema.IndexMetadata{Name: "i", Type: "gin", Expression: "to_tsvector('english'::regconfig, ((title || ' '::text) || content))"})
+	// Partial predicate with ::text casts.
+	same("premium", schema.IndexMetadata{Name: "i", Type: "btree", Columns: []string{"id"}, Where: "subscription_tier = 'premium'"},
+		schema.IndexMetadata{Name: "i", Type: "btree", Columns: []string{"id"}, Where: "((subscription_tier)::text = 'premium'::text)"})
+	// Compound partial predicate with per-condition parentheses.
+	same("compound", schema.IndexMetadata{Name: "i", Type: "btree", Columns: []string{"assigned_to"}, Where: "assigned_to IS NOT NULL AND completed_at IS NULL"},
+		schema.IndexMetadata{Name: "i", Type: "btree", Columns: []string{"assigned_to"}, Where: "((assigned_to IS NOT NULL) AND (completed_at IS NULL))"})
+
+	// A genuinely different expression must still register as changed.
+	if d.isSameIndex(schema.IndexMetadata{Name: "i", Type: "btree", Expression: "lower(email)"},
+		schema.IndexMetadata{Name: "i", Type: "btree", Expression: "upper(email)"}) {
+		t.Error("lower(email) and upper(email) must not compare equal")
+	}
+}
+
 // A modified index (same name in both dropped and added) must emit DROP before
 // CREATE in the up migration, else the recreate is immediately dropped.
 func TestGenerateAlterTable_IndexModifyOrdering(t *testing.T) {
