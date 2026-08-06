@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Partial indexes no longer phantom-diff. The differ now normalizes a `WHERE` predicate before comparing, so an authored `WHERE read = false` matches PostgreSQL's stored `WHERE (read = false)` instead of being dropped and recreated on every `generate`.
+- A modified index (same name, changed definition) now emits `DROP INDEX` before `CREATE INDEX` in the up migration; previously the order was reversed, so the recreated index was immediately dropped.
+- The offline reconstruct (`pebble generate` with no `--db`) now replays `CREATE INDEX`, `DROP INDEX`, and `ALTER COLUMN ... SET DEFAULT` / `DROP DEFAULT` from existing migration files. Previously these were ignored, so every offline `generate` after adding an index or changing a default re-emitted the same change.
+
 ## [1.24.0] - 2026-08-04
 
 ### Added

@@ -25,6 +25,12 @@ var (
 	reDropExtension   = regexp.MustCompile(`(?i)^\s*DROP\s+EXTENSION\s+(?:IF\s+EXISTS\s+)?"?([\w-]+)"?`)
 	reCreateDomain    = regexp.MustCompile(`(?i)^\s*CREATE\s+DOMAIN\s+"?(\w+)"?\s+AS\s+(.+?)\s*;?\s*$`)
 	reDropDomain      = regexp.MustCompile(`(?i)^\s*DROP\s+DOMAIN\s+(?:IF\s+EXISTS\s+)?"?(\w+)"?`)
+
+	reAlterColSetDefault  = regexp.MustCompile(`(?i)^ALTER\s+COLUMN\s+"?(\w+)"?\s+SET\s+DEFAULT\s+(.+)$`)
+	reAlterColDropDefault = regexp.MustCompile(`(?i)^ALTER\s+COLUMN\s+"?(\w+)"?\s+DROP\s+DEFAULT`)
+	reCreateIndex         = regexp.MustCompile(`(?i)^\s*CREATE\s+(UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?"?(\w+)"?\s+ON\s+"?(\w+)"?\s+(.+?)\s*;?\s*$`)
+	reDropIndex           = regexp.MustCompile(`(?i)^\s*DROP\s+INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+EXISTS\s+)?"?(\w+)"?`)
+	reIndexUsing          = regexp.MustCompile(`(?i)^USING\s+(\w+)\s+`)
 )
 
 // HasMigrationFiles reports whether any *.up.sql files exist in dir.
@@ -110,6 +116,10 @@ func applySQLToSchema(tables map[string]*schema.TableMetadata, extensions map[st
 			extensions[reCreateExtension.FindStringSubmatch(stmt)[1]] = true
 		case reDropExtension.MatchString(stmt):
 			delete(extensions, reDropExtension.FindStringSubmatch(stmt)[1])
+		case reCreateIndex.MatchString(stmt):
+			applyCreateIndex(tables, stmt)
+		case reDropIndex.MatchString(stmt):
+			applyDropIndex(tables, reDropIndex.FindStringSubmatch(stmt)[1])
 		}
 	}
 }
@@ -165,6 +175,82 @@ func applyDropTable(tables map[string]*schema.TableMetadata, stmt string) {
 	}
 }
 
+// applyCreateIndex reconstructs an index from a CREATE INDEX statement and
+// attaches it to its table. Column/ordering/WHERE parsing is delegated to the
+// canonical schema.ParseIndexFromComment by reformatting the statement into the
+// comment grammar it understands (which expects USING after the column list).
+func applyCreateIndex(tables map[string]*schema.TableMetadata, stmt string) {
+	m := reCreateIndex.FindStringSubmatch(stmt)
+	if m == nil {
+		return
+	}
+	unique := strings.TrimSpace(m[1]) != ""
+	name := m[2]
+	table, ok := tables[strings.ToLower(m[3])]
+	if !ok {
+		return
+	}
+	tail := strings.TrimSpace(m[4])
+
+	// Pull a leading "USING <type>" out of the way — the comment grammar wants it
+	// after the column list, before any WHERE.
+	usingType := ""
+	if um := reIndexUsing.FindStringSubmatch(tail); um != nil {
+		usingType = um[1]
+		tail = strings.TrimSpace(tail[len(um[0]):])
+	}
+	closeIdx := matchingParen(tail)
+	if closeIdx < 0 {
+		return
+	}
+	synthetic := "index: " + name + " ON " + tail[:closeIdx+1]
+	if usingType != "" {
+		synthetic += " USING " + usingType
+	}
+	synthetic += " " + strings.TrimSpace(tail[closeIdx+1:])
+
+	idx := schema.ParseIndexFromComment(synthetic)
+	if idx == nil {
+		return
+	}
+	idx.Unique = unique
+	table.Indexes = append(table.Indexes, *idx)
+}
+
+// applyDropIndex removes an index by name from whichever table holds it.
+func applyDropIndex(tables map[string]*schema.TableMetadata, name string) {
+	name = strings.ToLower(name)
+	for _, table := range tables {
+		for i, idx := range table.Indexes {
+			if strings.ToLower(idx.Name) == name {
+				table.Indexes = append(table.Indexes[:i], table.Indexes[i+1:]...)
+				return
+			}
+		}
+	}
+}
+
+// matchingParen returns the index of the ')' that closes the first '(' in s, or
+// -1 if s does not start with '(' or is unbalanced.
+func matchingParen(s string) int {
+	if len(s) == 0 || s[0] != '(' {
+		return -1
+	}
+	depth := 0
+	for i, r := range s {
+		switch r {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
 func applyAlterTable(tables map[string]*schema.TableMetadata, stmt string) {
 	m := reAlterTableParts.FindStringSubmatch(stmt)
 	if m == nil {
@@ -202,13 +288,29 @@ func applyAlterTable(tables map[string]*schema.TableMetadata, stmt string) {
 		}
 
 	case strings.HasPrefix(upper, "ALTER COLUMN"):
-		am := reAlterColType.FindStringSubmatch(rest)
-		if am != nil {
+		if am := reAlterColType.FindStringSubmatch(rest); am != nil {
 			colName := strings.ToLower(am[1])
 			newType := strings.TrimSpace(am[2])
 			for i, col := range table.Columns {
 				if col.Name == colName {
 					table.Columns[i].SQLType = newType
+					break
+				}
+			}
+		} else if dm := reAlterColSetDefault.FindStringSubmatch(rest); dm != nil {
+			colName := strings.ToLower(dm[1])
+			defVal := extractDefaultValue(strings.TrimSpace(dm[2]))
+			for i, col := range table.Columns {
+				if col.Name == colName {
+					table.Columns[i].Default = &defVal
+					break
+				}
+			}
+		} else if dm := reAlterColDropDefault.FindStringSubmatch(rest); dm != nil {
+			colName := strings.ToLower(dm[1])
+			for i, col := range table.Columns {
+				if col.Name == colName {
+					table.Columns[i].Default = nil
 					break
 				}
 			}

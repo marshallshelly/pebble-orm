@@ -402,15 +402,19 @@ func (p *Planner) generateAlterTable(diff TableDiff) (upSQL, downSQL []string) {
 		downSQL = append(downSQL, pkDown...)
 	}
 
-	// Add indexes
-	for _, idx := range diff.IndexesAdded {
-		upSQL = append(upSQL, p.generateCreateIndex(tableName, idx))
-		downSQL = append(downSQL, fmt.Sprintf("DROP INDEX IF EXISTS %s;", idx.Name))
-	}
-
-	// Drop indexes
+	// Index changes: drop before add so a same-name replace (a modified index
+	// appears in both slices) drops the old definition before creating the new
+	// one. The down mirror runs in reverse: drop the added, recreate the dropped.
 	for _, idx := range diff.IndexesDropped {
 		upSQL = append(upSQL, fmt.Sprintf("DROP INDEX IF EXISTS %s;", idx.Name))
+	}
+	for _, idx := range diff.IndexesAdded {
+		upSQL = append(upSQL, p.generateCreateIndex(tableName, idx))
+	}
+	for _, idx := range diff.IndexesAdded {
+		downSQL = append(downSQL, fmt.Sprintf("DROP INDEX IF EXISTS %s;", idx.Name))
+	}
+	for _, idx := range diff.IndexesDropped {
 		downSQL = append(downSQL, p.generateCreateIndex(tableName, idx))
 	}
 

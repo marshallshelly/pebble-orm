@@ -272,6 +272,35 @@ func (d *Differ) compareIndexes(codeTable, dbTable *schema.TableMetadata, diff *
 	}
 }
 
+// normalizeIndexPredicate canonicalizes a partial-index WHERE predicate so an
+// authored form and PostgreSQL's stored form compare equal: it strips balanced
+// surrounding parentheses and collapses internal whitespace.
+func normalizeIndexPredicate(s string) string {
+	s = strings.TrimSpace(s)
+	for len(s) >= 2 && s[0] == '(' && s[len(s)-1] == ')' && parensBalanced(s[1:len(s)-1]) {
+		s = strings.TrimSpace(s[1 : len(s)-1])
+	}
+	return strings.Join(strings.Fields(s), " ")
+}
+
+// parensBalanced reports whether s has balanced parentheses that never close
+// below zero — i.e. the outer pair in "(a) and (b)" is not a single wrapper.
+func parensBalanced(s string) bool {
+	depth := 0
+	for _, r := range s {
+		switch r {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth < 0 {
+				return false
+			}
+		}
+	}
+	return depth == 0
+}
+
 // isSameIndex compares two indexes to determine if they are equivalent.
 // Indexes are considered different if any of their properties differ.
 func (d *Differ) isSameIndex(idx1, idx2 schema.IndexMetadata) bool {
@@ -298,10 +327,10 @@ func (d *Differ) isSameIndex(idx1, idx2 schema.IndexMetadata) bool {
 		return false
 	}
 
-	// Compare WHERE clause (partial indexes)
-	where1 := strings.TrimSpace(idx1.Where)
-	where2 := strings.TrimSpace(idx2.Where)
-	if where1 != where2 {
+	// Compare WHERE clause (partial indexes). PostgreSQL stores the predicate
+	// wrapped in parentheses (WHERE (read = false)), so an authored
+	// "read = false" must normalize to the same form to avoid a phantom diff.
+	if normalizeIndexPredicate(idx1.Where) != normalizeIndexPredicate(idx2.Where) {
 		return false
 	}
 
