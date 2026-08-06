@@ -25,7 +25,7 @@ type Product struct {
 // table_name: users
 // index: idx_email_lower ON (lower(email))
 // index: idx_active_users ON (email) WHERE deleted_at IS NULL
-// index: idx_premium_users ON (user_id) WHERE subscription_tier = 'premium'
+// index: idx_premium_users ON (id) WHERE subscription_tier = 'premium'
 type User struct {
 	ID               int64      `po:"id,primaryKey,bigint,identity"`
 	Email            string     `po:"email,varchar(320),unique,notNull"`
@@ -98,7 +98,7 @@ type InternationalProduct struct {
 type AnalyticsEvent struct {
 	ID             int64          `po:"id,primaryKey,bigint,identity"`
 	UserID         *int64         `po:"user_id,bigint,index"`
-	SessionID      string         `po:"session_id,uuid,notNull"`
+	SessionID      string         `po:"session_id,varchar(100),notNull"`
 	EventType      string         `po:"event_type,varchar(100),notNull"`
 	EventTimestamp time.Time      `po:"event_timestamp,timestamptz,default(NOW()),notNull"`
 	Processed      bool           `po:"processed,boolean,default(false),notNull"`

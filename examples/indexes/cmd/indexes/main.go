@@ -277,9 +277,13 @@ func main() {
 
 	// Example 9: Hash Index for Equality-Only Queries
 	log.Println("--- Example 9: Hash Index for Equality-Only Queries ---")
+	var apiKeyOwnerID int64
+	if len(insertedUsers) > 0 {
+		apiKeyOwnerID = insertedUsers[0].ID
+	}
 	apiKey := models.APIKey{
 		KeyHash: "a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3", // SHA-256 of "123"
-		UserID:  insertedUsers[0].ID,
+		UserID:  apiKeyOwnerID,
 		Name:    "Production API Key",
 	}
 	insertedAPIKeys, err := builder.Insert[models.APIKey](qb).
