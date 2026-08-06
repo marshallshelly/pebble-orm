@@ -293,6 +293,21 @@ return tx.Commit()
 
 ## Migrations
 
+`pebble generate` writes only the **difference** between your structs and the current schema — it never re-emits the whole schema. The first run has nothing to diff against, so it emits the full `CREATE TABLE`; every run after that emits just the delta:
+
+```bash
+# 1. First run — no DB needed; replays existing *.up.sql as the baseline
+pebble generate --name initial_schema --models ./internal/models
+#    → 0001_initial_schema.up.sql:  CREATE TABLE users (...);
+
+# 2. Add `Phone string `po:"phone,varchar(20)"`` to the struct, then run again:
+pebble generate --name add_phone --models ./internal/models
+#    → 0002_add_phone.up.sql:    ALTER TABLE users ADD COLUMN phone varchar(20);
+#    → 0002_add_phone.down.sql:  ALTER TABLE users DROP COLUMN phone;
+```
+
+The diff runs against your migration files by default (offline, no database), or against the live schema with `--db`:
+
 ```bash
 pebble generate --name add_users --models ./internal/models        # diff vs migration files (offline)
 pebble generate --name add_users --models ./internal/models --db "postgres://..."   # diff vs live DB
