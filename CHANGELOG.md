@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.25.1] - 2026-08-06
+
 ### Fixed
 
 - Index column modifiers are now emitted in PostgreSQL's required order — `COLLATE` before the operator class (`col COLLATE "C" varchar_pattern_ops DESC`). The previous order produced a syntax error when a column had both.
@@ -599,7 +601,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - golangci-lint integration.
 - GoReleaser configuration for multi-platform releases.
 
-[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.25.0...HEAD
+[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.25.1...HEAD
+[1.25.1]: https://github.com/marshallshelly/pebble-orm/compare/v1.25.0...v1.25.1
 [1.25.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.24.1...v1.25.0
 [1.24.1]: https://github.com/marshallshelly/pebble-orm/compare/v1.24.0...v1.24.1
 [1.24.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.23.0...v1.24.0
