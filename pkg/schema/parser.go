@@ -477,6 +477,30 @@ func ParseCheckFromComment(comment string) *ConstraintMetadata {
 	}
 }
 
+// ParseUniqueFromComment parses a table-level composite UNIQUE directive of the
+// form "// unique: <name> (col1, col2, ...)".
+func ParseUniqueFromComment(comment string) *ConstraintMetadata {
+	re := regexp.MustCompile(`(?i)//\s*unique:\s*(\w+)\s*\(([^)]+)\)\s*$`)
+	m := re.FindStringSubmatch(comment)
+	if len(m) < 3 {
+		return nil
+	}
+	var cols []string
+	for _, c := range strings.Split(m[2], ",") {
+		if c = strings.TrimSpace(c); c != "" {
+			cols = append(cols, c)
+		}
+	}
+	if len(cols) == 0 {
+		return nil
+	}
+	return &ConstraintMetadata{
+		Name:    m[1],
+		Type:    UniqueConstraint,
+		Columns: cols,
+	}
+}
+
 func ParseIndexFromComment(comment string) *IndexMetadata {
 	// Match the index directive and name
 	prefixPattern := regexp.MustCompile(`index:\s*(\w+)\s+ON\s+\(`)
@@ -844,6 +868,9 @@ func extractIndexesFromFile(filename, structName string) ([]IndexMetadata, []Con
 		}
 		if chk := ParseCheckFromComment(comment); chk != nil {
 			exclusions = append(exclusions, *chk)
+		}
+		if uq := ParseUniqueFromComment(comment); uq != nil {
+			exclusions = append(exclusions, *uq)
 		}
 		if ext := ParseExtensionFromComment(comment); ext != "" {
 			extensions = append(extensions, ext)

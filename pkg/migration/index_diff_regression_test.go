@@ -105,3 +105,66 @@ ALTER TABLE labels ALTER COLUMN color SET DEFAULT '#dddddd';`
 		t.Errorf("expected 2 indexes after DROP INDEX, got %d", len(tables2["labels"].Indexes))
 	}
 }
+
+// A composite UNIQUE constraint (from a // unique: directive) must reconstruct
+// from both an inline CREATE TABLE constraint and a later ALTER ADD, and produce
+// no phantom diff against a code schema declaring the same columns.
+func TestReconstruct_CompositeUnique(t *testing.T) {
+	dir := t.TempDir()
+	sql := `CREATE TABLE team_members (
+    id serial NOT NULL PRIMARY KEY,
+    team_id integer NOT NULL,
+    user_id integer NOT NULL,
+    CONSTRAINT uq_team_member UNIQUE (team_id, user_id)
+);
+CREATE TABLE task_tags (
+    id serial NOT NULL PRIMARY KEY,
+    task_id integer NOT NULL,
+    tag_id integer NOT NULL
+);
+ALTER TABLE task_tags ADD CONSTRAINT uq_task_tag UNIQUE (task_id, tag_id);`
+	if err := os.WriteFile(filepath.Join(dir, "0001_init.up.sql"), []byte(sql), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	tables, err := ReconstructSchemaFromMigrations(dir)
+	if err != nil {
+		t.Fatalf("reconstruct: %v", err)
+	}
+
+	assertComposite := func(tbl, name string, cols []string) {
+		var found *schema.ConstraintMetadata
+		for i := range tables[tbl].Constraints {
+			if tables[tbl].Constraints[i].Type == schema.UniqueConstraint {
+				c := tables[tbl].Constraints[i]
+				found = &c
+			}
+		}
+		if found == nil {
+			t.Fatalf("%s: no unique constraint reconstructed", tbl)
+		}
+		if !strings.EqualFold(found.Name, name) {
+			t.Errorf("%s: constraint name got %q, want %q", tbl, found.Name, name)
+		}
+		if strings.Join(found.Columns, ",") != strings.Join(cols, ",") {
+			t.Errorf("%s: columns got %v, want %v", tbl, found.Columns, cols)
+		}
+	}
+	assertComposite("team_members", "uq_team_member", []string{"team_id", "user_id"})
+	assertComposite("task_tags", "uq_task_tag", []string{"task_id", "tag_id"})
+
+	// No phantom diff when the code schema declares the same composite unique.
+	code := map[string]*schema.TableMetadata{
+		"team_members": {
+			Name:        "team_members",
+			Columns:     tables["team_members"].Columns,
+			Constraints: []schema.ConstraintMetadata{{Name: "uq_team_member", Type: schema.UniqueConstraint, Columns: []string{"team_id", "user_id"}}},
+		},
+	}
+	db := map[string]*schema.TableMetadata{"team_members": tables["team_members"]}
+	diff := NewDiffer().Compare(code, db)
+	for _, td := range diff.TablesModified {
+		if len(td.ConstraintsAdded) > 0 || len(td.ConstraintsDropped) > 0 {
+			t.Errorf("phantom composite-unique diff: added=%+v dropped=%+v", td.ConstraintsAdded, td.ConstraintsDropped)
+		}
+	}
+}

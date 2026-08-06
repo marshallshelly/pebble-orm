@@ -485,9 +485,9 @@ func (i *Introspector) getConstraints(ctx context.Context, tableName string) ([]
 			pg_get_constraintdef(con.oid) as constraint_def,
 			ARRAY(
 				SELECT a.attname
-				FROM unnest(con.conkey) AS u(attnum)
+				FROM unnest(con.conkey) WITH ORDINALITY AS u(attnum, ord)
 				JOIN pg_attribute AS a ON a.attrelid = con.conrelid AND a.attnum = u.attnum
-				ORDER BY u.attnum
+				ORDER BY u.ord
 			) as column_names
 		FROM pg_constraint con
 		JOIN pg_class rel ON rel.oid = con.conrelid

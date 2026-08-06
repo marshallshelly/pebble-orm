@@ -164,6 +164,7 @@ Column-level `check(expr)` becomes a named CHECK constraint (`{table}_{column}_c
 // table_name: users
 // index: idx_active_users ON (email) WHERE deleted_at IS NULL
 // check: age_range age >= 0 AND age < 150
+// unique: uq_user_org_email (org_id, email)
 // exclude: no_overlap USING gist (room_id WITH =, period WITH &&)
 // extension: pgcrypto
 // domain: email_address AS text CHECK (VALUE ~* '^[^@]+@[^@]+$')
@@ -173,6 +174,8 @@ type User struct {
     Status string `po:"status,text,check(status IN ('active', 'closed'))"`
 }
 ```
+
+Single-column uniqueness uses the `unique` column tag; a **composite** UNIQUE constraint is the `// unique: <name> (col1, col2, …)` table directive — the natural fit for junction tables (`// unique: uq_task_tag (task_id, tag_id)`). It is emitted in `CREATE TABLE`/`ALTER TABLE`, introspected, and diffed by its columns.
 
 Required PostgreSQL extensions are declared with a `// extension:` directive; `pebble generate` emits `CREATE EXTENSION IF NOT EXISTS` before any type or table that needs it. Extensions are never auto-dropped.
 

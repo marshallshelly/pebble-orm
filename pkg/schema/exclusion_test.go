@@ -81,6 +81,25 @@ func TestGetSQLTypeDomain(t *testing.T) {
 	}
 }
 
+func TestParseUniqueFromComment(t *testing.T) {
+	c := ParseUniqueFromComment("// unique: uq_team_member (team_id, user_id)")
+	if c == nil {
+		t.Fatal("expected a constraint, got nil")
+	}
+	if c.Name != "uq_team_member" || c.Type != UniqueConstraint {
+		t.Errorf("name/type: got %q / %q", c.Name, c.Type)
+	}
+	if len(c.Columns) != 2 || c.Columns[0] != "team_id" || c.Columns[1] != "user_id" {
+		t.Errorf("columns: got %v", c.Columns)
+	}
+	if ParseUniqueFromComment("// index: idx_x ON (a)") != nil {
+		t.Error("non-unique comment should return nil")
+	}
+	if ParseUniqueFromComment("// this is unique: prose") != nil {
+		t.Error("prose comment should not parse as unique")
+	}
+}
+
 func TestCheckConstraintsFor(t *testing.T) {
 	cols := []ColumnMetadata{{Name: "age", Check: "age >= 0"}, {Name: "name"}}
 	got := CheckConstraintsFor("users", cols)

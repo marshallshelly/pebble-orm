@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.25.0] - 2026-08-06
+
+### Added
+
+- **Composite UNIQUE constraints.** A table-level `// unique: <name> (col1, col2, ...)` comment directive declares a multi-column UNIQUE constraint — the natural fit for junction tables (`// unique: uq_task_tag (task_id, tag_id)`). It is parsed by both the reflection and AST paths, emitted in `CREATE TABLE`/`ALTER TABLE`, introspected from `pg_constraint`, and reconstructed from existing migration files. Single-column uniqueness continues to use the `unique` column tag.
+
+### Fixed
+
+- Constraint introspection now returns a constraint's columns in their declared order (`unnest(conkey) WITH ORDINALITY`) rather than table-column order, so a composite UNIQUE whose column order differs from the table's no longer phantom-diffs.
+
 ## [1.24.1] - 2026-08-06
 
 ### Fixed
@@ -580,7 +590,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - golangci-lint integration.
 - GoReleaser configuration for multi-platform releases.
 
-[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.24.1...HEAD
+[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.25.0...HEAD
+[1.25.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.24.1...v1.25.0
 [1.24.1]: https://github.com/marshallshelly/pebble-orm/compare/v1.24.0...v1.24.1
 [1.24.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.23.0...v1.24.0
 [1.23.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.22.0...v1.23.0

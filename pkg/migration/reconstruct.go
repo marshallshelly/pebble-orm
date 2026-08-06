@@ -12,19 +12,19 @@ import (
 )
 
 var (
-	reCreateTableName = regexp.MustCompile(`(?i)^\s*CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?"?(\w+)"?`)
-	reDropTableName   = regexp.MustCompile(`(?i)^\s*DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?"?(\w+)"?`)
-	reAlterTableParts = regexp.MustCompile(`(?i)^\s*ALTER\s+TABLE\s+"?(\w+)"?\s+(.+)`)
-	reAlterColType    = regexp.MustCompile(`(?i)^ALTER\s+COLUMN\s+"?(\w+)"?\s+TYPE\s+(.+)$`)
-	reAddConstraint   = regexp.MustCompile(`(?i)^ADD\s+CONSTRAINT\s+\w+\s+UNIQUE\s*\("?(\w+)"?\)$`)
-	reFKConstraint    = regexp.MustCompile(`(?i)CONSTRAINT\s+(\w+)\s+FOREIGN\s+KEY\s*\(([^)]+)\)\s+REFERENCES\s+"?(\w+)"?\s*\(([^)]+)\)(?:\s+ON\s+DELETE\s+([\w\s]+?))?$`)
-	reAddFKConstraint = regexp.MustCompile(`(?i)^ADD\s+CONSTRAINT\s+(\w+)\s+FOREIGN\s+KEY\s*\(([^)]+)\)\s+REFERENCES\s+"?(\w+)"?\s*\(([^)]+)\)(?:\s+ON\s+DELETE\s+([\w\s]+?))?$`)
-	reExclusion       = regexp.MustCompile(`(?i)^(?:ADD\s+)?CONSTRAINT\s+(\w+)\s+EXCLUDE\s+(.+)$`)
-	reCheck           = regexp.MustCompile(`(?i)^(?:ADD\s+)?CONSTRAINT\s+(\w+)\s+CHECK\s+(.+)$`)
-	reCreateExtension = regexp.MustCompile(`(?i)^\s*CREATE\s+EXTENSION\s+(?:IF\s+NOT\s+EXISTS\s+)?"?([\w-]+)"?`)
-	reDropExtension   = regexp.MustCompile(`(?i)^\s*DROP\s+EXTENSION\s+(?:IF\s+EXISTS\s+)?"?([\w-]+)"?`)
-	reCreateDomain    = regexp.MustCompile(`(?i)^\s*CREATE\s+DOMAIN\s+"?(\w+)"?\s+AS\s+(.+?)\s*;?\s*$`)
-	reDropDomain      = regexp.MustCompile(`(?i)^\s*DROP\s+DOMAIN\s+(?:IF\s+EXISTS\s+)?"?(\w+)"?`)
+	reCreateTableName  = regexp.MustCompile(`(?i)^\s*CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?"?(\w+)"?`)
+	reDropTableName    = regexp.MustCompile(`(?i)^\s*DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?"?(\w+)"?`)
+	reAlterTableParts  = regexp.MustCompile(`(?i)^\s*ALTER\s+TABLE\s+"?(\w+)"?\s+(.+)`)
+	reAlterColType     = regexp.MustCompile(`(?i)^ALTER\s+COLUMN\s+"?(\w+)"?\s+TYPE\s+(.+)$`)
+	reUniqueConstraint = regexp.MustCompile(`(?i)^(?:ADD\s+)?CONSTRAINT\s+(\w+)\s+UNIQUE\s*\(([^)]+)\)$`)
+	reFKConstraint     = regexp.MustCompile(`(?i)CONSTRAINT\s+(\w+)\s+FOREIGN\s+KEY\s*\(([^)]+)\)\s+REFERENCES\s+"?(\w+)"?\s*\(([^)]+)\)(?:\s+ON\s+DELETE\s+([\w\s]+?))?$`)
+	reAddFKConstraint  = regexp.MustCompile(`(?i)^ADD\s+CONSTRAINT\s+(\w+)\s+FOREIGN\s+KEY\s*\(([^)]+)\)\s+REFERENCES\s+"?(\w+)"?\s*\(([^)]+)\)(?:\s+ON\s+DELETE\s+([\w\s]+?))?$`)
+	reExclusion        = regexp.MustCompile(`(?i)^(?:ADD\s+)?CONSTRAINT\s+(\w+)\s+EXCLUDE\s+(.+)$`)
+	reCheck            = regexp.MustCompile(`(?i)^(?:ADD\s+)?CONSTRAINT\s+(\w+)\s+CHECK\s+(.+)$`)
+	reCreateExtension  = regexp.MustCompile(`(?i)^\s*CREATE\s+EXTENSION\s+(?:IF\s+NOT\s+EXISTS\s+)?"?([\w-]+)"?`)
+	reDropExtension    = regexp.MustCompile(`(?i)^\s*DROP\s+EXTENSION\s+(?:IF\s+EXISTS\s+)?"?([\w-]+)"?`)
+	reCreateDomain     = regexp.MustCompile(`(?i)^\s*CREATE\s+DOMAIN\s+"?(\w+)"?\s+AS\s+(.+?)\s*;?\s*$`)
+	reDropDomain       = regexp.MustCompile(`(?i)^\s*DROP\s+DOMAIN\s+(?:IF\s+EXISTS\s+)?"?(\w+)"?`)
 
 	reAlterColSetDefault  = regexp.MustCompile(`(?i)^ALTER\s+COLUMN\s+"?(\w+)"?\s+SET\s+DEFAULT\s+(.+)$`)
 	reAlterColDropDefault = regexp.MustCompile(`(?i)^ALTER\s+COLUMN\s+"?(\w+)"?\s+DROP\s+DEFAULT`)
@@ -346,24 +346,23 @@ func applyAlterTable(tables map[string]*schema.TableMetadata, stmt string) {
 				}
 				table.ForeignKeys = append(table.ForeignKeys, fk)
 			}
-		} else {
-			cm := reAddConstraint.FindStringSubmatch(rest)
-			if cm != nil {
-				colName := strings.ToLower(cm[1])
+		} else if cm := reUniqueConstraint.FindStringSubmatch(rest); cm != nil {
+			cols := splitCSV(cm[2])
+			// A single-column UNIQUE also flips the column's Unique flag so the
+			// differ's column-level detection stays consistent.
+			if len(cols) == 1 {
 				for i, col := range table.Columns {
-					if col.Name == colName {
+					if col.Name == cols[0] {
 						table.Columns[i].Unique = true
 						break
 					}
 				}
-				// Also add to the Constraints slice so the differ sees it.
-				constraintName := tableName + "_" + colName + "_key"
-				table.Constraints = append(table.Constraints, schema.ConstraintMetadata{
-					Type:    schema.UniqueConstraint,
-					Columns: []string{colName},
-					Name:    constraintName,
-				})
 			}
+			table.Constraints = append(table.Constraints, schema.ConstraintMetadata{
+				Name:    cm[1],
+				Type:    schema.UniqueConstraint,
+				Columns: cols,
+			})
 		}
 	}
 }
@@ -435,6 +434,12 @@ func parseColumnList(colList string) ([]schema.ColumnMetadata, []string, []schem
 					Name:       ck[1],
 					Type:       schema.CheckConstraint,
 					Expression: strings.TrimSpace(ck[2]),
+				})
+			} else if uq := reUniqueConstraint.FindStringSubmatch(part); uq != nil {
+				exclusions = append(exclusions, schema.ConstraintMetadata{
+					Name:    uq[1],
+					Type:    schema.UniqueConstraint,
+					Columns: splitCSV(uq[2]),
 				})
 			}
 			continue
