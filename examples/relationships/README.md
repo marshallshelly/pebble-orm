@@ -2,7 +2,7 @@
 
 <em>All four relationship shapes, eager-loaded in two queries instead of N+1.</em>
 
-Five models covering `hasMany` (Author → Books), `belongsTo` (Book → Author), `hasOne` (User → Profile), and `manyToMany` (User ↔ Roles through `user_roles`). Every query uses `Preload`, which batches related rows with `ANY($1)` — one extra query per relationship, regardless of row count.
+Six models covering `hasMany` (Author → Books), `belongsTo` (Book → Author), `hasOne` (User → Profile), and `manyToMany` (User ↔ Roles through the `user_roles` junction). Every query uses `Preload`, which batches related rows with `ANY($1)` — one extra query per relationship, regardless of row count.
 
 ## Run
 
@@ -14,14 +14,10 @@ cd examples/relationships
 pebble generate --name initial_schema --models ./internal/models
 pebble migrate up --all --db "$DATABASE_URL"
 
-# manyToMany needs the junction table (relationship tags don't create it):
-psql "$DATABASE_URL" -c "CREATE TABLE IF NOT EXISTS user_roles (
-  user_id INTEGER REFERENCES users(id),
-  role_id INTEGER REFERENCES roles(id),
-  PRIMARY KEY (user_id, role_id))"
-
 go run cmd/relationships/main.go
 ```
+
+The `user_roles` junction is a real model (`UserRole`), so `pebble generate` creates it for you — no manual `CREATE TABLE`. Its `// unique: uq_user_role (user_id, role_id)` directive adds a composite UNIQUE so a role can't be assigned to the same user twice.
 
 ## What it shows
 
@@ -33,6 +29,18 @@ go run cmd/relationships/main.go
 | manyToMany | User ↔ Roles | `po:"-,manyToMany,joinTable(user_roles),foreignKey(user_id),references(id)"` |
 
 Relationship fields use `-` as the column name — they exist in Go, not in the table.
+
+The `UserRole` junction carries a composite UNIQUE via a table directive:
+
+```go
+// table_name: user_roles
+// unique: uq_user_role (user_id, role_id)
+type UserRole struct {
+    ID     int `po:"id,primaryKey,serial"`
+    UserID int `po:"user_id,integer,notNull,fk:users(id),onDelete:CASCADE"`
+    RoleID int `po:"role_id,integer,notNull,fk:roles(id),onDelete:CASCADE"`
+}
+```
 
 ## The tags
 

@@ -38,3 +38,14 @@ type Role struct {
 	ID   int    `po:"id,primaryKey,serial"`
 	Name string `po:"name,varchar(50),notNull,unique"`
 }
+
+// UserRole is the manyToMany junction table for User ↔ Role. A composite UNIQUE
+// on the two foreign keys stops the same role being assigned to a user twice.
+//
+// table_name: user_roles
+// unique: uq_user_role (user_id, role_id)
+type UserRole struct {
+	ID     int `po:"id,primaryKey,serial"`
+	UserID int `po:"user_id,integer,notNull,fk:users(id),onDelete:CASCADE"`
+	RoleID int `po:"role_id,integer,notNull,fk:roles(id),onDelete:CASCADE"`
+}

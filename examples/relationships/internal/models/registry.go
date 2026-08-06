@@ -10,6 +10,7 @@ func RegisterAll() error {
 		User{},
 		Profile{},
 		Role{},
+		UserRole{},
 	}
 
 	for _, model := range models {

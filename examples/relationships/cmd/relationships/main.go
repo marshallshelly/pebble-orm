@@ -168,8 +168,28 @@ func main() {
 	}
 	log.Printf("Ensured %d roles exist\n", len(roles))
 
-	// Note: In production, you would insert into the user_roles junction table
-	// For demonstration purposes, we show the Preload syntax
+	// Assign roles through the real user_roles junction table. The composite
+	// UNIQUE (uq_user_role) makes these inserts idempotent across re-runs.
+	alice, err := builder.Select[models.User](qb).
+		Where(builder.Eq(builder.Col[models.User]("Email"), "alice@example.com")).
+		First(ctx)
+	if err != nil {
+		log.Fatalf("Failed to load alice: %v", err)
+	}
+	for _, roleName := range []string{"admin", "editor"} {
+		role, err := builder.Select[models.Role](qb).
+			Where(builder.Eq(builder.Col[models.Role]("Name"), roleName)).
+			First(ctx)
+		if err != nil {
+			log.Fatalf("Failed to load role %s: %v", roleName, err)
+		}
+		_, err = builder.Insert[models.UserRole](qb).
+			Values(models.UserRole{UserID: alice.ID, RoleID: role.ID}).
+			Exec(ctx)
+		if err != nil {
+			log.Printf("Note: %s already assigned to %s", roleName, alice.Email)
+		}
+	}
 
 	fmt.Println("\nQuerying users with their roles (eager loading)...")
 	usersWithRoles, err := builder.Select[models.User](qb).
