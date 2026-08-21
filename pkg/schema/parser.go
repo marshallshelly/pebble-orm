@@ -486,7 +486,7 @@ func ParseUniqueFromComment(comment string) *ConstraintMetadata {
 		return nil
 	}
 	var cols []string
-	for _, c := range strings.Split(m[2], ",") {
+	for c := range strings.SplitSeq(m[2], ",") {
 		if c = strings.TrimSpace(c); c != "" {
 			cols = append(cols, c)
 		}

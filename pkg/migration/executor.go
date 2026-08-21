@@ -3,6 +3,7 @@ package migration
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -418,8 +419,7 @@ func (e *Executor) RollbackTo(ctx context.Context, targetVersion string, migrati
 	}
 
 	// Roll back migrations in reverse order
-	for i := len(applied) - 1; i >= 0; i-- {
-		record := applied[i]
+	for _, record := range slices.Backward(applied) {
 
 		// Stop when we reach target version
 		if record.Version == targetVersion {

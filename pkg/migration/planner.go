@@ -2,6 +2,7 @@ package migration
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/marshallshelly/pebble-orm/pkg/schema"
@@ -85,8 +86,8 @@ func (p *Planner) GenerateMigration(diff *SchemaDiff) (upSQL, downSQL string) {
 		upStatements = append(upStatements, p.generateCreateTable(&table))
 	}
 	// DOWN drops in reverse creation order (dependents before dependencies).
-	for i := len(sorted) - 1; i >= 0; i-- {
-		downStatements = append(downStatements, p.generateDropTable(sorted[i].Name))
+	for _, s := range slices.Backward(sorted) {
+		downStatements = append(downStatements, p.generateDropTable(s.Name))
 	}
 
 	// 4. ALTER TABLE statements for table modifications

@@ -522,7 +522,7 @@ func extractParenList(s string) []string {
 	}
 	inner := s[open+1 : close]
 	var items []string
-	for _, item := range strings.Split(inner, ",") {
+	for item := range strings.SplitSeq(inner, ",") {
 		item = strings.TrimSpace(item)
 		if item != "" {
 			items = append(items, strings.ToLower(item))
