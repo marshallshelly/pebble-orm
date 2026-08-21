@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Internal modernization in `pkg/builder`: string concatenation in loops uses `strings.Builder`, manual find-loops use `slices.Contains`, map merges use `maps.Copy`, and the `driver.Valuer` interface lookup uses `reflect.TypeFor`. No API or behavior change.
+
 ## [1.26.0] - 2026-08-21
 
 ### Changed

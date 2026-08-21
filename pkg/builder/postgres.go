@@ -58,11 +58,12 @@ func JSONBHasAllKeys(column string, keys []string) Condition {
 // Usage: JSONBPath("data", "user", "name") -> data->'user'->'name'
 // Path segments are embedded as SQL string literals with single quotes escaped.
 func JSONBPath(column string, path ...string) string {
-	result := column
+	var result strings.Builder
+	result.WriteString(column)
 	for _, p := range path {
-		result += fmt.Sprintf("->'%s'", strings.ReplaceAll(p, "'", "''"))
+		result.WriteString(fmt.Sprintf("->'%s'", strings.ReplaceAll(p, "'", "''")))
 	}
-	return result
+	return result.String()
 }
 
 // JSONBPathText extracts value at specified path as text
@@ -72,16 +73,17 @@ func JSONBPathText(column string, path ...string) string {
 	if len(path) == 0 {
 		return column
 	}
-	result := column
+	var result strings.Builder
+	result.WriteString(column)
 	for i, p := range path {
 		p = strings.ReplaceAll(p, "'", "''")
 		if i == len(path)-1 {
-			result += fmt.Sprintf("->>'%s'", p)
+			result.WriteString(fmt.Sprintf("->>'%s'", p))
 		} else {
-			result += fmt.Sprintf("->'%s'", p)
+			result.WriteString(fmt.Sprintf("->'%s'", p))
 		}
 	}
-	return result
+	return result.String()
 }
 
 // Array Operators

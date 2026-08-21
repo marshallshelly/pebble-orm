@@ -2,6 +2,7 @@ package builder
 
 import (
 	"context"
+	"maps"
 )
 
 // Set sets a column value for the UPDATE.
@@ -12,9 +13,7 @@ func (q *UpdateQuery[T]) Set(column string, value interface{}) *UpdateQuery[T] {
 
 // SetMap sets multiple column values from a map.
 func (q *UpdateQuery[T]) SetMap(values map[string]interface{}) *UpdateQuery[T] {
-	for col, val := range values {
-		q.sets[col] = val
-	}
+	maps.Copy(q.sets, values)
 	return q
 }
 

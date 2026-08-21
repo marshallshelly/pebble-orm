@@ -183,7 +183,7 @@ func implementsScanner(t reflect.Type) bool {
 
 // implementsValuer checks if a type implements driver.Valuer.
 func implementsValuer(t reflect.Type) bool {
-	valuerType := reflect.TypeOf((*driver.Valuer)(nil)).Elem()
+	valuerType := reflect.TypeFor[driver.Valuer]()
 
 	// Check the type itself
 	if t.Implements(valuerType) {

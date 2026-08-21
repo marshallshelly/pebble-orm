@@ -1,6 +1,7 @@
 package builder
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -19,7 +20,7 @@ func TestSmartDefaultDetection(t *testing.T) {
 				GoField:  "ID",
 				SQLType:  "uuid",
 				Nullable: false,
-				Default:  strPtr("gen_random_uuid()"),
+				Default:  new("gen_random_uuid()"),
 			},
 			{
 				Name:     "email",
@@ -32,7 +33,7 @@ func TestSmartDefaultDetection(t *testing.T) {
 				GoField:  "CreatedAt",
 				SQLType:  "timestamptz",
 				Nullable: false,
-				Default:  strPtr("NOW()"),
+				Default:  new("NOW()"),
 			},
 		},
 		PrimaryKey: &schema.PrimaryKeyMetadata{
@@ -99,13 +100,7 @@ func TestSmartDefaultDetection(t *testing.T) {
 
 			// Check that we got the expected columns
 			for _, wantCol := range tt.wantCols {
-				found := false
-				for _, gotCol := range cols {
-					if gotCol == wantCol {
-						found = true
-						break
-					}
-				}
+				found := slices.Contains(cols, wantCol)
 				if !found {
 					t.Errorf("expected column %s not found in %v", wantCol, cols)
 				}
@@ -189,13 +184,7 @@ func TestSmartDefaultWithIdentityColumns(t *testing.T) {
 			}
 
 			for _, wantCol := range tt.wantCols {
-				found := false
-				for _, gotCol := range cols {
-					if gotCol == wantCol {
-						found = true
-						break
-					}
-				}
+				found := slices.Contains(cols, wantCol)
 				if !found {
 					t.Errorf("expected column %s not found in %v", wantCol, cols)
 				}
@@ -218,7 +207,7 @@ func TestSmartDefaultWithPointers(t *testing.T) {
 				GoField:  "ID",
 				SQLType:  "uuid",
 				Nullable: false,
-				Default:  strPtr("gen_random_uuid()"),
+				Default:  new("gen_random_uuid()"),
 			},
 			{
 				Name:     "email",
@@ -256,7 +245,7 @@ func TestSmartDefaultWithPointers(t *testing.T) {
 		{
 			name: "empty string pointer - omitted (zero value of pointed type)",
 			user: User{
-				ID:    strPtr(""), // pointer to empty string is still zero for the string
+				ID:    new(""), // pointer to empty string is still zero for the string
 				Email: "test@test.com",
 			},
 			wantCols:  []string{"id", "email"}, // Included because pointer is non-nil
@@ -265,7 +254,7 @@ func TestSmartDefaultWithPointers(t *testing.T) {
 		{
 			name: "explicit value pointer - included",
 			user: User{
-				ID:    strPtr("custom-uuid"),
+				ID:    new("custom-uuid"),
 				Email: "test@test.com",
 			},
 			wantCols:  []string{"id", "email"},
@@ -285,13 +274,7 @@ func TestSmartDefaultWithPointers(t *testing.T) {
 			}
 
 			for _, wantCol := range tt.wantCols {
-				found := false
-				for _, gotCol := range cols {
-					if gotCol == wantCol {
-						found = true
-						break
-					}
-				}
+				found := slices.Contains(cols, wantCol)
 				if !found {
 					t.Errorf("expected column %s not found in %v", wantCol, cols)
 				}
@@ -357,8 +340,4 @@ func TestFieldWithoutDefault(t *testing.T) {
 	if len(vals) != len(cols) {
 		t.Errorf("values count mismatch: got %d values for %d columns", len(vals), len(cols))
 	}
-}
-
-func strPtr(s string) *string {
-	return &s
 }

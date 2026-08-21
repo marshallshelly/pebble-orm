@@ -1090,13 +1090,13 @@ func toPascalCase(s string) string {
 		}
 
 		// Check if this part is a common initialism (case-insensitive)
-		upperPart := ""
+		var upperPart strings.Builder
 		for _, ch := range part {
-			upperPart += string(toUpper(ch))
+			upperPart.WriteString(string(toUpper(ch)))
 		}
 
-		if commonInitialisms[upperPart] {
-			result = append(result, upperPart)
+		if commonInitialisms[upperPart.String()] {
+			result = append(result, upperPart.String())
 		} else {
 			// Capitalize first letter, keep rest as-is
 			capitalized := string(toUpper(rune(part[0]))) + part[1:]
@@ -1105,12 +1105,12 @@ func toPascalCase(s string) string {
 	}
 
 	// Join all parts
-	final := ""
+	var final strings.Builder
 	for _, part := range result {
-		final += part
+		final.WriteString(part)
 	}
 
-	return final
+	return final.String()
 }
 
 // toUpper converts a character to uppercase.

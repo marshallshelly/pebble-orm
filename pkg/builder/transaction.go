@@ -3,6 +3,7 @@ package builder
 import (
 	"context"
 	"fmt"
+	"maps"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/marshallshelly/pebble-orm/pkg/registry"
@@ -547,9 +548,7 @@ func (q *TxUpdateQuery[T]) Set(column string, value interface{}) *TxUpdateQuery[
 
 // SetMap sets multiple column values from a map.
 func (q *TxUpdateQuery[T]) SetMap(values map[string]interface{}) *TxUpdateQuery[T] {
-	for k, v := range values {
-		q.sets[k] = v
-	}
+	maps.Copy(q.sets, values)
 	return q
 }
 
