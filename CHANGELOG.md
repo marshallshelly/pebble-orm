@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.26.0] - 2026-08-21
+
 ### Changed
 
 - **BREAKING**: Minimum Go version bumped from 1.26 to 1.27.
@@ -607,7 +609,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - golangci-lint integration.
 - GoReleaser configuration for multi-platform releases.
 
-[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.25.1...HEAD
+[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.26.0...HEAD
+[1.26.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.25.1...v1.26.0
 [1.25.1]: https://github.com/marshallshelly/pebble-orm/compare/v1.25.0...v1.25.1
 [1.25.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.24.1...v1.25.0
 [1.24.1]: https://github.com/marshallshelly/pebble-orm/compare/v1.24.0...v1.24.1
