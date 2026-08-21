@@ -180,22 +180,20 @@ func (d *Differ) compareColumns(codeTable, dbTable *schema.TableMetadata, diff *
 
 // compareColumn compares two versions of the same column.
 func (d *Differ) compareColumn(codeCol, dbCol schema.ColumnMetadata) ColumnDiff {
-	diff := ColumnDiff{
+	return ColumnDiff{
 		ColumnName: codeCol.Name,
 		OldColumn:  dbCol,
 		NewColumn:  codeCol,
+
+		// Compare SQL type (normalize for comparison)
+		TypeChanged: !d.isSameType(codeCol.SQLType, dbCol.SQLType),
+
+		// Compare nullability
+		NullChanged: (codeCol.Nullable != dbCol.Nullable),
+
+		// Compare default value with special handling for serial/autoincrement columns
+		DefaultChanged: !d.isSameDefaultWithSerial(codeCol, dbCol),
 	}
-
-	// Compare SQL type (normalize for comparison)
-	diff.TypeChanged = !d.isSameType(codeCol.SQLType, dbCol.SQLType)
-
-	// Compare nullability
-	diff.NullChanged = (codeCol.Nullable != dbCol.Nullable)
-
-	// Compare default value with special handling for serial/autoincrement columns
-	diff.DefaultChanged = !d.isSameDefaultWithSerial(codeCol, dbCol)
-
-	return diff
 }
 
 // hasChanges returns true if the column has any changes.
