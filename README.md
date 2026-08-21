@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://pkg.go.dev/github.com/marshallshelly/pebble-orm"><img src="https://img.shields.io/badge/go.dev-reference-111111?style=flat-square&logo=go" alt="Go Reference"></a>
-  <img src="https://img.shields.io/badge/Go-1.26+-111111?style=flat-square&logo=go" alt="Go 1.26+">
+  <img src="https://img.shields.io/badge/Go-1.27+-111111?style=flat-square&logo=go" alt="Go 1.27+">
   <img src="https://img.shields.io/badge/PostgreSQL-14+-111111?style=flat-square&logo=postgresql&logoColor=white" alt="PostgreSQL 14+">
   <a href="https://github.com/marshallshelly/pebble-orm/actions"><img src="https://img.shields.io/github/actions/workflow/status/marshallshelly/pebble-orm/ci.yml?style=flat-square&label=ci" alt="CI"></a>
   <a href="https://github.com/marshallshelly/pebble-orm/releases"><img src="https://img.shields.io/github/v/tag/marshallshelly/pebble-orm?style=flat-square&color=111111&label=release" alt="Release"></a>

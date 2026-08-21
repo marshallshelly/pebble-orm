@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING**: Minimum Go version bumped from 1.26 to 1.27.
+- Upgrade `github.com/charmbracelet/bubbles` from `v0.21.0` to `v1.0.0`, `github.com/stretchr/testify` from `v1.11.1` to `v1.12.1`, and `github.com/testcontainers/testcontainers-go` from `v0.40.0` to `v0.44.0`.
+- Backward loops over slices use `slices.Backward`, and `strings.Split` in tag/column parsing uses the allocation-free `strings.SplitSeq` iterator. `compareColumn` returns its `ColumnDiff` literal directly. No behavior change.
+
 ## [1.25.1] - 2026-08-06
 
 ### Fixed
