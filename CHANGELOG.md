@@ -9,11 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Sequential migration file names.** `pebble generate --sequential` numbers migrations `000_name.up.sql`, `001_...`, `002_...` instead of by timestamp. Pass it on the first migration. After that the directory keeps the scheme it already has and the flag is ignored, because migrations are ordered by sorting their filenames: `003` sorts ahead of `20260101120000`, so a sequential file dropped into a timestamped project would run before everything already applied. Mixing the two schemes is an error. So is a number that outgrows its padding, since `1000` sorts before `999`.
+- `--sequential` flag on `pebble generate`, numbering migrations `000_name.up.sql`,
+  `001_...`, `002_...` instead of by timestamp.
+- Error when a migrations directory mixes timestamp and sequential versions.
+- Error when a sequential version outgrows its zero-padding, since `1000` sorts
+  before `999`.
 
 ### Changed
 
-- `pkg/builder` now uses `strings.Builder` for concatenation in loops, `slices.Contains` for hand-written find loops, `maps.Copy` for map merges, and `reflect.TypeFor` for the `driver.Valuer` lookup. No API or behavior change.
+- A migrations directory keeps the version scheme it already uses, so
+  `--sequential` applies only to the first migration in a directory.
+- `pkg/builder` uses `strings.Builder`, `slices.Contains`, `maps.Copy`, and
+  `reflect.TypeFor` in place of hand-written equivalents.
+
+### Fixed
+
+- README documented generated migrations as `0001_name.up.sql`. The generator
+  has always used timestamps.
 
 ## [1.26.0] - 2026-08-21
 
