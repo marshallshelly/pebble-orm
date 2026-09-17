@@ -7,9 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Sequential migration file names.** `pebble generate --sequential` numbers migrations `000_name.up.sql`, `001_...`, `002_...` instead of by timestamp. Pass it on the first migration. After that the directory keeps the scheme it already has and the flag is ignored, because migrations are ordered by sorting their filenames: `003` sorts ahead of `20260101120000`, so a sequential file dropped into a timestamped project would run before everything already applied. Mixing the two schemes is an error. So is a number that outgrows its padding, since `1000` sorts before `999`.
+
 ### Changed
 
-- Internal modernization in `pkg/builder`: string concatenation in loops uses `strings.Builder`, manual find-loops use `slices.Contains`, map merges use `maps.Copy`, and the `driver.Valuer` interface lookup uses `reflect.TypeFor`. No API or behavior change.
+- `pkg/builder` now uses `strings.Builder` for concatenation in loops, `slices.Contains` for hand-written find loops, `maps.Copy` for map merges, and `reflect.TypeFor` for the `driver.Valuer` lookup. No API or behavior change.
 
 ## [1.26.0] - 2026-08-21
 

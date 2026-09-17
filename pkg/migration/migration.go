@@ -2,6 +2,11 @@
 package migration
 
 import (
+	"fmt"
+	"os"
+	"regexp"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/marshallshelly/pebble-orm/pkg/schema"
@@ -139,4 +144,143 @@ func GenerateVersion() string {
 // Format: {version}_{name}.{up|down}.sql
 func GenerateFileName(version, name, direction string) string {
 	return version + "_" + name + "." + direction + ".sql"
+}
+
+// VersionScheme selects how new migration versions are numbered.
+type VersionScheme string
+
+const (
+	// TimestampVersions numbers migrations as UTC timestamps (20060102150405).
+	// Two branches never collide, which is why it is the default.
+	TimestampVersions VersionScheme = "timestamp"
+
+	// SequentialVersions numbers migrations as zero-padded counters (000, 001, 002).
+	// Readable, but two branches that each add a migration produce the same
+	// number and collide on merge.
+	SequentialVersions VersionScheme = "sequential"
+)
+
+const defaultSequentialWidth = 3
+
+var reTimestampVersion = regexp.MustCompile(`^\d{14}$`)
+var reSequentialVersion = regexp.MustCompile(`^\d{1,13}$`)
+
+// DetectVersionScheme reports the scheme already in use in a migrations
+// directory. found is false when the directory holds no migrations yet.
+// A directory mixing both schemes is an error: versions are ordered
+// lexicographically, so a sequential version sorts ahead of every timestamp
+// and would silently reorder applied history.
+func DetectVersionScheme(migrationsDir string) (scheme VersionScheme, found bool, err error) {
+	versions, err := existingVersions(migrationsDir)
+	if err != nil {
+		return "", false, err
+	}
+	if len(versions) == 0 {
+		return "", false, nil
+	}
+
+	var timestamps, sequentials int
+	for _, v := range versions {
+		switch {
+		case reTimestampVersion.MatchString(v):
+			timestamps++
+		case reSequentialVersion.MatchString(v):
+			sequentials++
+		}
+	}
+
+	switch {
+	case timestamps > 0 && sequentials > 0:
+		return "", true, fmt.Errorf(
+			"migrations directory %s mixes timestamp and sequential versions; "+
+				"versions sort lexicographically, so a sequential version would run before every timestamped one",
+			migrationsDir)
+	case sequentials > 0:
+		return SequentialVersions, true, nil
+	case timestamps > 0:
+		return TimestampVersions, true, nil
+	default:
+		return "", false, nil
+	}
+}
+
+// NextVersion returns the version string for the next migration in
+// migrationsDir. The scheme already present in the directory always wins, so a
+// project never mixes the two; preferred applies only to the first migration.
+func NextVersion(migrationsDir string, preferred VersionScheme) (string, error) {
+	scheme, found, err := DetectVersionScheme(migrationsDir)
+	if err != nil {
+		return "", err
+	}
+	if !found {
+		scheme = preferred
+		if scheme == "" {
+			scheme = TimestampVersions
+		}
+	}
+
+	if scheme == TimestampVersions {
+		return GenerateVersion(), nil
+	}
+
+	versions, err := existingVersions(migrationsDir)
+	if err != nil {
+		return "", err
+	}
+
+	next, width := 0, defaultSequentialWidth
+	for _, v := range versions {
+		if len(v) > width {
+			width = len(v)
+		}
+		n, convErr := strconv.Atoi(v)
+		if convErr != nil {
+			continue
+		}
+		if n >= next {
+			next = n + 1
+		}
+	}
+
+	if len(strconv.Itoa(next)) > width {
+		return "", fmt.Errorf(
+			"sequential migration %d does not fit the %d-digit numbering in %s; "+
+				"versions sort lexicographically, so %d would run before %s. "+
+				"Renumber the existing files to a wider padding first",
+			next, width, migrationsDir, next, strings.Repeat("9", width))
+	}
+
+	return fmt.Sprintf("%0*d", width, next), nil
+}
+
+func existingVersions(migrationsDir string) ([]string, error) {
+	entries, err := os.ReadDir(migrationsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to read migrations directory: %w", err)
+	}
+
+	seen := make(map[string]struct{})
+	var versions []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".up.sql") && !strings.HasSuffix(name, ".down.sql") {
+			continue
+		}
+		version, _, ok := strings.Cut(name, "_")
+		if !ok {
+			continue
+		}
+		if _, dup := seen[version]; dup {
+			continue
+		}
+		seen[version] = struct{}{}
+		versions = append(versions, version)
+	}
+	return versions, nil
 }

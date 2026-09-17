@@ -19,6 +19,7 @@ var (
 	migrationName string
 	empty         bool
 	modelsPath    string
+	sequential    bool
 )
 
 // globalRegistryWrapper wraps the global registry to implement loader.ModelRegistrar
@@ -57,11 +58,16 @@ func init() {
 	generateCmd.Flags().StringVarP(&migrationName, "name", "n", "", "Migration name (required)")
 	generateCmd.Flags().BoolVar(&empty, "empty", false, "Generate empty migration for manual editing")
 	generateCmd.Flags().StringVar(&modelsPath, "models", "", "Path to Go file with model definitions")
+	generateCmd.Flags().BoolVar(&sequential, "sequential", false, "Number the first migration 000, 001, 002 instead of by timestamp")
 	_ = generateCmd.MarkFlagRequired("name")
 }
 
 func runGenerate() error {
-	generator := migration.NewGenerator(migrationsDir)
+	scheme := migration.TimestampVersions
+	if sequential {
+		scheme = migration.SequentialVersions
+	}
+	generator := migration.NewGeneratorWithScheme(migrationsDir, scheme)
 
 	// Generate empty migration
 	if empty {

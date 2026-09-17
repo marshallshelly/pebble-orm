@@ -10,12 +10,24 @@ import (
 // Generator generates migration files.
 type Generator struct {
 	migrationsDir string
+	scheme        VersionScheme
 }
 
 // NewGenerator creates a new migration file generator.
 func NewGenerator(migrationsDir string) *Generator {
 	return &Generator{
 		migrationsDir: migrationsDir,
+		scheme:        TimestampVersions,
+	}
+}
+
+// NewGeneratorWithScheme creates a generator that numbers the FIRST migration
+// in an empty directory with the given scheme. A directory that already holds
+// migrations keeps the scheme it is using, whatever is passed here.
+func NewGeneratorWithScheme(migrationsDir string, scheme VersionScheme) *Generator {
+	return &Generator{
+		migrationsDir: migrationsDir,
+		scheme:        scheme,
 	}
 }
 
@@ -26,8 +38,10 @@ func (g *Generator) Generate(name string, diff *SchemaDiff) (*MigrationFile, err
 		return nil, fmt.Errorf("failed to create migrations directory: %w", err)
 	}
 
-	// Generate version
-	version := GenerateVersion()
+	version, err := NextVersion(g.migrationsDir, g.scheme)
+	if err != nil {
+		return nil, err
+	}
 
 	// Generate SQL
 	planner := NewPlanner()
@@ -61,7 +75,10 @@ func (g *Generator) GenerateEmpty(name string) (*MigrationFile, error) {
 		return nil, fmt.Errorf("failed to create migrations directory: %w", err)
 	}
 
-	version := GenerateVersion()
+	version, err := NextVersion(g.migrationsDir, g.scheme)
+	if err != nil {
+		return nil, err
+	}
 
 	migrationFile := &MigrationFile{
 		Version:  version,

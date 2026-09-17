@@ -301,13 +301,36 @@ return tx.Commit()
 ```bash
 # 1. First run — no DB needed; replays existing *.up.sql as the baseline
 pebble generate --name initial_schema --models ./internal/models
-#    → 0001_initial_schema.up.sql:  CREATE TABLE users (...);
+#    → 20260917120000_initial_schema.up.sql:  CREATE TABLE users (...);
 
 # 2. Add `Phone string `po:"phone,varchar(20)"`` to the struct, then run again:
 pebble generate --name add_phone --models ./internal/models
-#    → 0002_add_phone.up.sql:    ALTER TABLE users ADD COLUMN phone varchar(20);
-#    → 0002_add_phone.down.sql:  ALTER TABLE users DROP COLUMN phone;
+#    → 20260917143000_add_phone.up.sql:    ALTER TABLE users ADD COLUMN phone varchar(20);
+#    → 20260917143000_add_phone.down.sql:  ALTER TABLE users DROP COLUMN phone;
 ```
+
+### Sequential file names
+
+Migrations are versioned by timestamp so that two branches never produce the
+same version. If you would rather read `000_`, `001_`, `002_`, pass
+`--sequential` on the **first** migration:
+
+```bash
+pebble generate --name initial_schema --models ./internal/models --sequential
+#    → 000_initial_schema.up.sql
+pebble generate --name add_phone --models ./internal/models
+#    → 001_add_phone.up.sql        (no flag: the directory keeps its scheme)
+```
+
+The scheme belongs to the migrations directory, not to the command. Once a
+directory has migrations, whichever scheme it already uses wins and
+`--sequential` is ignored. Migrations are ordered by sorting their filenames, so
+`003_` sorts ahead of `20260101120000_`; letting the flag win would put a new
+migration in front of every one you have already applied.
+
+Pick sequential if you want readable numbers and one person cuts the migrations.
+Pick timestamps if you work on branches, since two branches that each add a
+migration both land on the same next number.
 
 The diff runs against your migration files by default (offline, no database), or against the live schema with `--db`:
 
@@ -331,7 +354,7 @@ What the pipeline gets right so you don't have to:
 ## CLI
 
 ```bash
-pebble generate --name NAME [--models DIR] [--db URL] [--empty]
+pebble generate --name NAME [--models DIR] [--db URL] [--empty] [--sequential]
 pebble generate metadata --scan ./internal/models    # bake table names for production builds
 pebble migrate up   [--all | --steps N] [--dry-run] [--interactive]
 pebble migrate down [--steps N | --target VERSION] [--dry-run] [--interactive]
