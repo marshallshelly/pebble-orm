@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.27.3] - 2026-10-14
+
 ### Fixed
 
 - Two `pebble generate` runs in the same second no longer share a version.
@@ -886,7 +888,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - golangci-lint integration.
 - GoReleaser configuration for multi-platform releases.
 
-[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.2...HEAD
+[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.3...HEAD
+[1.27.3]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.2...v1.27.3
 [1.27.2]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.1...v1.27.2
 [1.27.1]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.0...v1.27.1
 [1.27.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.26.0...v1.27.0
