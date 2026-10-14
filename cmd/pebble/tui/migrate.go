@@ -81,6 +81,20 @@ type migrationsLoadedMsg struct {
 	executor   *migration.Executor
 }
 
+// migrationStartedMsg carries the execution state that the confirmation
+// closure cannot set itself: it captures the model by value, so anything it
+// assigns to m is discarded when Update returns the real model. Update handles
+// this message, sets the state on the model it returns, and only then starts
+// the migration — so Total is in place before the first Current++ arrives.
+type migrationStartedMsg struct {
+	total   int
+	message string
+}
+
+// migrationCancelledMsg exists for the same reason as migrationStartedMsg: the
+// cancel closure's write to m.mode is discarded, which left the dialog on screen.
+type migrationCancelledMsg struct{}
+
 type migrationExecutedMsg struct {
 	version string
 	err     error
@@ -192,6 +206,24 @@ func (m MigrateModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return m, nil
 
+	case migrationCancelledMsg:
+		m.mode = ModeList
+		m.selectedItems = nil
+		return m, nil
+
+	case migrationStartedMsg:
+		m.mode = ModeExecuting
+		m.progress = ProgressView{Current: 0, Total: msg.total, Message: msg.message}
+
+		ctx := context.Background()
+		if err := m.executor.Lock(ctx); err != nil {
+			m.mode = ModeError
+			m.err = fmt.Errorf("failed to acquire lock: %w", err)
+			return m, nil
+		}
+
+		return m, executeMigrationCmd(m.executor, m.migrations[m.selectedItems[0]], m.action)
+
 	case migrationExecutedMsg:
 		if msg.err != nil {
 			m.mode = ModeError
@@ -261,30 +293,18 @@ func (m MigrateModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.status[selectedIdx].Name,
 					),
 				)
+				selected := m.migrations[selectedIdx]
+				total := len(m.selectedItems)
 				m.confirmation.OnConfirm = func() tea.Cmd {
-					m.mode = ModeExecuting
-					m.progress = ProgressView{
-						Current: 0,
-						Total:   len(m.selectedItems),
-						Message: fmt.Sprintf("Executing: %s - %s",
-							m.migrations[m.selectedItems[0]].Version,
-							m.migrations[m.selectedItems[0]].Name,
-						),
-					}
-
-					// Acquire lock
-					ctx := context.Background()
-					if err := m.executor.Lock(ctx); err != nil {
-						return func() tea.Msg {
-							return errorMsg{err: fmt.Errorf("failed to acquire lock: %w", err)}
+					return func() tea.Msg {
+						return migrationStartedMsg{
+							total:   total,
+							message: fmt.Sprintf("Executing: %s - %s", selected.Version, selected.Name),
 						}
 					}
-
-					return executeMigrationCmd(m.executor, m.migrations[m.selectedItems[0]], m.action)
 				}
 				m.confirmation.OnCancel = func() tea.Cmd {
-					m.mode = ModeList
-					return nil
+					return func() tea.Msg { return migrationCancelledMsg{} }
 				}
 				m.mode = ModeConfirm
 

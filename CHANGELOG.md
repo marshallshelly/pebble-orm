@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `pebble migrate up -i` reports the number of migrations it ran. The
+  confirmation dialog's callbacks are closures over a value-type model, so their
+  writes were discarded and the total stayed zero, printing "Successfully
+  executed 0 migration(s)" after a migration that did apply.
+- Choosing No in the interactive confirmation dialog returns to the migration
+  list. Its cancel callback had the same problem, so the dialog stayed on screen
+  and only `esc` or `q` dismissed it.
+
 ## [1.27.2] - 2026-10-14
 
 ### Fixed
