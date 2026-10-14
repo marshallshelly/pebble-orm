@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Generated constraint and index names are truncated to PostgreSQL's 63-byte
+  identifier limit, matching the server's own truncation including its back-off
+  to a character boundary. A longer name was stored truncated by the server and
+  never matched the code's, so every `generate` re-emitted DROP and ADD for it.
+- The offline reconstruct keeps a column whose name begins with a constraint
+  keyword. `checked_on`, `unique_ref` and `constraint_name` were mistaken for
+  table-level constraints and dropped, so every offline `generate` re-emitted
+  `ADD COLUMN` for them and the down migration dropped them.
 - The AST loader reads a struct tag written as a double-quoted literal. It
   stripped backticks only, so such a column was dropped from CLI-generated
   migrations while the runtime saw it.

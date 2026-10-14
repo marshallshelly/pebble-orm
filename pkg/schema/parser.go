@@ -782,7 +782,7 @@ func (p *Parser) parseColumnIndexes(modelType reflect.Type, table *TableMetadata
 //   - "name,btree,desc": custom name, btree, desc
 func parseIndexParameters(value, tableName, columnName string) (name, indexType, direction string) {
 	// Default values
-	name = fmt.Sprintf("idx_%s_%s", tableName, columnName)
+	name = TruncateIdent(fmt.Sprintf("idx_%s_%s", tableName, columnName))
 	indexType = "btree"
 	direction = "asc"
 

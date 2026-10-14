@@ -412,13 +412,15 @@ func parseColumnList(colList string) ([]schema.ColumnMetadata, []string, []schem
 		}
 		upper := strings.ToUpper(part)
 
+		keyword := leadingKeyword(upper)
+
 		// Table-level PRIMARY KEY constraint: PRIMARY KEY (col, ...)
-		if strings.HasPrefix(upper, "PRIMARY KEY") {
+		if keyword == "PRIMARY" && strings.HasPrefix(upper, "PRIMARY KEY") {
 			pkCols = extractParenList(part)
 			continue
 		}
 		// Table-level CONSTRAINT: check for FOREIGN KEY or UNIQUE.
-		if strings.HasPrefix(upper, "CONSTRAINT") {
+		if keyword == "CONSTRAINT" {
 			if strings.Contains(upper, "FOREIGN KEY") {
 				if fk := parseReconstructFKConstraint(part); fk != nil {
 					fks = append(fks, *fk)
@@ -444,10 +446,9 @@ func parseColumnList(colList string) ([]schema.ColumnMetadata, []string, []schem
 			}
 			continue
 		}
-		// Bare FOREIGN KEY (no CONSTRAINT prefix) — skip.
-		if strings.HasPrefix(upper, "FOREIGN KEY") ||
-			strings.HasPrefix(upper, "UNIQUE") ||
-			strings.HasPrefix(upper, "CHECK") {
+		// Bare constraint with no CONSTRAINT prefix — skip. Matched on the whole
+		// leading word, so a column named checked_on or unique_ref survives.
+		if keyword == "FOREIGN" || keyword == "UNIQUE" || keyword == "CHECK" {
 			continue
 		}
 
@@ -549,6 +550,24 @@ func splitTopLevelCommas(s string) []string {
 		}
 	}
 	return append(parts, s[start:])
+}
+
+// leadingKeyword returns the leading SQL-identifier word of an upper-cased
+// clause, so a table-level constraint can be told apart from a column whose name
+// merely starts with the same letters. "CHECK (x > 0)" yields CHECK, while
+// "CHECKED_ON DATE" yields CHECKED_ON — a prefix test would treat both as a
+// constraint and silently drop the column.
+func leadingKeyword(upper string) string {
+	i := 0
+	for i < len(upper) {
+		c := upper[i]
+		if c == '_' || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') {
+			i++
+			continue
+		}
+		break
+	}
+	return upper[:i]
 }
 
 // parseColDef parses a single column definition, e.g.:

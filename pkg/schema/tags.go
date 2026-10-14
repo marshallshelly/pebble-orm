@@ -3,6 +3,7 @@ package schema
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 // This file holds the single interpretation of a `po:` struct tag, shared by
@@ -188,7 +189,7 @@ func ColumnForeignKey(opts *TagOptions, tableName string) (ForeignKeyMetadata, b
 
 	columnName := opts.Name
 	return ForeignKeyMetadata{
-		Name:              fmt.Sprintf("fk_%s_%s_%s", tableName, columnName, refTable),
+		Name:              TruncateIdent(fmt.Sprintf("fk_%s_%s_%s", tableName, columnName, refTable)),
 		Columns:           []string{columnName},
 		ReferencedTable:   refTable,
 		ReferencedColumns: []string{refColumn},
@@ -204,7 +205,7 @@ func CheckConstraintsFor(tableName string, columns []ColumnMetadata) []Constrain
 	for _, col := range columns {
 		if col.Check != "" {
 			constraints = append(constraints, ConstraintMetadata{
-				Name:       fmt.Sprintf("%s_%s_check", tableName, col.Name),
+				Name:       TruncateIdent(fmt.Sprintf("%s_%s_check", tableName, col.Name)),
 				Type:       CheckConstraint,
 				Columns:    []string{col.Name},
 				Expression: "(" + strings.TrimSpace(col.Check) + ")",
@@ -264,4 +265,24 @@ func ParseReferenceAction(action string) ReferenceAction {
 	default:
 		return NoAction
 	}
+}
+
+// MaxIdentifierLen is PostgreSQL's NAMEDATALEN-1. The server silently truncates
+// any longer identifier, so a generated constraint or index name that exceeds it
+// would never match the stored one and would phantom-diff on every generate.
+const MaxIdentifierLen = 63
+
+// TruncateIdent caps name the way PostgreSQL does: at MaxIdentifierLen bytes,
+// backing off to a character boundary so a multi-byte name is never cut
+// mid-rune. Truncation can collide, exactly as it can server-side, and the
+// server reports that as a duplicate constraint name when the migration applies.
+func TruncateIdent(name string) string {
+	if len(name) <= MaxIdentifierLen {
+		return name
+	}
+	cut := MaxIdentifierLen
+	for cut > 0 && !utf8.RuneStart(name[cut]) {
+		cut--
+	}
+	return name[:cut]
 }
