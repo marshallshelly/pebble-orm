@@ -31,7 +31,7 @@ func TestBuildTableMetadataFromAST_UniqueConstraints(t *testing.T) {
 	}
 	structType := &ast.StructType{Fields: fields}
 
-	table := buildTableMetadataFromAST("users", structType)
+	table := buildTableMetadataFromAST("users", structType, sqlImports{})
 
 	// Verify the email column is marked unique
 	var emailCol *schema.ColumnMetadata
@@ -83,7 +83,7 @@ func TestBuildTableMetadataFromAST_NoUniqueNoConstraint(t *testing.T) {
 	}
 	structType := &ast.StructType{Fields: fields}
 
-	table := buildTableMetadataFromAST("items", structType)
+	table := buildTableMetadataFromAST("items", structType, sqlImports{})
 
 	if len(table.Constraints) != 0 {
 		t.Errorf("expected 0 constraints, got %d", len(table.Constraints))

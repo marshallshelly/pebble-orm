@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/marshallshelly/pebble-orm/pkg/schema"
@@ -81,6 +82,7 @@ func loadModelsFromFile(filename string, registrar ModelRegistrar) (int, error) 
 		return 0, fmt.Errorf("failed to parse file: %w", err)
 	}
 
+	sqlImports := sqlPkgImports(node)
 	modelsRegistered := 0
 
 	// Iterate through declarations
@@ -120,7 +122,7 @@ func loadModelsFromFile(filename string, registrar ModelRegistrar) (int, error) 
 			}
 
 			// Build TableMetadata directly from AST
-			table := buildTableMetadataFromAST(tableName, structType)
+			table := buildTableMetadataFromAST(tableName, structType, sqlImports)
 
 			// Table-level index directives from the struct's comments.
 			for _, cg := range []*ast.CommentGroup{genDecl.Doc, typeSpec.Comment} {
@@ -165,7 +167,7 @@ func loadModelsFromFile(filename string, registrar ModelRegistrar) (int, error) 
 // is interpreted through the shared schema helpers, so the AST loader produces
 // the same metadata as the reflection parser (index/enum/generated/identity/FK
 // included).
-func buildTableMetadataFromAST(tableName string, structType *ast.StructType) *schema.TableMetadata {
+func buildTableMetadataFromAST(tableName string, structType *ast.StructType, imports sqlImports) *schema.TableMetadata {
 	table := &schema.TableMetadata{
 		Name:        tableName,
 		GoType:      nil, // No actual Go type available from AST
@@ -185,7 +187,7 @@ func buildTableMetadataFromAST(tableName string, structType *ast.StructType) *sc
 			continue // Embedded or untagged field
 		}
 
-		poTag := parseStructTag(strings.Trim(field.Tag.Value, "`")).Get("po")
+		poTag := parseStructTag(unquoteTag(field.Tag.Value)).Get("po")
 		if poTag == "" || poTag == "-" {
 			continue
 		}
@@ -201,7 +203,7 @@ func buildTableMetadataFromAST(tableName string, structType *ast.StructType) *sc
 			fm := schema.FieldMeta{
 				GoField:      fieldName.Name,
 				TypeName:     astTypeName(field.Type),
-				Nullable:     astNullable(field.Type),
+				Nullable:     astNullable(field.Type, imports),
 				InferredType: astInferPGType(field.Type),
 				Position:     position,
 			}
@@ -255,16 +257,80 @@ func astTypeName(expr ast.Expr) string {
 	}
 }
 
+// unquoteTag returns the contents of a struct tag's source literal. field.Tag.Value
+// carries its delimiters, and a tag may legally be any string literal — a
+// double-quoted one as well as the usual backtick form — so stripping backticks
+// alone makes a double-quoted tag invisible and drops the column. If the literal
+// will not unquote the compiler will report it far better than we can, so fall
+// back to the old behaviour rather than dropping the field silently.
+func unquoteTag(lit string) string {
+	if unquoted, err := strconv.Unquote(lit); err == nil {
+		return unquoted
+	}
+	return strings.Trim(lit, "`")
+}
+
+// sqlNullTypes is the closed set of database/sql Null* wrapper types. The
+// qualified path below matches on the "Null" prefix instead, because the
+// qualifier already proves the package and a prefix keeps working if a future Go
+// adds another one. A dot-imported type arrives as a bare identifier where a
+// user's own "Nullish" would collide with that prefix, so that path needs names.
+var sqlNullTypes = map[string]bool{
+	"NullBool":    true,
+	"NullByte":    true,
+	"NullFloat64": true,
+	"NullInt16":   true,
+	"NullInt32":   true,
+	"NullInt64":   true,
+	"NullString":  true,
+	"NullTime":    true,
+}
+
+// sqlImports records how database/sql is imported by one file, so a Null* field
+// is recognised whether the import is plain, aliased or dotted.
+type sqlImports struct {
+	qualifiers map[string]bool // local names database/sql is reachable under
+	dot        bool            // database/sql was dot-imported
+}
+
+func sqlPkgImports(f *ast.File) sqlImports {
+	out := sqlImports{qualifiers: make(map[string]bool, 1)}
+	for _, imp := range f.Imports {
+		path, err := strconv.Unquote(imp.Path.Value)
+		if err != nil || path != "database/sql" {
+			continue
+		}
+		switch {
+		case imp.Name == nil:
+			out.qualifiers["sql"] = true
+		case imp.Name.Name == ".":
+			out.dot = true
+		case imp.Name.Name == "_":
+			// imported for side effects only; its types are not in scope
+		default:
+			out.qualifiers[imp.Name.Name] = true
+		}
+	}
+	return out
+}
+
 // astNullable reports whether an AST type expression is nullable (a pointer or
 // a database/sql Null* type).
-func astNullable(expr ast.Expr) bool {
+func astNullable(expr ast.Expr, imports sqlImports) bool {
 	switch t := expr.(type) {
 	case *ast.StarExpr:
 		return true
+	case *ast.Ident:
+		return imports.dot && sqlNullTypes[t.Name]
 	case *ast.SelectorExpr:
-		if x, ok := t.X.(*ast.Ident); ok && x.Name == "sql" && strings.HasPrefix(t.Sel.Name, "Null") {
-			return true
+		x, ok := t.X.(*ast.Ident)
+		if !ok || !strings.HasPrefix(t.Sel.Name, "Null") {
+			return false
 		}
+		if len(imports.qualifiers) == 0 {
+			return x.Name == "sql"
+		}
+		return imports.qualifiers[x.Name]
 	}
 	return false
 }
@@ -386,9 +452,7 @@ func hasPebbleTags(structType *ast.StructType) bool {
 
 	for _, field := range structType.Fields.List {
 		if field.Tag != nil {
-			tagValue := field.Tag.Value
-			// Remove backticks
-			tagValue = strings.Trim(tagValue, "`")
+			tagValue := unquoteTag(field.Tag.Value)
 			if strings.Contains(tagValue, schema.StructTagKey+":") {
 				return true
 			}

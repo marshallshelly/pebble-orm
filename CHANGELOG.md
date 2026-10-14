@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The AST loader reads a struct tag written as a double-quoted literal. It
+  stripped backticks only, so such a column was dropped from CLI-generated
+  migrations while the runtime saw it.
+- A struct whose tags are all double-quoted no longer generates an empty table.
+  The gate that decides whether to process a struct tests for the substring
+  `po:`, which such a tag still contains, so the struct was processed and then
+  lost every field — emitting `CREATE TABLE x ()`, which PostgreSQL accepts.
+- The AST loader recognises a `sql.Null*` field whether `database/sql` is
+  imported plainly, under an alias, or dotted. It matched the package qualifier
+  against the literal name `sql`, so any other import form plus an explicit
+  `notNull` produced a NOT NULL column where the runtime gave a nullable one.
+- A dot-imported `database/sql` matches only the eight real `Null*` type names, so
+  a user's own type whose name begins with `Null` is left alone.
+- A blank import of `database/sql` puts nothing in scope and is ignored.
+
 ## [1.27.1] - 2026-10-14
 
 ### Changed
