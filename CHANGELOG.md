@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.27.1] - 2026-10-14
+
 ### Changed
 
 - Upgrade `github.com/jackc/pgx/v5` from v5.10.0 to v5.11.0.
@@ -840,7 +842,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - golangci-lint integration.
 - GoReleaser configuration for multi-platform releases.
 
-[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.0...HEAD
+[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.1...HEAD
+[1.27.1]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.0...v1.27.1
 [1.27.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.26.0...v1.27.0
 [1.26.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.25.1...v1.26.0
 [1.25.1]: https://github.com/marshallshelly/pebble-orm/compare/v1.25.0...v1.25.1
