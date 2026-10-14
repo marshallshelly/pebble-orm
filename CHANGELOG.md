@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.27.4] - 2026-10-14
+
+### Fixed
+
+- `pebble generate` detects a changed CHECK expression and emits a DROP and
+  ADD of the constraint. CHECKs were compared by name only, so editing one
+  under the same name produced no migration.
+- CHECK expressions are compared after undoing PostgreSQL's rewrites (`IN` to
+  `= ANY (ARRAY[...])`, `BETWEEN`, `LIKE`, casts and parentheses), so an
+  unchanged CHECK does not diff against a live database.
+- Constraint drops are emitted before adds, in both the up and down
+  migrations, so a same-name replacement does not fail with "already exists".
+- Constraint, foreign key and index names longer than 63 bytes in older
+  migrations match the truncated names generated since v1.27.2. Offline
+  `generate` emitted a DROP and ADD for each one, and the ADD failed because
+  PostgreSQL already held the constraint under the truncated name.
+- Offline `generate` replays `ALTER TABLE ... DROP CONSTRAINT` from migration
+  files, so a dropped constraint is not dropped again by every later
+  migration.
+
 ## [1.27.3] - 2026-10-14
 
 ### Fixed
@@ -888,7 +908,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - golangci-lint integration.
 - GoReleaser configuration for multi-platform releases.
 
-[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.3...HEAD
+[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.4...HEAD
+[1.27.4]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.3...v1.27.4
 [1.27.3]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.2...v1.27.3
 [1.27.2]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.1...v1.27.2
 [1.27.1]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.0...v1.27.1
