@@ -1,7 +1,9 @@
 package builder
 
 import (
+	"database/sql/driver"
 	"fmt"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -151,10 +153,18 @@ func (w *WhereBuilder) buildCondition(cond Condition, paramNum int) (string, []i
 		return fmt.Sprintf("%s %s $%d", column, operator, paramNum), []interface{}{value}, nil
 
 	case OpIn, OpNotIn:
-		// Handle IN/NOT IN with array values
-		values, ok := value.([]interface{})
-		if !ok {
-			return "", nil, fmt.Errorf("IN/NOT IN operator requires []interface{} value")
+		values, err := expandInValues(value)
+		if err != nil {
+			return "", nil, err
+		}
+
+		// An empty list has a definite answer, and `IN ()` is a syntax error.
+		// Returning no args leaves the caller's paramNum untouched.
+		if len(values) == 0 {
+			if operator == OpIn {
+				return "FALSE", nil, nil
+			}
+			return "TRUE", nil, nil
 		}
 
 		placeholders := make([]string, len(values))
@@ -354,4 +364,48 @@ func Group(conditions ...Condition) Condition {
 		Group: conditions,
 		Logic: LogicAnd,
 	}
+}
+
+// expandInValues normalises an IN/NOT IN value into one bound parameter per
+// list element. In and NotIn are variadic, so In("s", []string{"a","b"}) arrives
+// as a single-element []interface{} holding the slice; without expansion that
+// binds the whole slice to one placeholder and Postgres rejects it.
+//
+// A slice is NOT expanded when it represents one value: []byte (bytea), or a
+// type implementing driver.Valuer, which has declared its own encoding.
+func expandInValues(value interface{}) ([]interface{}, error) {
+	if values, ok := value.([]interface{}); ok {
+		if len(values) != 1 {
+			return values, nil
+		}
+		if inner, ok := expandSlice(values[0]); ok {
+			return inner, nil
+		}
+		return values, nil
+	}
+	if values, ok := expandSlice(value); ok {
+		return values, nil
+	}
+	return nil, fmt.Errorf("IN/NOT IN operator requires a slice or []interface{} value, got %T", value)
+}
+
+func expandSlice(v interface{}) ([]interface{}, bool) {
+	if v == nil {
+		return nil, false
+	}
+	if _, ok := v.(driver.Valuer); ok {
+		return nil, false
+	}
+	rv := reflect.ValueOf(v)
+	if rv.Kind() != reflect.Slice && rv.Kind() != reflect.Array {
+		return nil, false
+	}
+	if rv.Type().Elem().Kind() == reflect.Uint8 {
+		return nil, false
+	}
+	out := make([]interface{}, rv.Len())
+	for i := range out {
+		out[i] = rv.Index(i).Interface()
+	}
+	return out, true
 }

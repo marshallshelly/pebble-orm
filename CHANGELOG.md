@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Upgrade `github.com/jackc/pgx/v5` from v5.10.0 to v5.11.0.
+- pgx v5.11.0 parses connection strings the way libpq does, so a string given to
+  `runtime.ConnectWithURL` may parse differently.
+- A backslash in a keyword/value connection string now escapes the next
+  character, which affects Windows paths.
+- A bare IPv6 host in a connection URI now needs brackets, and a repeated URI
+  parameter takes the last value.
+- pgx v5.11.0 renders `timestamptz` text values in `time.Local` rather than the
+  server's offset.
+- pgx v5.11.0 rejects dates it previously normalised.
+
+### Fixed
+
+- `builder.In` and `builder.NotIn` expand a single slice argument into one
+  placeholder per element.
+- `In("status", []string{"a","b"})` built `status IN ($1)` and bound the whole
+  slice to one parameter, which pgx refused to encode.
+- `[]byte` and types implementing `driver.Valuer` are still bound as one value.
+- An empty `IN` renders as `FALSE` and an empty `NOT IN` as `TRUE`, matching
+  PostgreSQL's semantics for an empty list.
+- `IN ()` and `NOT IN ()` are syntax errors that `ToSQL` reported no error for.
+- An empty `IN` or `NOT IN` binds no parameters, so later placeholder numbering
+  is unaffected.
+- A list longer than 65535 elements fails at execution rather than at encoding.
+  Use `= ANY($1)` with a typed slice for lists that large.
+
 ## [1.27.0] - 2026-09-17
 
 ### Added
@@ -251,13 +279,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.17.1] - 2026-07-15
 
-### Security
+### Changed
 
-- Fixed SQL injection in `TSMatch`. It built `to_tsquery('<query>')` by string
-  interpolation and emitted it as raw SQL, so a single quote in the search term
-  broke out of the string literal. The query is now bound as a parameter.
-- `ToTSQuery`, `JSONBPath`, and `JSONBPathText` escape single quotes in the
-  literals they embed. Prefer `TSMatch` for untrusted input.
+- Documented the intentional smart-default behavior: zero-valued fields on
+  columns with a `default(...)` are omitted from INSERT so the database default
+  applies. Use a pointer field to store an explicit zero.
 
 ### Fixed
 
@@ -278,11 +304,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   where array results arrive in binary format. The builders route named Scanner
   slices on array columns through pgx's native array decoding.
 
-### Changed
+### Security
 
-- Documented the intentional smart-default behavior: zero-valued fields on
-  columns with a `default(...)` are omitted from INSERT so the database default
-  applies. Use a pointer field to store an explicit zero.
+- Fixed SQL injection in `TSMatch`. It built `to_tsquery('<query>')` by string
+  interpolation and emitted it as raw SQL, so a single quote in the search term
+  broke out of the string literal. The query is now bound as a parameter.
+- `ToTSQuery`, `JSONBPath`, and `JSONBPathText` escape single quotes in the
+  literals they embed. Prefer `TSMatch` for untrusted input.
 
 ## [1.16.6] - 2026-07-15
 
@@ -325,27 +353,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.16.2] - 2026-03-01
 
-### Fixed
-
-- Foreign key constraints missing from all generated migrations. Three separate
-  bugs:
-  - AST loader (`pkg/loader`) never parsed `fk:table(column)` tag options —
-    `ForeignKeys` was always empty.
-  - Runtime parser (`pkg/schema`) read from `"db"` struct tag instead of `"po"`
-    in `parseForeignKeys`.
-  - Schema reconstructor (`pkg/migration`) did not parse
-    `CONSTRAINT … FOREIGN KEY … REFERENCES` from existing migration SQL, causing
-    all FKs to appear as newly added on every subsequent `pebble generate` run.
-- Incremental `pebble generate` now emits only genuinely new tables/columns when
-  FK constraints are present, with no spurious `ALTER TABLE ADD CONSTRAINT` for
-  already-migrated tables.
-
 ### Changed
 
 - `strings.IndexByte` + manual slice arithmetic replaced with `strings.Cut` in
   column definition parser.
 - Untagged `switch` statements on character values converted to tagged `switch`
   in `typeTokenEnd` and index-definition tokenizer.
+
+### Fixed
+
+- Foreign key constraints were missing from every generated migration, from
+  three separate bugs.
+- The AST loader (`pkg/loader`) never parsed `fk:table(column)`, so
+  `ForeignKeys` was always empty.
+- The runtime parser (`pkg/schema`) read the `"db"` struct tag instead of `"po"`
+  in `parseForeignKeys`.
+- The schema reconstructor (`pkg/migration`) did not parse
+  `CONSTRAINT … FOREIGN KEY … REFERENCES` from existing migration SQL, so every
+  FK looked newly added on each `pebble generate`.
+- Incremental `pebble generate` now emits only genuinely new tables/columns when
+  FK constraints are present, with no spurious `ALTER TABLE ADD CONSTRAINT` for
+  already-migrated tables.
 
 ## [1.16.1] - 2026-02-23
 
@@ -365,21 +393,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Down migrations now generate complete, executable SQL for all dropped items
-  instead of placeholder comments:
-  - Dropped tables → full `CREATE TABLE` statement reconstructed from original
-    schema
-  - Dropped columns → `ALTER TABLE ... ADD COLUMN` with original type and
-    constraints
-  - Dropped indexes → full `CREATE INDEX` with original definition
-  - Dropped foreign keys → `ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY`
-  - Dropped constraints → `ALTER TABLE ... ADD CONSTRAINT ... UNIQUE`
-  - Dropped enum types → `CREATE TYPE ... AS ENUM` with original values
+- Down migrations generate complete, executable SQL for dropped items instead of
+  placeholder comments.
+- A dropped table is reconstructed as a full `CREATE TABLE` from the original
+  schema.
+- A dropped column becomes `ALTER TABLE ... ADD COLUMN` with its original type
+  and constraints.
+- A dropped index becomes a full `CREATE INDEX` with its original definition.
+- A dropped foreign key or constraint becomes the matching
+  `ALTER TABLE ... ADD CONSTRAINT`.
+- A dropped enum type becomes `CREATE TYPE ... AS ENUM` with its original values.
 - Enum type modification down migrations now correctly describe the PostgreSQL
   limitation (values cannot be removed) rather than emitting a misleading TODO
   comment.
 
 ## [1.15.1] - 2026-02-16
+
+### Added
+
+- Loader now generates `ConstraintMetadata` for `unique` columns, matching the
+  reflection-based parser.
+- Tests for UNIQUE constraint generation in AST loader.
 
 ### Fixed
 
@@ -387,12 +421,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `DROP CONSTRAINT` in diff migrations.
 - `pg_advisory_lock()` scan error from scanning `void` return into `*bool` in
   migration executor.
-
-### Added
-
-- Loader now generates `ConstraintMetadata` for `unique` columns, matching the
-  reflection-based parser.
-- Tests for UNIQUE constraint generation in AST loader.
 
 ## [1.15.0] - 2026-02-13
 
@@ -418,6 +446,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.14.5] - 2026-01-25
 
+### Added
+
+- Comprehensive test suite for loader package SQL type detection.
+- Missing PostgreSQL types `double precision` and `interval` to loader type
+  list.
+
 ### Fixed
 
 - JSONB type incorrectly mapped to `json` instead of `jsonb` in CLI-generated
@@ -426,12 +460,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   CLI migrations.
 - BigSerial type incorrectly mapped to `serial` instead of `bigserial` in CLI
   migrations.
-
-### Added
-
-- Comprehensive test suite for loader package SQL type detection.
-- Missing PostgreSQL types `double precision` and `interval` to loader type
-  list.
 
 ## [1.14.4] - 2026-01-13
 
@@ -518,16 +546,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Row locking examples using `ForUpdate()` in transaction documentation.
 - Savepoints example demonstrating nested transaction control.
 
+### Changed
+
+- Rewrote transaction examples to use type-safe query builders.
+- Migration generation now always shows model scanning results.
+
 ### Fixed
 
 - Transaction query builders completely broken due to incomplete `scanRows()`.
 - JSONB scanning errors when pgx passes pre-decoded values.
 - Transaction method signatures now return proper types.
-
-### Changed
-
-- Rewrote transaction examples to use type-safe query builders.
-- Migration generation now always shows model scanning results.
 
 ## [1.10.0] - 2026-01-03
 
@@ -554,13 +582,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.9.0] - 2026-01-02
 
-### Fixed
-
-- PostgreSQL reserved keywords causing syntax errors in DROP TABLE statements.
-
 ### Added
 
 - `quoteIdent()` helper function for safe identifier quoting.
+
+### Fixed
+
+- PostgreSQL reserved keywords causing syntax errors in DROP TABLE statements.
 
 ## [1.8.9] - 2026-01-02
 
@@ -649,25 +677,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.7.2] - 2025-12-29
 
-### Fixed
-
-- Migration planner generating DROP INDEX for constraint-backed indexes.
-- Type conversions without USING clauses blocking schema evolution.
-
 ### Added
 
 - Automatic USING clause generation for common type conversions.
 - `PRODUCTION_SAFETY.md` documenting migration best practices.
 - `requiresUsingClause()` and `generateUsingClause()` helpers.
 
-## [1.7.1] - 2025-12-28
-
 ### Fixed
 
-- Phantom ALTER commands from type normalization differences.
-- Duplicate UNIQUE indexes for columns with `unique` tag.
-- Identity columns not parsed in CLI `pebble generate` command.
-- Identity SQL generation syntax errors.
+- Migration planner generating DROP INDEX for constraint-backed indexes.
+- Type conversions without USING clauses blocking schema evolution.
+
+## [1.7.1] - 2025-12-28
 
 ### Added
 
@@ -679,6 +700,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `CREATE TABLE` uses inline `PRIMARY KEY` for single-column PKs.
 - Replaced deprecated `reflect.PtrTo` with `reflect.PointerTo`.
+
+### Fixed
+
+- Phantom ALTER commands from type normalization differences.
+- Duplicate UNIQUE indexes for columns with `unique` tag.
+- Identity columns not parsed in CLI `pebble generate` command.
+- Identity SQL generation syntax errors.
 
 ## [1.6.1] - 2025-12-27
 

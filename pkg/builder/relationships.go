@@ -1177,7 +1177,10 @@ func pkFieldType(structType reflect.Type, fieldName string) (reflect.Type, error
 }
 
 // convertToTypedSlice converts []interface{} to a properly typed slice for pgx encoding.
-// pgx cannot encode []interface{} for ANY($1) queries - it needs a typed slice like []string, []int, etc.
+// As of pgx v5.10 a homogeneous []interface{} does encode for ANY($1); a MIXED
+// one does not ("unable to encode []interface {}{...} into binary format").
+// Deriving one element type up front keeps the slice homogeneous by
+// construction, so this stays rather than relying on the caller's data.
 func convertToTypedSlice(values []interface{}) interface{} {
 	if len(values) == 0 {
 		return values
