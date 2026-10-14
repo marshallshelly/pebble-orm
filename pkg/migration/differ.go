@@ -232,14 +232,15 @@ func (d *Differ) comparePrimaryKey(codeTable, dbTable *schema.TableMetadata, dif
 // compareIndexes compares indexes.
 func (d *Differ) compareIndexes(codeTable, dbTable *schema.TableMetadata, diff *TableDiff) {
 	// Build maps for easier lookup
+	// Names are keyed as PostgreSQL stores them (see identKey).
 	codeIndexes := make(map[string]schema.IndexMetadata)
 	for _, idx := range codeTable.Indexes {
-		codeIndexes[idx.Name] = idx
+		codeIndexes[identKey(idx.Name)] = idx
 	}
 
 	dbIndexes := make(map[string]schema.IndexMetadata)
 	for _, idx := range dbTable.Indexes {
-		dbIndexes[idx.Name] = idx
+		dbIndexes[identKey(idx.Name)] = idx
 	}
 
 	// Find indexes to add or replace (modified)
@@ -262,7 +263,7 @@ func (d *Differ) compareIndexes(codeTable, dbTable *schema.TableMetadata, diff *
 		if _, exists := codeIndexes[idxName]; !exists {
 			// Check if not already in IndexesDropped (from modification case)
 			alreadyDropped := slices.ContainsFunc(diff.IndexesDropped, func(idx schema.IndexMetadata) bool {
-				return idx.Name == idxName
+				return identKey(idx.Name) == idxName
 			})
 			if !alreadyDropped {
 				diff.IndexesDropped = append(diff.IndexesDropped, dbIdx)
@@ -444,12 +445,12 @@ func (d *Differ) compareForeignKeys(codeTable, dbTable *schema.TableMetadata, di
 	// Build maps for easier lookup
 	codeFKs := make(map[string]schema.ForeignKeyMetadata)
 	for _, fk := range codeTable.ForeignKeys {
-		codeFKs[fk.Name] = fk
+		codeFKs[identKey(fk.Name)] = fk
 	}
 
 	dbFKs := make(map[string]schema.ForeignKeyMetadata)
 	for _, fk := range dbTable.ForeignKeys {
-		dbFKs[fk.Name] = fk
+		dbFKs[identKey(fk.Name)] = fk
 	}
 
 	// Find foreign keys to add
@@ -483,9 +484,15 @@ func (d *Differ) compareConstraints(codeTable, dbTable *schema.TableMetadata, di
 		dbConstraints[key] = c
 	}
 
-	// Find constraints to add (in code but not in DB)
+	// Find constraints to add (in code but not in DB), and CHECKs whose
+	// expression changed under the same name, which are dropped and re-added.
 	for key, codeC := range codeConstraints {
-		if _, exists := dbConstraints[key]; !exists {
+		dbC, exists := dbConstraints[key]
+		if !exists {
+			diff.ConstraintsAdded = append(diff.ConstraintsAdded, codeC)
+		} else if codeC.Type == schema.CheckConstraint &&
+			normalizeCheckSQL(codeC.Expression) != normalizeCheckSQL(dbC.Expression) {
+			diff.ConstraintsDropped = append(diff.ConstraintsDropped, dbC)
 			diff.ConstraintsAdded = append(diff.ConstraintsAdded, codeC)
 		}
 	}
@@ -507,7 +514,72 @@ func (d *Differ) getConstraintKey(c schema.ConstraintMetadata) string {
 		return fmt.Sprintf("unique:%s", strings.Join(c.Columns, ","))
 	}
 	// For CHECK and others: key by name
-	return c.Name
+	return identKey(c.Name)
+}
+
+// identKey is a constraint or index name as PostgreSQL stores it: lowercased and
+// truncated to 63 bytes. Migrations written before pebble truncated generated
+// names spell them in full, and the server stored them cut, so both spellings
+// must key the same.
+func identKey(name string) string {
+	return schema.TruncateIdent(strings.ToLower(name))
+}
+
+var (
+	reCheckLiteral    = regexp.MustCompile(`'(?:[^']|'')*'`)
+	reCheckQuotedNum  = regexp.MustCompile(`'(-?[0-9]+(?:\.[0-9]+)?)'(\s*::)`)
+	reCheckAnyArray   = regexp.MustCompile(`=\s*any\s*array\b`)
+	reCheckAllArray   = regexp.MustCompile(`<>\s*all\s*array\b`)
+	reCheckInList     = regexp.MustCompile(`\b(not )?in (\S+)`)
+	reCheckBetween    = regexp.MustCompile(`(\S+) between (\S+) and (\S+)`)
+	reCheckCommaSpace = regexp.MustCompile(`\s*,\s*`)
+)
+
+// normalizeCheckSQL canonicalizes a CHECK expression so the authored form and
+// the one PostgreSQL stores compare equal. On top of normalizeIndexSQL's casts
+// and parentheses, the server rewrites operators when it stores a CHECK:
+//
+//	kind IN ('a','b')        ->  (kind)::text = ANY (ARRAY['a'::character varying, ...])
+//	kind NOT IN ('a','b')    ->  (kind)::text <> ALL (ARRAY[...])
+//	kind IN ('a')            ->  (kind)::text = 'a'::text
+//	x BETWEEN 1 AND 5        ->  (x >= 1) AND (x <= 5)
+//	a LIKE 'x%' / ILIKE      ->  a ~~ 'x%' / a ~~* 'x%'
+//	a != b                   ->  a <> b
+//	x > -1                   ->  x > '-1'::integer
+//
+// String literals are set aside first, so case-folding and paren removal never
+// touch their contents: changing 'Active' to 'active' is still a change.
+// BETWEEN is only rewritten when its operands are single tokens; a CHECK outside
+// these forms that PostgreSQL rewrites differently will show as a DROP/ADD on
+// every generate against a live database.
+func normalizeCheckSQL(s string) string {
+	s = reCheckQuotedNum.ReplaceAllString(s, "$1$2")
+	var lits []string
+	s = reCheckLiteral.ReplaceAllStringFunc(s, func(l string) string {
+		lits = append(lits, l)
+		return " \x00 "
+	})
+	s = reIndexCast.ReplaceAllString(s, "")
+	s = strings.ToLower(s)
+	s = strings.NewReplacer("(", " ", ")", " ", "[", " ", "]", " ",
+		"!~~*", " not ilike ", "~~*", " ilike ", "!~~", " not like ", "~~", " like ",
+		"!=", "<>").Replace(s)
+	s = strings.Join(strings.Fields(s), " ")
+	s = reCheckCommaSpace.ReplaceAllString(s, ",")
+	s = reCheckAnyArray.ReplaceAllString(s, "in")
+	s = reCheckAllArray.ReplaceAllString(s, "not in")
+	s = reCheckInList.ReplaceAllStringFunc(s, func(m string) string {
+		sub := reCheckInList.FindStringSubmatch(m)
+		if strings.Contains(sub[2], ",") {
+			return m
+		}
+		if sub[1] != "" {
+			return "<> " + sub[2]
+		}
+		return "= " + sub[2]
+	})
+	s = reCheckBetween.ReplaceAllString(s, "$1 >= $2 and $1 <= $3")
+	return s + "\x00" + strings.Join(lits, "\x00")
 }
 
 // Helper functions

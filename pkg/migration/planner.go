@@ -451,17 +451,20 @@ func (p *Planner) generateAlterTable(diff TableDiff) (upSQL, downSQL []string) {
 			tableName, p.generateForeignKeyDefinition(fk)))
 	}
 
-	// Add constraints
-	for _, c := range diff.ConstraintsAdded {
-		upSQL = append(upSQL, p.generateAddConstraintSQL(tableName, c))
-		downSQL = append(downSQL, fmt.Sprintf("ALTER TABLE %s DROP CONSTRAINT IF EXISTS %s;",
-			tableName, c.Name))
-	}
-
-	// Drop constraints
+	// Constraint changes: drop before add, as with indexes, because a CHECK
+	// whose expression changed appears in both slices under one name.
 	for _, c := range diff.ConstraintsDropped {
 		upSQL = append(upSQL, fmt.Sprintf("ALTER TABLE %s DROP CONSTRAINT IF EXISTS %s;",
 			tableName, c.Name))
+	}
+	for _, c := range diff.ConstraintsAdded {
+		upSQL = append(upSQL, p.generateAddConstraintSQL(tableName, c))
+	}
+	for _, c := range diff.ConstraintsAdded {
+		downSQL = append(downSQL, fmt.Sprintf("ALTER TABLE %s DROP CONSTRAINT IF EXISTS %s;",
+			tableName, c.Name))
+	}
+	for _, c := range diff.ConstraintsDropped {
 		downSQL = append(downSQL, p.generateAddConstraintSQL(tableName, c))
 	}
 

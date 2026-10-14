@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -21,6 +22,7 @@ var (
 	reAddFKConstraint  = regexp.MustCompile(`(?i)^ADD\s+CONSTRAINT\s+(\w+)\s+FOREIGN\s+KEY\s*\(([^)]+)\)\s+REFERENCES\s+"?(\w+)"?\s*\(([^)]+)\)(?:\s+ON\s+DELETE\s+([\w\s]+?))?$`)
 	reExclusion        = regexp.MustCompile(`(?i)^(?:ADD\s+)?CONSTRAINT\s+(\w+)\s+EXCLUDE\s+(.+)$`)
 	reCheck            = regexp.MustCompile(`(?i)^(?:ADD\s+)?CONSTRAINT\s+(\w+)\s+CHECK\s+(.+)$`)
+	reDropConstraint   = regexp.MustCompile(`(?i)^DROP\s+CONSTRAINT\s+(?:IF\s+EXISTS\s+)?"?(\w+)"?`)
 	reCreateExtension  = regexp.MustCompile(`(?i)^\s*CREATE\s+EXTENSION\s+(?:IF\s+NOT\s+EXISTS\s+)?"?([\w-]+)"?`)
 	reDropExtension    = regexp.MustCompile(`(?i)^\s*DROP\s+EXTENSION\s+(?:IF\s+EXISTS\s+)?"?([\w-]+)"?`)
 	reCreateDomain     = regexp.MustCompile(`(?i)^\s*CREATE\s+DOMAIN\s+"?(\w+)"?\s+AS\s+(.+?)\s*;?\s*$`)
@@ -219,10 +221,10 @@ func applyCreateIndex(tables map[string]*schema.TableMetadata, stmt string) {
 
 // applyDropIndex removes an index by name from whichever table holds it.
 func applyDropIndex(tables map[string]*schema.TableMetadata, name string) {
-	name = strings.ToLower(name)
+	name = schema.TruncateIdent(strings.ToLower(name))
 	for _, table := range tables {
 		for i, idx := range table.Indexes {
-			if strings.ToLower(idx.Name) == name {
+			if schema.TruncateIdent(strings.ToLower(idx.Name)) == name {
 				table.Indexes = append(table.Indexes[:i], table.Indexes[i+1:]...)
 				return
 			}
@@ -316,6 +318,11 @@ func applyAlterTable(tables map[string]*schema.TableMetadata, stmt string) {
 			}
 		}
 
+	case strings.HasPrefix(upper, "DROP CONSTRAINT"):
+		if dm := reDropConstraint.FindStringSubmatch(rest); dm != nil {
+			applyDropConstraint(table, dm[1])
+		}
+
 	case strings.HasPrefix(upper, "ADD CONSTRAINT"):
 		if strings.Contains(upper, "EXCLUDE") {
 			if ex := reExclusion.FindStringSubmatch(rest); ex != nil {
@@ -365,6 +372,31 @@ func applyAlterTable(tables map[string]*schema.TableMetadata, stmt string) {
 			})
 		}
 	}
+}
+
+// applyDropConstraint removes a foreign key or table constraint by name. Names
+// compare after PostgreSQL's 63-byte truncation, because the server truncates the
+// name in both the ADD and the DROP: a migration written before pebble truncated
+// generated names creates "fk_..._generations" and a later one drops
+// "fk_..._generat", and both refer to the same constraint.
+func applyDropConstraint(table *schema.TableMetadata, name string) {
+	name = schema.TruncateIdent(strings.ToLower(name))
+	table.ForeignKeys = slices.DeleteFunc(table.ForeignKeys, func(fk schema.ForeignKeyMetadata) bool {
+		return schema.TruncateIdent(strings.ToLower(fk.Name)) == name
+	})
+	table.Constraints = slices.DeleteFunc(table.Constraints, func(c schema.ConstraintMetadata) bool {
+		if schema.TruncateIdent(strings.ToLower(c.Name)) != name {
+			return false
+		}
+		if c.Type == schema.UniqueConstraint && len(c.Columns) == 1 {
+			for i := range table.Columns {
+				if table.Columns[i].Name == c.Columns[0] {
+					table.Columns[i].Unique = false
+				}
+			}
+		}
+		return true
+	})
 }
 
 // removeColumn returns cols without the named column.
