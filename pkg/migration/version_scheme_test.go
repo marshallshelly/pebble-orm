@@ -1,9 +1,12 @@
 package migration
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
+	"time"
 )
 
 func writeMigrations(t *testing.T, dir string, names ...string) {
@@ -101,5 +104,72 @@ func TestSequentialFilesSortInApplyOrder(t *testing.T) {
 		if got[i-1] >= got[i] {
 			t.Errorf("version %q does not sort before %q; lexicographic order must match apply order", got[i-1], got[i])
 		}
+	}
+}
+
+// GenerateVersion has one-second resolution, so several generates inside one
+// second used to share a version. Both files got written, but migrations are
+// keyed by version, so every one after the first became invisible to status and
+// never applied.
+func TestTimestampVersionsAreUniqueWithinASecond(t *testing.T) {
+	dir := t.TempDir()
+	g := NewGenerator(dir)
+
+	const n = 5
+	versions := make([]string, 0, n)
+	for i := range n {
+		f, err := g.GenerateEmpty(fmt.Sprintf("m%d", i))
+		if err != nil {
+			t.Fatalf("GenerateEmpty: %v", err)
+		}
+		versions = append(versions, f.Version)
+	}
+
+	seen := make(map[string]int, n)
+	for i, v := range versions {
+		if first, dup := seen[v]; dup {
+			t.Errorf("migration %d reuses version %s from migration %d", i, v, first)
+		}
+		seen[v] = i
+	}
+
+	// Lexicographic order must equal creation order: reconstruct.go sorts
+	// filenames and relies on that being chronological.
+	if !slices.IsSorted(versions) {
+		t.Errorf("versions are not lexicographically ascending: %v", versions)
+	}
+
+	for _, v := range versions {
+		if len(v) != 14 {
+			t.Errorf("version %q is %d chars, want the 14-digit timestamp format", v, len(v))
+		}
+	}
+
+	// Every migration written must be visible.
+	listed, err := g.ListMigrations()
+	if err != nil {
+		t.Fatalf("ListMigrations: %v", err)
+	}
+	if len(listed) != n {
+		t.Errorf("ListMigrations returned %d of %d migrations", len(listed), n)
+	}
+}
+
+// A timestamp that collides with an existing file, not just with a sibling
+// created in the same run.
+func TestTimestampVersionSkipsAnExistingFile(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now().Format("20060102150405")
+	writeMigrations(t, dir, now+"_already_here.up.sql", now+"_already_here.down.sql")
+
+	got, err := NextVersion(dir, TimestampVersions)
+	if err != nil {
+		t.Fatalf("NextVersion: %v", err)
+	}
+	if got == now {
+		t.Errorf("NextVersion returned %s, which is already taken on disk", got)
+	}
+	if got <= now {
+		t.Errorf("NextVersion returned %s, which does not sort after the existing %s", got, now)
 	}
 }

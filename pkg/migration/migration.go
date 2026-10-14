@@ -220,7 +220,7 @@ func NextVersion(migrationsDir string, preferred VersionScheme) (string, error) 
 	}
 
 	if scheme == TimestampVersions {
-		return GenerateVersion(), nil
+		return nextTimestampVersion(migrationsDir)
 	}
 
 	versions, err := existingVersions(migrationsDir)
@@ -251,6 +251,34 @@ func NextVersion(migrationsDir string, preferred VersionScheme) (string, error) 
 	}
 
 	return fmt.Sprintf("%0*d", width, next), nil
+}
+
+// nextTimestampVersion returns an unused timestamp version. GenerateVersion has
+// one-second resolution, so two generates in the same second produced the same
+// version; both files were written but migrations are keyed by version, so the
+// second one became invisible to status and never applied. On a clash the clock
+// is walked forward a second at a time, which keeps the 14-digit format and so
+// keeps lexicographic order equal to apply order.
+func nextTimestampVersion(migrationsDir string) (string, error) {
+	existing, err := existingVersions(migrationsDir)
+	if err != nil {
+		return "", err
+	}
+	taken := make(map[string]struct{}, len(existing))
+	for _, v := range existing {
+		taken[v] = struct{}{}
+	}
+
+	t := time.Now()
+	for range 120 {
+		version := t.Format("20060102150405")
+		if _, clash := taken[version]; !clash {
+			return version, nil
+		}
+		t = t.Add(time.Second)
+	}
+	return "", fmt.Errorf("could not find an unused migration version near %s in %s",
+		time.Now().Format("20060102150405"), migrationsDir)
 }
 
 func existingVersions(migrationsDir string) ([]string, error) {

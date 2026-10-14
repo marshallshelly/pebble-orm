@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Two `pebble generate` runs in the same second no longer share a version.
+  `GenerateVersion` has one-second resolution, so both files were written but
+  migrations are keyed by version: every migration after the first became
+  invisible to `migrate status` and never applied.
+- A new timestamp version also skips one already present on disk, walking the
+  clock forward a second at a time so the 14-digit format and lexicographic
+  ordering are preserved.
 - `pebble migrate up -i` reports the number of migrations it ran. The
   confirmation dialog's callbacks are closures over a value-type model, so their
   writes were discarded and the total stayed zero, printing "Successfully
