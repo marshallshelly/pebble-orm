@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.27.5] - 2026-10-29
+
 ### Fixed
 
 - `CREATE TABLE` declares a single-column `// unique:` constraint. It was left
@@ -916,7 +918,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - golangci-lint integration.
 - GoReleaser configuration for multi-platform releases.
 
-[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.4...HEAD
+[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.5...HEAD
+[1.27.5]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.4...v1.27.5
 [1.27.4]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.3...v1.27.4
 [1.27.3]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.2...v1.27.3
 [1.27.2]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.1...v1.27.2
