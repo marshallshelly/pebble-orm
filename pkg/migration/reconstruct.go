@@ -162,7 +162,7 @@ func applyCreateTable(tables map[string]*schema.TableMetadata, stmt string) {
 			table.Constraints = append(table.Constraints, schema.ConstraintMetadata{
 				Type:    schema.UniqueConstraint,
 				Columns: []string{col.Name},
-				Name:    tableName + "_" + col.Name + "_key",
+				Name:    schema.ColumnUniqueName(tableName, col.Name),
 			})
 		}
 	}
@@ -355,9 +355,10 @@ func applyAlterTable(tables map[string]*schema.TableMetadata, stmt string) {
 			}
 		} else if cm := reUniqueConstraint.FindStringSubmatch(rest); cm != nil {
 			cols := splitCSV(cm[2])
-			// A single-column UNIQUE also flips the column's Unique flag so the
-			// differ's column-level detection stays consistent.
-			if len(cols) == 1 {
+			// A column's own UNIQUE is added under its default name; that marks
+			// the column unique, as the tag does. Any other name is a separate
+			// constraint and leaves the column alone.
+			if len(cols) == 1 && strings.EqualFold(cm[1], schema.ColumnUniqueName(tableName, cols[0])) {
 				for i, col := range table.Columns {
 					if col.Name == cols[0] {
 						table.Columns[i].Unique = true
@@ -388,7 +389,7 @@ func applyDropConstraint(table *schema.TableMetadata, name string) {
 		if schema.TruncateIdent(strings.ToLower(c.Name)) != name {
 			return false
 		}
-		if c.Type == schema.UniqueConstraint && len(c.Columns) == 1 {
+		if c.Type == schema.UniqueConstraint && len(c.Columns) == 1 && strings.EqualFold(c.Name, schema.ColumnUniqueName(table.Name, c.Columns[0])) {
 			for i := range table.Columns {
 				if table.Columns[i].Name == c.Columns[0] {
 					table.Columns[i].Unique = false

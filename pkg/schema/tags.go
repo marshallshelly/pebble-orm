@@ -215,6 +215,11 @@ func CheckConstraintsFor(tableName string, columns []ColumnMetadata) []Constrain
 	return constraints
 }
 
+// ColumnUniqueName is the name of the constraint a column's own UNIQUE creates.
+func ColumnUniqueName(tableName, columnName string) string {
+	return fmt.Sprintf("%s_%s_key", tableName, columnName)
+}
+
 // UniqueConstraintsFor returns the UNIQUE constraints implied by columns marked
 // unique, so the migration system can detect and manage them.
 func UniqueConstraintsFor(tableName string, columns []ColumnMetadata) []ConstraintMetadata {
@@ -222,7 +227,7 @@ func UniqueConstraintsFor(tableName string, columns []ColumnMetadata) []Constrai
 	for _, col := range columns {
 		if col.Unique {
 			constraints = append(constraints, ConstraintMetadata{
-				Name:    fmt.Sprintf("%s_%s_key", tableName, col.Name),
+				Name:    ColumnUniqueName(tableName, col.Name),
 				Type:    UniqueConstraint,
 				Columns: []string{col.Name},
 			})

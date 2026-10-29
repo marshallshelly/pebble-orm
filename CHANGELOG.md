@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `CREATE TABLE` declares a single-column `// unique:` constraint. It was left
+  out, so a new database lacked the constraint and every offline `generate`
+  emitted `ADD CONSTRAINT` for it again.
+- Recreating a table in a down migration keeps a named single-column UNIQUE
+  constraint instead of losing it.
+
 ## [1.27.4] - 2026-10-14
 
 ### Fixed

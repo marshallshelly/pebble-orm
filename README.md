@@ -175,7 +175,7 @@ type User struct {
 }
 ```
 
-Single-column uniqueness uses the `unique` column tag; a **composite** UNIQUE constraint is the `// unique: <name> (col1, col2, …)` table directive — the natural fit for junction tables (`// unique: uq_task_tag (task_id, tag_id)`). It is emitted in `CREATE TABLE`/`ALTER TABLE`, introspected, and diffed by its columns.
+Single-column uniqueness usually uses the `unique` column tag, which PostgreSQL names `{table}_{column}_key`. The `// unique: <name> (col1, col2, …)` table directive declares a named UNIQUE constraint over one or more columns — the natural fit for junction tables (`// unique: uq_task_tag (task_id, tag_id)`), or a single column whose constraint needs its own name (`// unique: uq_invoices_seq (seq)`). It is emitted in `CREATE TABLE`/`ALTER TABLE`, introspected, and diffed by its columns.
 
 Required PostgreSQL extensions are declared with a `// extension:` directive; `pebble generate` emits `CREATE EXTENSION IF NOT EXISTS` before any type or table that needs it. Extensions are never auto-dropped.
 

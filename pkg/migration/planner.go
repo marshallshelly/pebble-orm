@@ -162,10 +162,8 @@ func (p *Planner) generateCreateTable(table *schema.TableMetadata) string {
 		case schema.CheckConstraint:
 			parts = append(parts, fmt.Sprintf("    CONSTRAINT %s CHECK %s", constraint.Name, constraint.Expression))
 		case schema.UniqueConstraint:
-			// Only add UNIQUE constraint if it's not already handled by inline column UNIQUE
-			// Multi-column UNIQUE constraints or explicit UNIQUE constraints go here
-			if len(constraint.Columns) > 1 {
-				cols := strings.Join(constraint.Columns, ", ")
+			if !inlineUnique(table, constraint) {
+				cols := strings.Join(schema.QuoteReservedIdents(constraint.Columns), ", ")
 				parts = append(parts, fmt.Sprintf("    CONSTRAINT %s UNIQUE (%s)", constraint.Name, cols))
 			}
 		case schema.ExclusionConstraint:
@@ -245,6 +243,20 @@ func (p *Planner) generateColumnDefinition(col schema.ColumnMetadata) string {
 	}
 
 	return strings.Join(parts, " ")
+}
+
+// inlineUnique reports whether c is the constraint a column's own UNIQUE
+// already creates, so CREATE TABLE must not declare it a second time.
+func inlineUnique(table *schema.TableMetadata, c schema.ConstraintMetadata) bool {
+	if len(c.Columns) != 1 || c.Name != schema.ColumnUniqueName(table.Name, c.Columns[0]) {
+		return false
+	}
+	for _, col := range table.Columns {
+		if col.Name == c.Columns[0] {
+			return col.Unique
+		}
+	}
+	return false
 }
 
 // generateForeignKeyDefinition generates a foreign key constraint.
