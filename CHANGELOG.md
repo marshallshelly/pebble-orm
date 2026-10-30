@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.27.7] - 2026-10-30
+
 ### Fixed
 
 - `pebble migrate up -i` and `down -i` act on the highlighted migration when
@@ -937,7 +939,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - golangci-lint integration.
 - GoReleaser configuration for multi-platform releases.
 
-[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.6...HEAD
+[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.7...HEAD
+[1.27.7]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.6...v1.27.7
 [1.27.6]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.5...v1.27.6
 [1.27.5]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.4...v1.27.5
 [1.27.4]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.3...v1.27.4
