@@ -1,8 +1,10 @@
 package tui
 
 import (
+	"fmt"
 	"image/color"
 	"slices"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -106,5 +108,106 @@ func TestBackgroundColorSelectsListStyles(t *testing.T) {
 	}
 	if m.list.Styles.Title.GetForeground() != titleStyle.GetForeground() {
 		t.Error("the list title keeps its own style")
+	}
+}
+
+func TestEnterWithNothingToSelect(t *testing.T) {
+	m := NewMigrateModel("up", "postgres://unused", "/nonexistent")
+
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if mode := next.(MigrateModel).mode; mode != ModeList {
+		t.Errorf("before migrations load: mode = %v, want ModeList", mode)
+	}
+
+	next, _ = m.Update(migrationsLoadedMsg{})
+	next, _ = next.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if mode := next.(MigrateModel).mode; mode != ModeList {
+		t.Errorf("with no migrations: mode = %v, want ModeList", mode)
+	}
+}
+
+// A filtered list numbers its visible rows from zero, so the row under the
+// cursor has to be mapped back to its migration.
+func TestEnterOnAFilteredListSelectsThatMigration(t *testing.T) {
+	var next tea.Model = NewMigrateModel("up", "postgres://unused", "/nonexistent")
+	next, _ = next.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	migrations := []migration.Migration{
+		{Version: "1", Name: "users"}, {Version: "2", Name: "posts"}, {Version: "3", Name: "tags"},
+	}
+	var status []migration.MigrationRecord
+	for _, mig := range migrations {
+		status = append(status, migration.MigrationRecord{Version: mig.Version, Name: mig.Name, Status: migration.StatusPending})
+	}
+	next, _ = next.Update(migrationsLoadedMsg{migrations: migrations, status: status})
+
+	m := next.(MigrateModel)
+	m.list.SetFilterText("tags")
+	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	m = next.(MigrateModel)
+	if !slices.Equal(m.selectedItems, []int{2}) {
+		t.Fatalf("selectedItems = %v, want the tags migration at index 2", m.selectedItems)
+	}
+	if !strings.Contains(m.confirmation.Message, "tags") {
+		t.Errorf("dialog names the wrong migration: %q", m.confirmation.Message)
+	}
+	msg := m.confirmation.OnConfirm()()
+	if started := msg.(migrationStartedMsg); !strings.Contains(started.message, "tags") {
+		t.Errorf("started %q", started.message)
+	}
+}
+
+func filteringModel(t *testing.T, names ...string) MigrateModel {
+	t.Helper()
+	var next tea.Model = NewMigrateModel("up", "postgres://unused", "/nonexistent")
+	next, _ = next.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	var migrations []migration.Migration
+	var status []migration.MigrationRecord
+	for i, name := range names {
+		version := fmt.Sprint(i + 1)
+		migrations = append(migrations, migration.Migration{Version: version, Name: name})
+		status = append(status, migration.MigrationRecord{Version: version, Name: name, Status: migration.StatusPending})
+	}
+	next, _ = next.Update(migrationsLoadedMsg{migrations: migrations, status: status})
+	next, _ = next.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
+
+	m := next.(MigrateModel)
+	if !m.list.SettingFilter() {
+		t.Fatal("/ should start the filter")
+	}
+	return m
+}
+
+func TestTypingInTheFilterStaysInTheFilter(t *testing.T) {
+	m := filteringModel(t, "users", "quotes")
+
+	for _, ch := range []rune{'q', ' ', 'h'} {
+		next, cmd := m.Update(tea.KeyPressMsg{Code: ch, Text: string(ch)})
+		if cmd != nil {
+			if _, quit := cmd().(tea.QuitMsg); quit {
+				t.Fatalf("typing %q in the filter quit the UI", ch)
+			}
+		}
+		m = next.(MigrateModel)
+		if m.mode != ModeList {
+			t.Fatalf("typing %q left the list: mode = %v", ch, m.mode)
+		}
+	}
+	if got := m.list.FilterInput.Value(); got != "q h" {
+		t.Errorf("filter text = %q, want %q", got, "q h")
+	}
+}
+
+func TestEnterFinishesTheFilterInsteadOfSelecting(t *testing.T) {
+	m := filteringModel(t, "users", "quotes")
+	next, _ := m.Update(tea.KeyPressMsg{Code: 'q', Text: "q"})
+	next, _ = next.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	m = next.(MigrateModel)
+	if m.mode != ModeList {
+		t.Errorf("enter opened mode %v, want the filter accepted first", m.mode)
+	}
+	if m.list.SettingFilter() {
+		t.Error("enter should finish typing the filter")
 	}
 }

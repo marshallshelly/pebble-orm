@@ -268,6 +268,11 @@ func (m MigrateModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyPressMsg:
+		// While the filter is being typed, every key belongs to it.
+		if m.mode == ModeList && m.list.SettingFilter() {
+			break
+		}
+
 		switch m.mode {
 		case ModeList:
 			switch msg.String() {
@@ -280,7 +285,10 @@ func (m MigrateModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "enter", "space":
 				// Check if any migrations can be executed
 				canExecute := false
-				selectedIdx := m.list.Index()
+				selectedIdx := m.list.GlobalIndex()
+				if selectedIdx >= len(m.status) {
+					return m, nil
+				}
 
 				if m.action == "up" {
 					// Can apply if pending

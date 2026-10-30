@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `pebble migrate up -i` and `down -i` act on the highlighted migration when
+  the list is filtered.
+- Pressing Enter in the interactive migrate list no longer crashes when there
+  are no migrations or they are still loading.
+- Typing `q` in the interactive migrate filter adds it to the filter instead of
+  quitting.
+- Pressing Enter in the interactive migrate filter accepts the filter instead
+  of opening the confirmation dialog.
+
 ## [1.27.6] - 2026-10-30
 
 ### Changed
