@@ -492,13 +492,3 @@ It's pgx with the boilerplate removed. Your indexes are the ceiling, not the ORM
 ## Inspiration
 
 [drizzle-orm](https://orm.drizzle.team/) for the developer experience, [GORM](https://gorm.io/) for the Go ORM patterns, [Bun](https://bun.uptrace.dev/) for the SQL-first approach, [sqlc](https://sqlc.dev/) for type safety from SQL.
-
-## Star History
-
-<a href="https://www.star-history.com/#marshallshelly/pebble-orm&Date">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=marshallshelly/pebble-orm&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=marshallshelly/pebble-orm&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=marshallshelly/pebble-orm&type=Date" />
- </picture>
-</a>
