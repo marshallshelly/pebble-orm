@@ -3,7 +3,7 @@ package output
 import (
 	"fmt"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 )
 
 var (
@@ -23,47 +23,53 @@ var (
 	primaryStyle = lipgloss.NewStyle().Foreground(colorPrimary).Bold(true)
 )
 
+// paint renders text for stdout, reducing colour to what stdout supports and
+// removing it when stdout isn't a terminal.
+func paint(style lipgloss.Style, text string) string {
+	return lipgloss.Sprint(style.Render(text))
+}
+
 // Success prints a success message
 func Success(format string, args ...any) {
-	fmt.Print(successStyle.Render("✓ "))
+	fmt.Print(paint(successStyle, "✓ "))
 	fmt.Printf(format+"\n", args...)
 }
 
 // Warning prints a warning message
 func Warning(format string, args ...any) {
-	fmt.Print(warningStyle.Render("⚠ "))
+	fmt.Print(paint(warningStyle, "⚠ "))
 	fmt.Printf(format+"\n", args...)
 }
 
 // Error prints an error message
 func Error(format string, args ...any) {
-	fmt.Print(errorStyle.Render("✗ "))
+	fmt.Print(paint(errorStyle, "✗ "))
 	fmt.Printf(format+"\n", args...)
 }
 
 // Info prints an info message
 func Info(format string, args ...any) {
-	fmt.Print(infoStyle.Render("ℹ "))
+	fmt.Print(paint(infoStyle, "ℹ "))
 	fmt.Printf(format+"\n", args...)
 }
 
 // Muted prints a muted message
 func Muted(format string, args ...any) {
-	fmt.Print(mutedStyle.Render(fmt.Sprintf(format, args...)))
+	fmt.Print(paint(mutedStyle, fmt.Sprintf(format, args...)))
 	fmt.Println()
 }
 
 // Primary prints a primary message
 func Primary(format string, args ...any) {
-	fmt.Print(primaryStyle.Render(fmt.Sprintf(format, args...)))
+	fmt.Print(paint(primaryStyle, fmt.Sprintf(format, args...)))
 	fmt.Println()
 }
 
 // Section prints a section header
 func Section(title string) {
 	fmt.Println()
-	fmt.Println(primaryStyle.Render(title))
-	fmt.Println(mutedStyle.Render(lipgloss.NewStyle().Width(len(title)).Render("═" + lipgloss.NewStyle().Width(len(title)-1).Render("═"))))
+	fmt.Println(paint(primaryStyle, title))
+	fmt.Println(paint(mutedStyle, lipgloss.NewStyle().Width(len(title)).Render("═"+lipgloss.NewStyle().Width(len(title)-1).Render("═"))))
 	fmt.Println()
 }
 
@@ -71,14 +77,14 @@ func Section(title string) {
 func StatusIcon(status string) string {
 	switch status {
 	case "applied":
-		return successStyle.Render("✓")
+		return paint(successStyle, "✓")
 	case "pending":
-		return warningStyle.Render("○")
+		return paint(warningStyle, "○")
 	case "failed":
-		return errorStyle.Render("✗")
+		return paint(errorStyle, "✗")
 	case "running":
-		return infoStyle.Render("◉")
+		return paint(infoStyle, "◉")
 	default:
-		return mutedStyle.Render("•")
+		return paint(mutedStyle, "•")
 	}
 }

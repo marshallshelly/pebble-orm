@@ -1,9 +1,11 @@
 package tui
 
 import (
+	"image/color"
+	"slices"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/marshallshelly/pebble-orm/pkg/migration"
 )
 
@@ -20,7 +22,7 @@ func TestConfirmSendsStartedMessageWithTheRealTotal(t *testing.T) {
 	}}
 
 	// enter on a pending migration opens the dialog
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = next.(MigrateModel)
 	if m.mode != ModeConfirm {
 		t.Fatalf("mode = %v, want ModeConfirm", m.mode)
@@ -59,5 +61,50 @@ func TestCancelReturnsToTheList(t *testing.T) {
 	}
 	if m.selectedItems != nil {
 		t.Errorf("selectedItems = %v, want nil after cancelling", m.selectedItems)
+	}
+}
+
+func TestSpaceOpensTheDialog(t *testing.T) {
+	m := NewMigrateModel("up", "postgres://unused", "/nonexistent")
+	m.migrations = []migration.Migration{{Version: "20260101120000", Name: "first"}}
+	m.status = []migration.MigrationRecord{{
+		Version: "20260101120000", Name: "first", Status: migration.StatusPending,
+	}}
+
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
+	if mode := next.(MigrateModel).mode; mode != ModeConfirm {
+		t.Errorf("mode = %v, want ModeConfirm", mode)
+	}
+}
+
+func TestListQuitKeys(t *testing.T) {
+	m := NewMigrateModel("up", "postgres://unused", "/nonexistent")
+	if keys := m.list.KeyMap.Quit.Keys(); !slices.Equal(keys, []string{"q", "esc"}) {
+		t.Errorf("list quit keys = %v, want q and esc", keys)
+	}
+	if help := m.list.KeyMap.Quit.Help(); help.Desc != "quit" {
+		t.Errorf("list quit help = %q", help.Desc)
+	}
+}
+
+func TestViewUsesTheAltScreen(t *testing.T) {
+	m := NewMigrateModel("up", "postgres://unused", "/nonexistent")
+	if !m.View().AltScreen {
+		t.Error("the migration UI must run on the alternate screen")
+	}
+}
+
+func TestBackgroundColorSelectsListStyles(t *testing.T) {
+	m := NewMigrateModel("up", "postgres://unused", "/nonexistent")
+	dark := m.list.Styles.NoItems.GetForeground()
+
+	next, _ := m.Update(tea.BackgroundColorMsg{Color: color.White})
+	m = next.(MigrateModel)
+
+	if m.list.Styles.NoItems.GetForeground() == dark {
+		t.Error("a light background must switch the list to its light styles")
+	}
+	if m.list.Styles.Title.GetForeground() != titleStyle.GetForeground() {
+		t.Error("the list title keeps its own style")
 	}
 }

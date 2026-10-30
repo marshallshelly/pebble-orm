@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/list"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/help"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/marshallshelly/pebble-orm/pkg/migration"
 )
@@ -53,6 +55,8 @@ func NewMigrateModel(action, dbURL, migrationsDir string) MigrateModel {
 	l.SetShowStatusBar(false)
 	l.SetFilteringEnabled(true)
 	l.Styles.Title = titleStyle
+	l.KeyMap.Quit = key.NewBinding(key.WithKeys("q", "esc"), key.WithHelp("q", "quit"))
+	l.FilterInput.SetStyles(l.Styles.Filter)
 
 	return MigrateModel{
 		mode:          ModeList,
@@ -69,7 +73,7 @@ func NewMigrateModel(action, dbURL, migrationsDir string) MigrateModel {
 func (m MigrateModel) Init() tea.Cmd {
 	return tea.Batch(
 		loadMigrationsCmd(m.dbURL, m.migrationsDir),
-		tea.EnterAltScreen,
+		tea.RequestBackgroundColor,
 	)
 }
 
@@ -182,6 +186,16 @@ func (m MigrateModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.list.SetSize(msg.Width-4, msg.Height-8)
 		return m, nil
 
+	case tea.BackgroundColorMsg:
+		styles := list.DefaultStyles(msg.IsDark())
+		styles.Title = titleStyle
+		m.list.Styles = styles
+		m.list.FilterInput.SetStyles(styles.Filter)
+		m.list.Help.Styles = help.DefaultStyles(msg.IsDark())
+		m.list.Paginator.ActiveDot = styles.ActivePaginationDot.String()
+		m.list.Paginator.InactiveDot = styles.InactivePaginationDot.String()
+		return m, nil
+
 	case migrationsLoadedMsg:
 		m.migrations = msg.migrations
 		m.status = msg.status
@@ -253,7 +267,7 @@ func (m MigrateModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 		return m, nil
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch m.mode {
 		case ModeList:
 			switch msg.String() {
@@ -263,7 +277,7 @@ func (m MigrateModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, tea.Quit
 
-			case "enter", " ":
+			case "enter", "space":
 				// Check if any migrations can be executed
 				canExecute := false
 				selectedIdx := m.list.Index()
@@ -344,7 +358,14 @@ func (m MigrateModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // View renders the UI
-func (m MigrateModel) View() string {
+func (m MigrateModel) View() tea.View {
+	v := tea.NewView(m.content())
+	v.AltScreen = true
+	return v
+}
+
+// content renders the screen for the current mode.
+func (m MigrateModel) content() string {
 	switch m.mode {
 	case ModeList:
 		help := helpStyle.Render(

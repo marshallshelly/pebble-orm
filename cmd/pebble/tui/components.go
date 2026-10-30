@@ -5,9 +5,9 @@ import (
 	"io"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/list"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // ConfirmationDialog represents a yes/no confirmation dialog
@@ -31,7 +31,7 @@ func NewConfirmationDialog(title, message string) ConfirmationDialog {
 // Update handles confirmation dialog updates
 func (d *ConfirmationDialog) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "left", "h":
 			d.YesSelected = true
