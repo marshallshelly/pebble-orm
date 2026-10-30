@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.27.6] - 2026-10-30
+
 ### Changed
 
 - Row scanning maps columns to struct fields once per result instead of on
@@ -924,7 +926,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - golangci-lint integration.
 - GoReleaser configuration for multi-platform releases.
 
-[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.5...HEAD
+[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.6...HEAD
+[1.27.6]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.5...v1.27.6
 [1.27.5]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.4...v1.27.5
 [1.27.4]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.3...v1.27.4
 [1.27.3]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.2...v1.27.3
