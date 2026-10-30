@@ -389,9 +389,10 @@ func queryRows[T any](ctx context.Context, exec queryExecutor, table *schema.Tab
 	defer rows.Close()
 
 	var results []T
+	scanner := newRowScanner(table)
 	for rows.Next() {
 		var item T
-		if err := scanIntoStruct(rows, &item, table); err != nil {
+		if err := scanner.scan(rows, &item); err != nil {
 			return nil, err
 		}
 		results = append(results, item)

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Row scanning maps columns to struct fields once per result instead of on
+  every row.
+- Scanning a plain row no longer allocates a column map or a target slice.
+
 ## [1.27.5] - 2026-10-29
 
 ### Fixed

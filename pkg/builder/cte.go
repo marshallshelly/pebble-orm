@@ -135,9 +135,10 @@ func (q *CTESelect[T]) All(ctx context.Context) ([]T, error) {
 	defer rows.Close()
 
 	var results []T
+	scanner := newRowScanner(q.table)
 	for rows.Next() {
 		var item T
-		if err := scanIntoStruct(rows, &item, q.table); err != nil {
+		if err := scanner.scan(rows, &item); err != nil {
 			return nil, err
 		}
 		results = append(results, item)

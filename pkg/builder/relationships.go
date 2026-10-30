@@ -326,9 +326,10 @@ func (q *relationshipLoader) loadBelongsTo(ctx context.Context, results reflect.
 	defer rows.Close()
 
 	// Scan related records and assign to results
+	scanner := newRowScanner(targetTable)
 	for rows.Next() {
 		related := reflect.New(targetTable.GoType)
-		if err := scanIntoStruct(rows, related.Interface(), targetTable); err != nil {
+		if err := scanner.scan(rows, related.Interface()); err != nil {
 			return fmt.Errorf("failed to scan related record: %w", err)
 		}
 
@@ -424,9 +425,10 @@ func (q *relationshipLoader) loadHasOne(ctx context.Context, results reflect.Val
 	defer rows.Close()
 
 	// Scan related records and assign to results
+	scanner := newRowScanner(targetTable)
 	for rows.Next() {
 		related := reflect.New(targetTable.GoType)
-		if err := scanIntoStruct(rows, related.Interface(), targetTable); err != nil {
+		if err := scanner.scan(rows, related.Interface()); err != nil {
 			return fmt.Errorf("failed to scan related record: %w", err)
 		}
 
@@ -533,9 +535,10 @@ func (q *relationshipLoader) loadHasMany(ctx context.Context, results reflect.Va
 	defer rows.Close()
 
 	// Scan related records and append to results
+	scanner := newRowScanner(targetTable)
 	for rows.Next() {
 		related := reflect.New(targetTable.GoType)
-		if err := scanIntoStruct(rows, related.Interface(), targetTable); err != nil {
+		if err := scanner.scan(rows, related.Interface()); err != nil {
 			return fmt.Errorf("failed to scan related record: %w", err)
 		}
 
@@ -710,9 +713,10 @@ func (q *relationshipLoader) loadManyToMany(ctx context.Context, results reflect
 
 	// Build a map of target records by their PK.
 	targetMap := make(map[interface{}]reflect.Value)
+	scanner := newRowScanner(targetTable)
 	for rows.Next() {
 		related := reflect.New(targetTable.GoType)
-		if err := scanIntoStruct(rows, related.Interface(), targetTable); err != nil {
+		if err := scanner.scan(rows, related.Interface()); err != nil {
 			rows.Close()
 			return fmt.Errorf("failed to scan related record: %w", err)
 		}
@@ -815,9 +819,10 @@ func (q *relationshipLoader) loadBelongsToOnCollection(ctx context.Context, obje
 	}
 	defer rows.Close()
 
+	scanner := newRowScanner(targetTable)
 	for rows.Next() {
 		related := reflect.New(targetTable.GoType)
-		if err := scanIntoStruct(rows, related.Interface(), targetTable); err != nil {
+		if err := scanner.scan(rows, related.Interface()); err != nil {
 			return fmt.Errorf("failed to scan related record: %w", err)
 		}
 
@@ -887,9 +892,10 @@ func (q *relationshipLoader) loadHasOneOnCollection(ctx context.Context, objects
 	}
 	defer rows.Close()
 
+	scanner := newRowScanner(targetTable)
 	for rows.Next() {
 		related := reflect.New(targetTable.GoType)
-		if err := scanIntoStruct(rows, related.Interface(), targetTable); err != nil {
+		if err := scanner.scan(rows, related.Interface()); err != nil {
 			return fmt.Errorf("failed to scan related record: %w", err)
 		}
 
@@ -970,9 +976,10 @@ func (q *relationshipLoader) loadHasManyOnCollection(ctx context.Context, object
 	}
 	defer rows.Close()
 
+	scanner := newRowScanner(targetTable)
 	for rows.Next() {
 		related := reflect.New(targetTable.GoType)
-		if err := scanIntoStruct(rows, related.Interface(), targetTable); err != nil {
+		if err := scanner.scan(rows, related.Interface()); err != nil {
 			return fmt.Errorf("failed to scan related record: %w", err)
 		}
 

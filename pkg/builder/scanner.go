@@ -11,9 +11,32 @@ import (
 	"github.com/marshallshelly/pebble-orm/pkg/schema"
 )
 
-// scanIntoStruct scans a database row into a struct.
-func scanIntoStruct(rows pgx.Rows, dest interface{}, table *schema.TableMetadata) error {
-	// Get the value and type
+// rowScanner scans the rows of one result into structs of one table. Which
+// field each column goes to is worked out on the first row and reused for the
+// rest, so a result costs one lookup per column rather than one per column per
+// row. Use a new rowScanner for each result.
+type rowScanner struct {
+	table      *schema.TableMetadata
+	structType reflect.Type
+	fields     []scanField
+	targets    []interface{}
+	discard    interface{}
+}
+
+// scanField is where one result column goes in the struct.
+type scanField struct {
+	position int   // the column's position in the result
+	index    []int // the field's reflect index path
+	jsonb    bool
+	array    reflect.Type // the underlying slice type, for named Scanner slices
+}
+
+func newRowScanner(table *schema.TableMetadata) *rowScanner {
+	return &rowScanner{table: table}
+}
+
+// scan reads the current row into dest, a pointer to a struct.
+func (s *rowScanner) scan(rows pgx.Rows, dest interface{}) error {
 	destValue := reflect.ValueOf(dest)
 	if destValue.Kind() != reflect.Pointer {
 		return fmt.Errorf("dest must be a pointer to struct")
@@ -24,60 +47,31 @@ func scanIntoStruct(rows pgx.Rows, dest interface{}, table *schema.TableMetadata
 		return fmt.Errorf("dest must be a pointer to struct")
 	}
 
-	// Get column descriptions
-	fieldDescriptions := rows.FieldDescriptions()
-
-	// Create scan targets
-	scanTargets := make([]interface{}, len(fieldDescriptions))
-	jsonbTargets := make(map[int]*jsonbScanTarget) // Track JSONB columns for post-processing
-	var arrayTargets []*arrayScanTarget            // Track named-slice array columns for post-processing
-	columnMap := make(map[string]int)              // Map column name to field description index
-
-	for i, fd := range fieldDescriptions {
-		columnMap[fd.Name] = i
+	if s.structType != destValue.Type() {
+		s.plan(rows, destValue)
 	}
 
-	// Map struct fields to scan targets
-	for _, col := range table.Columns {
-		idx, ok := columnMap[col.Name]
-		if !ok {
-			continue
-		}
+	var jsonbTargets []*jsonbScanTarget
+	var arrayTargets []*arrayScanTarget
 
-		// Get the struct field
-		field := destValue.FieldByName(col.GoField)
-		if !field.IsValid() || !field.CanSet() {
-			continue
-		}
-
-		// For JSONB columns, use intermediate scanning if the type doesn't implement Scanner
-		if col.IsJSONB && !implementsScanner(field.Type()) {
+	for i := range s.fields {
+		f := &s.fields[i]
+		field := destValue.FieldByIndex(f.index)
+		switch {
+		case f.jsonb:
 			target := &jsonbScanTarget{field: field}
-			scanTargets[idx] = target
-			jsonbTargets[idx] = target
-		} else if target := newArrayScanTarget(col, field); target != nil {
-			// Named Scanner slices (schema.StringArray etc.) on array columns:
-			// scan through pgx's native array decoding instead of sql.Scanner,
-			// which would receive raw binary wire bytes under the default
-			// extended protocol.
-			scanTargets[idx] = target.dest.Interface()
+			s.targets[f.position] = target
+			jsonbTargets = append(jsonbTargets, target)
+		case f.array != nil:
+			target := &arrayScanTarget{field: field, dest: reflect.New(f.array)}
+			s.targets[f.position] = target.dest.Interface()
 			arrayTargets = append(arrayTargets, target)
-		} else {
-			// Create a pointer to the field for scanning
-			scanTargets[idx] = field.Addr().Interface()
+		default:
+			s.targets[f.position] = field.Addr().Interface()
 		}
 	}
 
-	// Fill any nil scan targets with dummy variables
-	var dummy interface{}
-	for i := range scanTargets {
-		if scanTargets[i] == nil {
-			scanTargets[i] = &dummy
-		}
-	}
-
-	// Scan the row
-	if err := rows.Scan(scanTargets...); err != nil {
+	if err := rows.Scan(s.targets...); err != nil {
 		return fmt.Errorf("failed to scan row: %w", err)
 	}
 
@@ -96,6 +90,45 @@ func scanIntoStruct(rows pgx.Rows, dest interface{}, table *schema.TableMetadata
 	return nil
 }
 
+// plan maps the result's columns to fields of destValue's type. A column the
+// table doesn't define, or whose field can't be set, is read and discarded.
+func (s *rowScanner) plan(rows pgx.Rows, destValue reflect.Value) {
+	fieldDescriptions := rows.FieldDescriptions()
+
+	columnMap := make(map[string]int, len(fieldDescriptions))
+	for i, fd := range fieldDescriptions {
+		columnMap[fd.Name] = i
+	}
+
+	s.structType = destValue.Type()
+	s.fields = s.fields[:0]
+	for _, col := range s.table.Columns {
+		position, ok := columnMap[col.Name]
+		if !ok {
+			continue
+		}
+
+		field := destValue.FieldByName(col.GoField)
+		if !field.IsValid() || !field.CanSet() {
+			continue
+		}
+
+		structField, _ := s.structType.FieldByName(col.GoField)
+		s.fields = append(s.fields, scanField{
+			position: position,
+			index:    structField.Index,
+			// JSONB columns use intermediate scanning if the type doesn't implement Scanner
+			jsonb: col.IsJSONB && !implementsScanner(field.Type()),
+			array: arrayScanType(col, field.Type()),
+		})
+	}
+
+	s.targets = make([]interface{}, len(fieldDescriptions))
+	for i := range s.targets {
+		s.targets[i] = &s.discard
+	}
+}
+
 // arrayScanTarget scans an array column into the field's underlying slice
 // type (e.g. []string for schema.StringArray) so pgx decodes it natively in
 // both text and binary formats, then converts to the named field type.
@@ -104,11 +137,12 @@ type arrayScanTarget struct {
 	dest  reflect.Value // pointer to a value of the underlying slice type
 }
 
-// newArrayScanTarget returns an intermediate target for array columns whose
-// field is a named slice type implementing sql.Scanner (other than []byte),
-// or nil if direct scanning should be used.
-func newArrayScanTarget(col schema.ColumnMetadata, field reflect.Value) *arrayScanTarget {
-	t := field.Type()
+// arrayScanType returns the underlying slice type to scan an array column into
+// when its field is a named slice type implementing sql.Scanner (other than
+// []byte), or nil if direct scanning should be used. pgx then decodes the array
+// natively instead of handing sql.Scanner raw binary wire bytes under the
+// default extended protocol.
+func arrayScanType(col schema.ColumnMetadata, t reflect.Type) reflect.Type {
 	if !strings.HasSuffix(col.SQLType, "[]") {
 		return nil
 	}
@@ -118,10 +152,7 @@ func newArrayScanTarget(col schema.ColumnMetadata, field reflect.Value) *arraySc
 	if t.Name() == "" || !implementsScanner(t) {
 		return nil // plain slices ([]string etc.) already decode natively
 	}
-	return &arrayScanTarget{
-		field: field,
-		dest:  reflect.New(reflect.SliceOf(t.Elem())),
-	}
+	return reflect.SliceOf(t.Elem())
 }
 
 // jsonbScanTarget is an intermediate scan target for JSONB columns
