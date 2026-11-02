@@ -2,6 +2,7 @@ package migration
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -27,6 +28,10 @@ var (
 	reDropExtension    = regexp.MustCompile(`(?i)^\s*DROP\s+EXTENSION\s+(?:IF\s+EXISTS\s+)?"?([\w-]+)"?`)
 	reCreateDomain     = regexp.MustCompile(`(?i)^\s*CREATE\s+DOMAIN\s+"?(\w+)"?\s+AS\s+(.+?)\s*;?\s*$`)
 	reDropDomain       = regexp.MustCompile(`(?i)^\s*DROP\s+DOMAIN\s+(?:IF\s+EXISTS\s+)?"?(\w+)"?`)
+	reCreateEnum       = regexp.MustCompile(`(?is)^\s*CREATE\s+TYPE\s+"?(\w+)"?\s+AS\s+ENUM\s*\((.*)\)`)
+	reAddEnumValue     = regexp.MustCompile(`(?i)^\s*ALTER\s+TYPE\s+"?(\w+)"?\s+ADD\s+VALUE\s+(?:IF\s+NOT\s+EXISTS\s+)?('(?:[^']|'')*')`)
+	reDropType         = regexp.MustCompile(`(?i)^\s*DROP\s+TYPE\s+(?:IF\s+EXISTS\s+)?"?(\w+)"?`)
+	reEnumValue        = regexp.MustCompile(`'(?:[^']|'')*'`)
 
 	reAlterColSetDefault  = regexp.MustCompile(`(?i)^ALTER\s+COLUMN\s+"?(\w+)"?\s+SET\s+DEFAULT\s+(.+)$`)
 	reAlterColDropDefault = regexp.MustCompile(`(?i)^ALTER\s+COLUMN\s+"?(\w+)"?\s+DROP\s+DEFAULT`)
@@ -57,17 +62,18 @@ func ReconstructSchemaFromMigrations(dir string) (map[string]*schema.TableMetada
 	tables := make(map[string]*schema.TableMetadata)
 	extensions := make(map[string]bool)
 	domains := make(map[string]schema.DomainType)
+	enums := make(map[string]schema.EnumType)
 	for _, f := range files {
 		data, err := os.ReadFile(f)
 		if err != nil {
 			return nil, fmt.Errorf("reading %s: %w", filepath.Base(f), err)
 		}
-		applySQLToSchema(tables, extensions, domains, string(data))
+		applySQLToSchema(tables, extensions, domains, enums, string(data))
 	}
 
-	// Extensions and domains are schema-global facts; attach them to any one
-	// table so the differ's union sees them (mirrors the live introspector).
-	if len(extensions) > 0 || len(domains) > 0 {
+	// Extensions, domains and enums are schema-global facts; attach them to any
+	// one table so the differ's union sees them (mirrors the live introspector).
+	if len(extensions) > 0 || len(domains) > 0 || len(enums) > 0 {
 		names := make([]string, 0, len(extensions))
 		for name := range extensions {
 			names = append(names, name)
@@ -78,9 +84,13 @@ func ReconstructSchemaFromMigrations(dir string) (map[string]*schema.TableMetada
 			doms = append(doms, d)
 		}
 		sort.Slice(doms, func(a, b int) bool { return doms[a].Name < doms[b].Name })
+		enumTypes := slices.SortedFunc(maps.Values(enums), func(a, b schema.EnumType) int {
+			return strings.Compare(a.Name, b.Name)
+		})
 		for _, table := range tables {
 			table.Extensions = names
 			table.Domains = doms
+			table.EnumTypes = enumTypes
 			break
 		}
 	}
@@ -89,7 +99,7 @@ func ReconstructSchemaFromMigrations(dir string) (map[string]*schema.TableMetada
 }
 
 // applySQLToSchema applies DDL statements from sql to the in-memory schema map.
-func applySQLToSchema(tables map[string]*schema.TableMetadata, extensions map[string]bool, domains map[string]schema.DomainType, sql string) {
+func applySQLToSchema(tables map[string]*schema.TableMetadata, extensions map[string]bool, domains map[string]schema.DomainType, enums map[string]schema.EnumType, sql string) {
 	for _, stmt := range splitSQLStatements(sql) {
 		stmt = strings.TrimSpace(stmt)
 		if stmt == "" {
@@ -114,6 +124,20 @@ func applySQLToSchema(tables map[string]*schema.TableMetadata, extensions map[st
 			domains[m[1]] = schema.DomainType{Name: m[1], BaseType: base, Check: check}
 		case reDropDomain.MatchString(stmt):
 			delete(domains, reDropDomain.FindStringSubmatch(stmt)[1])
+		case reCreateEnum.MatchString(stmt):
+			m := reCreateEnum.FindStringSubmatch(stmt)
+			name := strings.ToLower(m[1])
+			enums[name] = schema.EnumType{Name: name, Values: parseEnumValues(m[2])}
+		case reAddEnumValue.MatchString(stmt):
+			m := reAddEnumValue.FindStringSubmatch(stmt)
+			name := strings.ToLower(m[1])
+			enum := enums[name]
+			if value := parseEnumValues(m[2])[0]; !slices.Contains(enum.Values, value) {
+				enum.Name, enum.Values = name, append(enum.Values, value)
+				enums[name] = enum
+			}
+		case reDropType.MatchString(stmt):
+			delete(enums, strings.ToLower(reDropType.FindStringSubmatch(stmt)[1]))
 		case reCreateExtension.MatchString(stmt):
 			extensions[reCreateExtension.FindStringSubmatch(stmt)[1]] = true
 		case reDropExtension.MatchString(stmt):
@@ -373,6 +397,16 @@ func applyAlterTable(tables map[string]*schema.TableMetadata, stmt string) {
 			})
 		}
 	}
+}
+
+// parseEnumValues reads the quoted labels of an enum, undoing SQL's ” escape.
+func parseEnumValues(list string) []string {
+	labels := reEnumValue.FindAllString(list, -1)
+	values := make([]string, len(labels))
+	for i, label := range labels {
+		values[i] = strings.ReplaceAll(label[1:len(label)-1], "''", "'")
+	}
+	return values
 }
 
 // applyDropConstraint removes a foreign key or table constraint by name. Names
