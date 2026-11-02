@@ -157,6 +157,7 @@ Format: `po:"column_name,option1,option2(value)"`. First element is always the c
 | Generated | `generated(expr)` + optional `virtual` |
 | Enums | `enum(a,b,c)` — emits `CREATE TYPE ... AS ENUM` in migrations |
 | Relationships | `belongsTo`, `hasOne`, `hasMany`, `manyToMany` + `foreignKey(...)`, `references(...)`, `joinTable(...)` |
+| Excluded | `po:"-"` keeps a field out of the schema and every query, like `json:"-"` |
 
 Column-level `check(expr)` becomes a named CHECK constraint (`{table}_{column}_check`); multi-column CHECK and exclusion constraints are table-level comment directives:
 

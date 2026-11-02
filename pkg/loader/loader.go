@@ -122,7 +122,13 @@ func loadModelsFromFile(filename string, registrar ModelRegistrar) (int, error) 
 			}
 
 			// Build TableMetadata directly from AST
-			table := buildTableMetadataFromAST(tableName, structType, sqlImports)
+			table, err := buildTableMetadataFromAST(tableName, structType, sqlImports)
+			if err != nil {
+				return modelsRegistered, fmt.Errorf("struct %s: %w", structName, err)
+			}
+			if len(table.Columns) == 0 {
+				continue // Only excluded fields or relationships: not a table
+			}
 
 			// Table-level index directives from the struct's comments.
 			for _, cg := range []*ast.CommentGroup{genDecl.Doc, typeSpec.Comment} {
@@ -167,7 +173,7 @@ func loadModelsFromFile(filename string, registrar ModelRegistrar) (int, error) 
 // is interpreted through the shared schema helpers, so the AST loader produces
 // the same metadata as the reflection parser (index/enum/generated/identity/FK
 // included).
-func buildTableMetadataFromAST(tableName string, structType *ast.StructType, imports sqlImports) *schema.TableMetadata {
+func buildTableMetadataFromAST(tableName string, structType *ast.StructType, imports sqlImports) (*schema.TableMetadata, error) {
 	table := &schema.TableMetadata{
 		Name:        tableName,
 		GoType:      nil, // No actual Go type available from AST
@@ -178,7 +184,7 @@ func buildTableMetadataFromAST(tableName string, structType *ast.StructType, imp
 	}
 
 	if structType.Fields == nil {
-		return table
+		return table, nil
 	}
 
 	position := 0
@@ -188,14 +194,18 @@ func buildTableMetadataFromAST(tableName string, structType *ast.StructType, imp
 		}
 
 		poTag := parseStructTag(unquoteTag(field.Tag.Value)).Get("po")
-		if poTag == "" || poTag == "-" {
+		if poTag == "" {
 			continue
 		}
 		opts, err := schema.ParseTag(poTag)
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("invalid tag for field %s: %w", field.Names[0].Name, err)
 		}
-		if schema.IsRelationshipTag(opts) {
+		isColumn, err := schema.IsColumnTag(opts)
+		if err != nil {
+			return nil, fmt.Errorf("invalid tag for field %s: %w", field.Names[0].Name, err)
+		}
+		if !isColumn {
 			continue
 		}
 
@@ -236,7 +246,7 @@ func buildTableMetadataFromAST(tableName string, structType *ast.StructType, imp
 	table.Constraints = append(table.Constraints, schema.CheckConstraintsFor(tableName, table.Columns)...)
 	table.EnumTypes = schema.CollectEnumTypes(table.Columns)
 
-	return table
+	return table, nil
 }
 
 // astTypeName returns the base named type of an AST type expression, unwrapping

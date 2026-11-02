@@ -86,9 +86,12 @@ func (p *Parser) Parse(modelType reflect.Type) (*TableMetadata, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse tag for field %s: %w", field.Name, err)
 		}
-		// Check if this is a relationship field
-		if p.isRelationshipTag(tagOpts) {
-			// Handle relationships separately (will be implemented in relationships.go)
+		// Relationships and fields excluded with "-" have no column
+		isColumn, err := IsColumnTag(tagOpts)
+		if err != nil {
+			return nil, fmt.Errorf("invalid tag for field %s: %w", field.Name, err)
+		}
+		if !isColumn {
 			continue
 		}
 		// Create column metadata

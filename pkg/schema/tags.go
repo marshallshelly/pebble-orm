@@ -22,6 +22,10 @@ type FieldMeta struct {
 	Position     int
 }
 
+// ignoredColumn is the column name that excludes a field from the schema, as in
+// `po:"-"`. Relationship fields use it too, as they have no column of their own.
+const ignoredColumn = "-"
+
 // ParseTag splits a po tag value into TagOptions. Supports both the
 // option(value) and option:value forms.
 func ParseTag(tag string) (*TagOptions, error) {
@@ -61,6 +65,19 @@ func ParseTag(tag string) (*TagOptions, error) {
 func IsRelationshipTag(opts *TagOptions) bool {
 	return opts.Has("belongsTo") || opts.Has("hasOne") ||
 		opts.Has("hasMany") || opts.Has("manyToMany")
+}
+
+// IsColumnTag reports whether a parsed tag declares a column. A relationship
+// isn't one, and neither is a field named ignoredColumn, which excludes it from
+// the schema. A tag that would be a column but has no name is an error.
+func IsColumnTag(opts *TagOptions) (bool, error) {
+	if IsRelationshipTag(opts) || opts.Name == ignoredColumn {
+		return false, nil
+	}
+	if opts.Name == "" {
+		return false, fmt.Errorf("po tag has no column name; use %q to exclude the field", ignoredColumn)
+	}
+	return true, nil
 }
 
 // BuildColumn interprets a parsed po tag against Go-type facts to produce a
@@ -149,7 +166,7 @@ func ColumnIndex(opts *TagOptions, tableName string) (IndexMetadata, bool) {
 		return IndexMetadata{}, false
 	}
 	columnName := opts.Name
-	if columnName == "" || columnName == "-" {
+	if columnName == "" || columnName == ignoredColumn {
 		return IndexMetadata{}, false
 	}
 
@@ -170,7 +187,7 @@ func ColumnIndex(opts *TagOptions, tableName string) (IndexMetadata, bool) {
 // (and the parenthesised option form), with optional onDelete/onUpdate.
 func ColumnForeignKey(opts *TagOptions, tableName string) (ForeignKeyMetadata, bool) {
 	fkStr := opts.Get("fk")
-	if fkStr == "" {
+	if fkStr == "" || opts.Name == "" || opts.Name == ignoredColumn {
 		return ForeignKeyMetadata{}, false
 	}
 
