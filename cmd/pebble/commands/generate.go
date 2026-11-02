@@ -3,7 +3,9 @@ package commands
 import (
 	"context"
 	"fmt"
+	"maps"
 	"path/filepath"
+	"slices"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/marshallshelly/pebble-orm/cmd/pebble/output"
@@ -117,10 +119,7 @@ func runGenerate() error {
 	}
 
 	// Show discovered models
-	modelNames := make([]string, 0, len(codeSchema))
-	for tableName := range codeSchema {
-		modelNames = append(modelNames, tableName)
-	}
+	modelNames := slices.Sorted(maps.Keys(codeSchema))
 	output.Success("  ✓ Found %d model(s): %v", len(codeSchema), modelNames)
 	fmt.Println()
 

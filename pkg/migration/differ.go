@@ -1,7 +1,9 @@
 package migration
 
 import (
+	"cmp"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"sort"
@@ -82,12 +84,63 @@ func (d *Differ) Compare(codeSchema, dbSchema map[string]*schema.TableMetadata) 
 	}
 	sort.Strings(diff.ExtensionsAdded)
 
+	sortDiff(diff)
 	return diff
+}
+
+// sortDiff puts a diff in a fixed order, so the same schemas always generate the
+// same migration: the comparisons above walk maps. Columns keep the order they
+// are declared in; everything else sorts by name.
+func sortDiff(diff *SchemaDiff) {
+	byTable := func(a, b schema.TableMetadata) int { return cmp.Compare(a.Name, b.Name) }
+	byEnum := func(a, b schema.EnumType) int { return cmp.Compare(a.Name, b.Name) }
+	byDomain := func(a, b schema.DomainType) int { return cmp.Compare(a.Name, b.Name) }
+	byColumn := func(a, b schema.ColumnMetadata) int {
+		return cmp.Or(cmp.Compare(a.Position, b.Position), cmp.Compare(a.Name, b.Name))
+	}
+	byIndex := func(a, b schema.IndexMetadata) int { return cmp.Compare(a.Name, b.Name) }
+	byForeignKey := func(a, b schema.ForeignKeyMetadata) int { return cmp.Compare(a.Name, b.Name) }
+	byConstraint := func(a, b schema.ConstraintMetadata) int { return cmp.Compare(a.Name, b.Name) }
+
+	slices.SortFunc(diff.TablesAdded, byTable)
+	slices.SortFunc(diff.TablesDropped, byTable)
+	slices.SortFunc(diff.TablesModified, func(a, b TableDiff) int { return cmp.Compare(a.TableName, b.TableName) })
+	slices.SortFunc(diff.EnumTypesAdded, byEnum)
+	slices.SortFunc(diff.EnumTypesDropped, byEnum)
+	slices.SortFunc(diff.EnumTypesModified, func(a, b EnumTypeDiff) int { return cmp.Compare(a.Name, b.Name) })
+	slices.SortFunc(diff.DomainsAdded, byDomain)
+	slices.SortFunc(diff.DomainsDropped, byDomain)
+
+	for i := range diff.TablesModified {
+		t := &diff.TablesModified[i]
+		slices.SortFunc(t.ColumnsAdded, byColumn)
+		slices.SortFunc(t.ColumnsDropped, byColumn)
+		slices.SortFunc(t.ColumnsModified, func(a, b ColumnDiff) int {
+			return byColumn(a.NewColumn, b.NewColumn)
+		})
+		slices.SortFunc(t.IndexesAdded, byIndex)
+		slices.SortFunc(t.IndexesDropped, byIndex)
+		slices.SortFunc(t.ForeignKeysAdded, byForeignKey)
+		slices.SortFunc(t.ForeignKeysDropped, byForeignKey)
+		slices.SortFunc(t.ConstraintsAdded, byConstraint)
+		slices.SortFunc(t.ConstraintsDropped, byConstraint)
+	}
+}
+
+// tablesByName returns the tables in name order, so that when two define the
+// same enum or domain the same definition always wins.
+func tablesByName(tables map[string]*schema.TableMetadata) []*schema.TableMetadata {
+	names := slices.Sorted(maps.Keys(tables))
+	out := make([]*schema.TableMetadata, len(names))
+	for i, name := range names {
+		out[i] = tables[name]
+	}
+	return out
 }
 
 func collectDomains(tables map[string]*schema.TableMetadata) map[string]schema.DomainType {
 	out := make(map[string]schema.DomainType)
-	for _, table := range tables {
+	for _, table := range tablesByName(tables) {
 		for _, dom := range table.Domains {
 			if _, exists := out[dom.Name]; !exists {
 				out[dom.Name] = dom
@@ -795,7 +848,7 @@ func (d *Differ) compareEnumTypes(codeSchema, dbSchema map[string]*schema.TableM
 func (d *Differ) collectEnumTypes(tables map[string]*schema.TableMetadata) map[string]schema.EnumType {
 	enumTypes := make(map[string]schema.EnumType)
 
-	for _, table := range tables {
+	for _, table := range tablesByName(tables) {
 		for _, enumType := range table.EnumTypes {
 			if _, exists := enumTypes[enumType.Name]; !exists {
 				enumTypes[enumType.Name] = enumType

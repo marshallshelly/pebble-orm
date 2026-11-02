@@ -97,9 +97,13 @@ func (p *Planner) GenerateMigration(diff *SchemaDiff) (upSQL, downSQL string) {
 		downStatements = append(downStatements, downAlter...)
 	}
 
-	// 5. DROP TABLE statements
-	for _, table := range diff.TablesDropped {
+	// 5. DROP TABLE statements — dependents before the tables they reference,
+	// and the reverse when the down migration recreates them.
+	dropped := topoSortTables(diff.TablesDropped)
+	for _, table := range slices.Backward(dropped) {
 		upStatements = append(upStatements, p.generateDropTable(table.Name))
+	}
+	for _, table := range dropped {
 		downStatements = append(downStatements, p.generateCreateTable(&table))
 	}
 
