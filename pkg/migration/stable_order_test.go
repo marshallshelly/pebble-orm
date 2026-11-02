@@ -103,3 +103,60 @@ func TestDroppedTablesFollowForeignKeys(t *testing.T) {
 	order(up, `"banks"`, `"zones"`, `"accounts"`)
 	order(down, "EXISTS accounts", "EXISTS zones", "EXISTS banks")
 }
+
+// inOrder fails unless each statement appears after the one before it.
+func inOrder(t *testing.T, sql string, statements ...string) {
+	t.Helper()
+	last := -1
+	for _, s := range statements {
+		at := strings.Index(sql, s)
+		if at < 0 {
+			t.Fatalf("%q is missing from:\n%s", s, sql)
+		}
+		if at < last {
+			t.Errorf("%q is out of order in:\n%s", s, sql)
+		}
+		last = at
+	}
+}
+
+func typedTable(name string) *schema.TableMetadata {
+	t := orderTable(name)
+	t.Columns = append(t.Columns,
+		schema.ColumnMetadata{Name: "kind", SQLType: name + "_kind", EnumType: name + "_kind", Position: 1},
+		schema.ColumnMetadata{Name: "email", SQLType: name + "_email", Position: 2})
+	t.EnumTypes = []schema.EnumType{{Name: name + "_kind", Values: []string{"a"}}}
+	t.Domains = []schema.DomainType{{Name: name + "_email", BaseType: name + "_kind"}}
+	return t
+}
+
+// A down migration undoes the up in reverse: a table goes before the types its
+// columns use, and a domain before the enum it is based on.
+func TestDownDropsTablesBeforeTheirTypes(t *testing.T) {
+	code := map[string]*schema.TableMetadata{"users": typedTable("users")}
+	up, down := NewPlanner().GenerateMigration(NewDiffer().Compare(code, map[string]*schema.TableMetadata{}))
+
+	inOrder(t, up, "CREATE TYPE users_kind", "CREATE DOMAIN users_email", "CREATE TABLE IF NOT EXISTS users")
+	inOrder(t, down, `DROP TABLE IF EXISTS "users"`, "DROP DOMAIN IF EXISTS users_email", "DROP TYPE IF EXISTS users_kind")
+}
+
+func TestDownRestoresTypesBeforeTheirTables(t *testing.T) {
+	db := map[string]*schema.TableMetadata{"users": typedTable("users")}
+	up, down := NewPlanner().GenerateMigration(NewDiffer().Compare(map[string]*schema.TableMetadata{}, db))
+
+	inOrder(t, up, `DROP TABLE IF EXISTS "users"`, "DROP DOMAIN IF EXISTS users_email", "DROP TYPE IF EXISTS users_kind")
+	inOrder(t, down, "CREATE TYPE users_kind", "CREATE DOMAIN users_email", "CREATE TABLE IF NOT EXISTS users")
+}
+
+// A foreign key between a changed table and an added or dropped one has to come
+// off before the table goes, and go back on after the table returns.
+func TestDownUndoesAltersAroundTables(t *testing.T) {
+	added := map[string]*schema.TableMetadata{"teams": orderTable("teams"), "users": orderTable("users", "teams")}
+	before := map[string]*schema.TableMetadata{"users": orderTable("users")}
+	before["users"].Columns = added["users"].Columns
+	_, down := NewPlanner().GenerateMigration(NewDiffer().Compare(added, before))
+	inOrder(t, down, "DROP CONSTRAINT IF EXISTS fk_users_teams_id", `DROP TABLE IF EXISTS "teams"`)
+
+	_, down = NewPlanner().GenerateMigration(NewDiffer().Compare(before, added))
+	inOrder(t, down, "CREATE TABLE IF NOT EXISTS teams", "ADD CONSTRAINT fk_users_teams_id")
+}

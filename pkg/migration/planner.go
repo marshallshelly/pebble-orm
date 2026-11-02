@@ -46,7 +46,12 @@ func NewPlannerWithOptions(opts PlannerOptions) *Planner {
 // GenerateMigration generates up and down SQL from a schema diff.
 func (p *Planner) GenerateMigration(diff *SchemaDiff) (upSQL, downSQL string) {
 	var upStatements []string
-	var downStatements []string
+
+	// The down migration undoes the up one step at a time, so each step's
+	// statements are kept apart and joined in reverse below: a table goes before
+	// the types its columns use, and a foreign key comes off before the table it
+	// points at goes.
+	var dropEnums, enumNotes, dropDomains, dropTables, undoAlters, restoreTables, restoreDomains, restoreEnums []string
 
 	// IMPORTANT: Enum types must be created BEFORE tables that use them
 	// and dropped AFTER tables that use them are dropped.
@@ -62,7 +67,7 @@ func (p *Planner) GenerateMigration(diff *SchemaDiff) (upSQL, downSQL string) {
 	// 1. CREATE TYPE for new enum types
 	for _, enumType := range diff.EnumTypesAdded {
 		upStatements = append(upStatements, p.generateCreateEnumType(enumType))
-		downStatements = append(downStatements, p.generateDropEnumType(enumType.Name))
+		dropEnums = append(dropEnums, p.generateDropEnumType(enumType.Name))
 	}
 
 	// 2. ALTER TYPE to add new enum values
@@ -70,14 +75,14 @@ func (p *Planner) GenerateMigration(diff *SchemaDiff) (upSQL, downSQL string) {
 		alterSQL := p.generateAlterEnumType(enumDiff)
 		upStatements = append(upStatements, alterSQL...)
 		// Note: PostgreSQL does not support removing enum values — down migration is a no-op for value additions
-		downStatements = append(downStatements, fmt.Sprintf("-- NOTE: Cannot automatically remove enum values from type %s (PostgreSQL limitation)", enumDiff.Name))
+		enumNotes = append(enumNotes, fmt.Sprintf("-- NOTE: Cannot automatically remove enum values from type %s (PostgreSQL limitation)", enumDiff.Name))
 	}
 
 	// 2b. CREATE DOMAIN — domains must exist before tables whose columns use them.
 	// A domain's base type may be an enum, so domains come after enum creation.
 	for _, dom := range diff.DomainsAdded {
 		upStatements = append(upStatements, generateCreateDomain(dom))
-		downStatements = append(downStatements, generateDropDomain(dom.Name))
+		dropDomains = append(dropDomains, generateDropDomain(dom.Name))
 	}
 
 	// 3. CREATE TABLE statements — sorted so referenced tables are created first.
@@ -87,14 +92,14 @@ func (p *Planner) GenerateMigration(diff *SchemaDiff) (upSQL, downSQL string) {
 	}
 	// DOWN drops in reverse creation order (dependents before dependencies).
 	for _, s := range slices.Backward(sorted) {
-		downStatements = append(downStatements, p.generateDropTable(s.Name))
+		dropTables = append(dropTables, p.generateDropTable(s.Name))
 	}
 
 	// 4. ALTER TABLE statements for table modifications
 	for _, tableDiff := range diff.TablesModified {
 		upAlter, downAlter := p.generateAlterTable(tableDiff)
 		upStatements = append(upStatements, upAlter...)
-		downStatements = append(downStatements, downAlter...)
+		undoAlters = append(undoAlters, downAlter...)
 	}
 
 	// 5. DROP TABLE statements — dependents before the tables they reference,
@@ -104,21 +109,23 @@ func (p *Planner) GenerateMigration(diff *SchemaDiff) (upSQL, downSQL string) {
 		upStatements = append(upStatements, p.generateDropTable(table.Name))
 	}
 	for _, table := range dropped {
-		downStatements = append(downStatements, p.generateCreateTable(&table))
+		restoreTables = append(restoreTables, p.generateCreateTable(&table))
 	}
 
 	// 5b. DROP DOMAIN for domains no longer used — after dropping tables that use them.
 	for _, dom := range diff.DomainsDropped {
 		upStatements = append(upStatements, generateDropDomain(dom.Name))
-		downStatements = append(downStatements, generateCreateDomain(dom))
+		restoreDomains = append(restoreDomains, generateCreateDomain(dom))
 	}
 
 	// 6. DROP TYPE for enum types that are no longer used
 	// This should come AFTER dropping tables that use them
 	for _, enumType := range diff.EnumTypesDropped {
 		upStatements = append(upStatements, p.generateDropEnumType(enumType.Name))
-		downStatements = append(downStatements, p.generateCreateEnumType(enumType))
+		restoreEnums = append(restoreEnums, p.generateCreateEnumType(enumType))
 	}
+
+	downStatements := slices.Concat(restoreEnums, restoreDomains, restoreTables, undoAlters, dropTables, dropDomains, enumNotes, dropEnums)
 
 	// Join statements
 	up := strings.Join(upStatements, "\n\n") + "\n"
