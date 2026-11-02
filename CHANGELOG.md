@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.27.9] - 2026-11-02
+
+### Fixed
+
+- Down migrations run the up steps in reverse.
+- Down migrations drop tables before the enums and domains they use.
+- Down migrations restore enums and domains before the tables that use them.
+- Down migrations restore a dropped table before re-adding foreign keys to it.
+- `pebble generate` without `--db` no longer recreates enums from earlier
+  migrations.
+- `pebble generate` without `--db` adds only the new values to a changed enum.
+- `pebble generate` without `--db` drops enums removed from the models.
+
 ## [1.27.8] - 2026-11-02
 
 ### Changed
@@ -959,7 +972,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - golangci-lint integration.
 - GoReleaser configuration for multi-platform releases.
 
-[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.8...HEAD
+[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.9...HEAD
+[1.27.9]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.8...v1.27.9
 [1.27.8]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.7...v1.27.8
 [1.27.7]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.6...v1.27.7
 [1.27.6]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.5...v1.27.6
