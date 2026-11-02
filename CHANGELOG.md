@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.27.8] - 2026-11-02
+
+### Changed
+
+- A tag with no column name, such as `po:",text"`, is now an error at runtime
+  and in `pebble generate`.
+- `pebble generate` now stops on a malformed `po` tag.
+
+### Fixed
+
+- A field tagged `po:"-"` is no longer treated as a column named `-` at runtime.
+- `po:"-"` with further options, such as `po:"-,varchar(20)"`, now excludes the
+  field at runtime and in `pebble generate`.
+- A `fk:` option on an excluded field no longer produces a foreign key.
+- A struct with no columns no longer generates an empty table.
+- `pebble generate` writes the same migration every run for the same schemas.
+- New columns are added in the order they are declared.
+- Dropped tables are removed in foreign key order, and recreated in reverse by
+  the down migration.
+
 ## [1.27.7] - 2026-10-30
 
 ### Fixed
@@ -939,7 +959,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - golangci-lint integration.
 - GoReleaser configuration for multi-platform releases.
 
-[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.7...HEAD
+[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.8...HEAD
+[1.27.8]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.7...v1.27.8
 [1.27.7]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.6...v1.27.7
 [1.27.6]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.5...v1.27.6
 [1.27.5]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.4...v1.27.5
