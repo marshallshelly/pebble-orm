@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.29.0] - 2026-11-06
+
 ### Added
 
 - `schema.CheckZeroDefaults` and `schema.ColumnMetadata.GoNullable`.
@@ -1048,7 +1050,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - golangci-lint integration.
 - GoReleaser configuration for multi-platform releases.
 
-[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.28.0...HEAD
+[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.29.0...HEAD
+[1.29.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.28.0...v1.29.0
 [1.28.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.11...v1.28.0
 [1.27.11]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.10...v1.27.11
 [1.27.10]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.9...v1.27.10
