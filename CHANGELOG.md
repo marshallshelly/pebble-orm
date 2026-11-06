@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `runtime.DB.SendBatch`.
+- Nested `manyToMany` preloads, such as `Preload("Posts.Labels")`.
+- `schema.CheckEnumTypes`.
+
+### Changed
+
+- Preloads at the same depth are sent in one pgx batch and share a round
+  trip.
+- `pebble generate` and `pebble diff` stop with an error when two columns
+  share an enum type name but list different values.
+
+### Fixed
+
+- `Preload("Posts", "Posts.Comments")` no longer returns every post twice.
+- Nested preloads below a value `belongsTo` field reach every row's copy of
+  the parent, not only the last one.
+- Two enum columns on plain `string` fields no longer share one type with the
+  first column's values.
+
 ## [1.27.11] - 2026-11-06
 
 ### Changed

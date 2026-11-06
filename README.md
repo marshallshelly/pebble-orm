@@ -267,6 +267,10 @@ authors, err := builder.Select[Author](qb).Preload("Books").All(ctx)
 
 // Nested preloads via dot notation
 orders, err := builder.Select[Order](qb).Preload("Customer.Address").All(ctx)
+
+// Preloads at the same depth share one round trip:
+// users, then Profile and Posts together, then Comments
+users, err := builder.Select[User](qb).Preload("Profile", "Posts", "Posts.Comments").All(ctx)
 ```
 
 All four shapes: `belongsTo`, `hasOne`, `hasMany`, `manyToMany` (junction table auto-named alphabetically: `roles_users`, not `users_roles`).
@@ -406,7 +410,7 @@ posts, err := builder.Select[Post](qb).
 
 **Reserved-word tables** — identifiers that collide with PostgreSQL reserved keywords (`user`, `order`, `group`, …) are quoted automatically in generated SQL and migrations.
 
-**Enums** — `po:"status,enum(pending,active,completed)"` on a named string type generates the `CREATE TYPE` and uses it in the column. New values diff to `ALTER TYPE ... ADD VALUE`.
+**Enums** — `po:"status,enum(pending,active,completed)"` on a named string type generates the `CREATE TYPE` and uses it in the column; the type is named after the Go type (`OrderStatus` → `order_status`). New values diff to `ALTER TYPE ... ADD VALUE`. Two columns whose Go types give the same name but different values are an error, so give each enum its own type.
 
 **Range types & exclusion constraints** — range columns (`tstzrange`, `int4range`, `numrange`, `daterange`, …) use `pgtype.Range[T]` for values and are managed in migrations. Exclusion constraints are a table-level comment directive:
 
