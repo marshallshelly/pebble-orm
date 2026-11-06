@@ -5,8 +5,11 @@ package pebbleorm_test
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -647,13 +650,115 @@ func TestIntegration_BulkInsertColumnAlignment(t *testing.T) {
 	if byName["a"].Note != "row0-note" {
 		t.Errorf("row a Note: got %q, want row0-note", byName["a"].Note)
 	}
-	// Row b passed the column list from row 0 (which includes note), so its
-	// explicit zero value "" is inserted — not misaligned into another column.
+	// Row b leaves note zero, so it gets the column default, exactly as it
+	// would inserted on its own, and nothing shifts into another column.
 	if byName["b"].Name != "b" {
 		t.Errorf("row b Name misaligned: got %q, want b", byName["b"].Name)
 	}
-	if byName["b"].Note != "" {
-		t.Errorf("row b Note: got %q, want empty string (explicit zero)", byName["b"].Note)
+	if byName["b"].Note != "none" {
+		t.Errorf("row b Note: got %q, want the default none", byName["b"].Note)
+	}
+}
+
+// TestIntegration_BatchInsertRowDefaults checks that a row stores the same
+// values in a multi-row INSERT as alone, whichever row comes first. The column
+// list used to come from row 0, so a zero there dropped the column for every
+// later row: VAT, amounts and flags were stored as their defaults.
+func TestIntegration_BatchInsertRowDefaults(t *testing.T) {
+	_, connStr, cleanup := setupTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+	runtimeDB, err := runtime.ConnectWithURL(ctx, connStr)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer runtimeDB.Close()
+
+	type Line struct {
+		ID       int             `po:"id,primaryKey,serial"`
+		Batch    string          `po:"batch,text,notNull"`
+		Name     string          `po:"name,text,notNull"`
+		VAT      float64         `po:"vat,numeric(5,2),notNull,default(0)"`
+		SleepIn  bool            `po:"sleep_in,boolean,notNull,default(false)"`
+		Decision string          `po:"decision,text,notNull,default('')"`
+		Detail   json.RawMessage `po:"detail,jsonb"`
+	}
+	if err := registry.Register(Line{}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	if _, err := runtimeDB.Pool().Exec(ctx, `CREATE TABLE line (id serial PRIMARY KEY, batch text NOT NULL, name text NOT NULL,
+		vat numeric(5,2) NOT NULL DEFAULT 0, sleep_in boolean NOT NULL DEFAULT false, decision text NOT NULL DEFAULT '', detail jsonb,
+		UNIQUE (batch, name))`); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	qb := builder.New(runtimeDB)
+
+	type stored struct {
+		vat      float64
+		sleepIn  bool
+		decision string
+		nullDet  bool
+	}
+	read := func(batch string) map[string]stored {
+		rows, err := runtimeDB.Pool().Query(ctx, `SELECT name, vat::float8, sleep_in, decision, detail IS NULL FROM line WHERE batch = $1`, batch)
+		if err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		out := map[string]stored{}
+		for rows.Next() {
+			var name string
+			var s stored
+			if err := rows.Scan(&name, &s.vat, &s.sleepIn, &s.decision, &s.nullDet); err != nil {
+				t.Fatalf("scan: %v", err)
+			}
+			out[name] = s
+		}
+		return out
+	}
+	want := map[string]stored{
+		"plain": {vat: 0, sleepIn: false, decision: "", nullDet: true},
+		"set":   {vat: 20, sleepIn: true, decision: "include", nullDet: false},
+	}
+	lines := func(batch string, setFirst bool) []Line {
+		plain := Line{Batch: batch, Name: "plain"}
+		set := Line{Batch: batch, Name: "set", VAT: 20, SleepIn: true, Decision: "include", Detail: json.RawMessage(`{"k":1}`)}
+		if setFirst {
+			return []Line{set, plain}
+		}
+		return []Line{plain, set}
+	}
+
+	for _, setFirst := range []bool{false, true} {
+		batch := fmt.Sprintf("pool-%v", setFirst)
+		got, err := builder.Insert[Line](qb).Values(lines(batch, setFirst)...).OnConflictDoNothing("batch", "name").Returning("*").ExecReturning(ctx)
+		if err != nil {
+			t.Fatalf("%s: %v", batch, err)
+		}
+		if len(got) != 2 {
+			t.Fatalf("%s: returned %d rows", batch, len(got))
+		}
+		if s := read(batch); !reflect.DeepEqual(s, want) {
+			t.Errorf("%s stored %+v, want %+v", batch, s, want)
+		}
+
+		batch = fmt.Sprintf("tx-%v", setFirst)
+		tx, err := qb.Begin(ctx)
+		if err != nil {
+			t.Fatalf("begin: %v", err)
+		}
+		var rows []interface{}
+		for _, l := range lines(batch, setFirst) {
+			rows = append(rows, l)
+		}
+		if _, err := builder.TxInsert[Line](tx).Values(rows...).Exec(); err != nil {
+			t.Fatalf("%s: %v", batch, err)
+		}
+		if err := tx.Commit(); err != nil {
+			t.Fatalf("commit: %v", err)
+		}
+		if s := read(batch); !reflect.DeepEqual(s, want) {
+			t.Errorf("%s stored %+v, want %+v", batch, s, want)
+		}
 	}
 }
 

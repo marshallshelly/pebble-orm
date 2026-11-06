@@ -3,6 +3,9 @@ package builder
 import (
 	"context"
 	"fmt"
+	"maps"
+	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -198,8 +201,11 @@ type insertSpec struct {
 	onConflict *OnConflict
 }
 
-// buildInsertSQL assembles a multi-row INSERT. The column list comes from the
-// first row; later rows emit values for exactly that column set.
+// buildInsertSQL assembles a multi-row INSERT. Each row is reduced to the
+// columns it would insert on its own (zero values on defaulted columns are
+// left out); the column list is every column some row sets, in table order,
+// and a row that leaves one out gets DEFAULT there. A row therefore stores the
+// same values in a batch as it would alone, whatever order the rows come in.
 func buildInsertSQL(s insertSpec) (string, []interface{}, error) {
 	if s.table == nil {
 		return "", nil, fmt.Errorf("table metadata not available")
@@ -215,9 +221,27 @@ func buildInsertSQL(s insertSpec) (string, []interface{}, error) {
 	sql.WriteString("INSERT INTO ")
 	sql.WriteString(schema.QuoteReservedIdent(s.table.Name))
 
-	columns, firstRowValues, err := structToValues(s.rows[0], s.table, true)
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to extract values: %w", err)
+	rowValues := make([]map[string]interface{}, len(s.rows))
+	used := make(map[string]bool)
+	for i, row := range s.rows {
+		if t := reflect.TypeOf(row); t != s.table.GoType && (t == nil || t.Kind() != reflect.Pointer || t.Elem() != s.table.GoType) {
+			return "", nil, fmt.Errorf("row %d is %T, not %s", i, row, s.table.GoType)
+		}
+		cols, vals, err := structToValues(row, s.table, true)
+		if err != nil {
+			return "", nil, fmt.Errorf("failed to extract values from row %d: %w", i, err)
+		}
+		rowValues[i] = make(map[string]interface{}, len(cols))
+		for j, col := range cols {
+			rowValues[i][col] = vals[j]
+			used[col] = true
+		}
+	}
+	var columns []string
+	for _, col := range s.table.Columns {
+		if used[col.Name] {
+			columns = append(columns, col.Name)
+		}
 	}
 
 	sql.WriteString(" (")
@@ -225,21 +249,17 @@ func buildInsertSQL(s insertSpec) (string, []interface{}, error) {
 	sql.WriteString(") VALUES ")
 
 	valueClauses := make([]string, len(s.rows))
-	for i, val := range s.rows {
-		var rowValues []interface{}
-		if i == 0 {
-			rowValues = firstRowValues
-		} else {
-			rowValues, err = valuesForColumns(val, s.table, columns)
-			if err != nil {
-				return "", nil, fmt.Errorf("failed to extract values from row %d: %w", i, err)
+	for i, values := range rowValues {
+		placeholders := make([]string, len(columns))
+		for j, col := range columns {
+			value, ok := values[col]
+			if !ok {
+				placeholders[j] = "DEFAULT"
+				continue
 			}
-		}
-		placeholders := make([]string, len(rowValues))
-		for j := range rowValues {
 			placeholders[j] = fmt.Sprintf("$%d", paramNum)
 			paramNum++
-			args = append(args, rowValues[j])
+			args = append(args, value)
 		}
 		valueClauses[i] = "(" + strings.Join(placeholders, ", ") + ")"
 	}
@@ -259,10 +279,10 @@ func buildInsertSQL(s insertSpec) (string, []interface{}, error) {
 			sql.WriteString(string(DoUpdate))
 			if len(s.onConflict.Updates) > 0 {
 				updates := make([]string, 0, len(s.onConflict.Updates))
-				for col, val := range s.onConflict.Updates {
+				for _, col := range slices.Sorted(maps.Keys(s.onConflict.Updates)) {
 					updates = append(updates, fmt.Sprintf("%s = $%d", schema.QuoteReservedIdent(col), paramNum))
 					paramNum++
-					args = append(args, val)
+					args = append(args, s.onConflict.Updates[col])
 				}
 				sql.WriteString(" ")
 				sql.WriteString(strings.Join(updates, ", "))
@@ -302,10 +322,12 @@ func buildUpdateSQL(s updateSpec) (string, []interface{}, error) {
 	sql.WriteString(schema.QuoteReservedIdent(s.table.Name))
 	sql.WriteString(" SET ")
 
+	// Sorted, so one call shape is one statement text: in pgx's default mode
+	// every distinct text is prepared separately on each connection.
 	setClauses := make([]string, 0, len(s.sets))
-	for col, val := range s.sets {
+	for _, col := range slices.Sorted(maps.Keys(s.sets)) {
 		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", schema.QuoteReservedIdent(col), paramNum))
-		args = append(args, val)
+		args = append(args, s.sets[col])
 		paramNum++
 	}
 	sql.WriteString(strings.Join(setClauses, ", "))

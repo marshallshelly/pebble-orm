@@ -290,40 +290,6 @@ func structToValues(model interface{}, table *schema.TableMetadata, skipPrimaryK
 	return columns, values, nil
 }
 
-// valuesForColumns extracts the values for exactly the named columns, in order,
-// without applying the per-row skip logic. It is used for rows 2..N of a
-// multi-row INSERT so every row emits a value for the same column list that was
-// derived from the first row — otherwise a later row whose zero-value/default
-// skipping differs would misalign values against the column list (silently
-// writing a value into the wrong column, or a placeholder-count mismatch).
-func valuesForColumns(model interface{}, table *schema.TableMetadata, columns []string) ([]interface{}, error) {
-	modelValue := reflect.ValueOf(model)
-	if modelValue.Kind() == reflect.Pointer {
-		modelValue = modelValue.Elem()
-	}
-	if modelValue.Kind() != reflect.Struct {
-		return nil, fmt.Errorf("model must be a struct")
-	}
-
-	values := make([]interface{}, 0, len(columns))
-	for _, name := range columns {
-		col := table.GetColumnByName(name)
-		if col == nil {
-			return nil, fmt.Errorf("column %s not found in table %s", name, table.Name)
-		}
-		field := modelValue.FieldByName(col.GoField)
-		if !field.IsValid() {
-			return nil, fmt.Errorf("field %s not found for column %s", col.GoField, name)
-		}
-		value, err := columnValue(*col, field)
-		if err != nil {
-			return nil, err
-		}
-		values = append(values, value)
-	}
-	return values, nil
-}
-
 // columnValue returns the value to bind for a single column, marshaling JSONB
 // columns whose type does not implement driver.Valuer.
 func columnValue(col schema.ColumnMetadata, field reflect.Value) (interface{}, error) {
@@ -348,14 +314,19 @@ func marshalJSONB(value interface{}) (interface{}, error) {
 		return nil, nil
 	}
 
-	// Check for nil pointers/interfaces
+	// A nil pointer, interface, slice or map is SQL NULL, not the JSON null
+	// that json.Marshal would make of it.
 	v := reflect.ValueOf(value)
-	if v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
+	switch v.Kind() {
+	case reflect.Pointer, reflect.Interface:
 		if v.IsNil() {
 			return nil, nil
 		}
-		// Dereference for marshaling
 		value = v.Elem().Interface()
+	case reflect.Slice, reflect.Map:
+		if v.IsNil() {
+			return nil, nil
+		}
 	}
 
 	jsonBytes, err := json.Marshal(value)
