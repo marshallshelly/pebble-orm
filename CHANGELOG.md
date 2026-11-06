@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `schema.CheckZeroDefaults` and `schema.ColumnMetadata.GoNullable`.
+
+### Changed
+
+- `pebble generate` and `pebble diff` stop with an error listing every
+  boolean or numeric column whose non-pointer field can't store its zero
+  value, such as a `bool` with `default(true)`. Make those fields pointers.
+- In a multi-row INSERT, a row that leaves a defaulted field zero gets the
+  column default, as it would when inserted alone.
+- `pebble` prints a failed command's error once, without the usage text.
+
+### Fixed
+
+- A multi-row INSERT no longer stores the default for a later row's value
+  when the first row left that column zero.
+- `TxInsert[T].Values` rejects a row of another type instead of inserting its
+  same-named fields.
+- A nil slice, map or `json.RawMessage` in a JSONB column inserts SQL NULL,
+  not JSON `null`.
+- `SetMap` and `OnConflictDoUpdate` write their columns in a fixed order, so
+  pgx prepares one statement per connection instead of several.
+
 ## [1.28.0] - 2026-11-06
 
 ### Added

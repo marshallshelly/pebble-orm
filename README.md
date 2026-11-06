@@ -251,7 +251,7 @@ sales, err := builder.Select[Sale](qb).
 
 </details>
 
-One insert gotcha by design: a zero-valued field on a column with a `default(...)` is omitted from the INSERT so the database default applies (that's how `ID string` + `default(gen_random_uuid())` works without pointers). To store an explicit `false`/`0`/`""` in a defaulted column, make the field a pointer — `*bool` with `new(false)`.
+One insert gotcha by design: a zero-valued field on a column with a `default(...)` is omitted from the INSERT so the database default applies (that's how `ID string` + `default(gen_random_uuid())` works without pointers). Each row of a multi-row insert is treated on its own, getting `DEFAULT` where it leaves such a field zero. To store an explicit `false`/`0`/`""` in a defaulted column, make the field a pointer — `*bool` with `new(false)`. `pebble generate` and `pebble diff` refuse a non-pointer `bool` or number whose default isn't its zero value (`default(true)`, `default(30)`), because that field could never be saved as `false` or `0`.
 
 ## Relationships
 
