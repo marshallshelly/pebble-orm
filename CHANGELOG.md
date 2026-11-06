@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.27.11] - 2026-11-06
+
+### Changed
+
+- Scanning a NULL array element into `schema.StringArray` or the other
+  `schema` array types is now an error.
+
+### Fixed
+
+- `schema.StringArray.Scan` reads a quoted `"NULL"` element as the string
+  `NULL`, not an empty string.
+- An unquoted `null` element is read as NULL in any letter case.
+
 ## [1.27.10] - 2026-11-06
 
 ### Changed
@@ -988,7 +1001,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - golangci-lint integration.
 - GoReleaser configuration for multi-platform releases.
 
-[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.10...HEAD
+[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.11...HEAD
+[1.27.11]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.10...v1.27.11
 [1.27.10]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.9...v1.27.10
 [1.27.9]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.8...v1.27.9
 [1.27.8]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.7...v1.27.8
