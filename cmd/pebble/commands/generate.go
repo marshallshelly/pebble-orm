@@ -102,6 +102,9 @@ func runGenerate() error {
 	}
 
 	codeSchema := registry.AllTables()
+	if err := schema.CheckEnumTypes(codeSchema); err != nil {
+		return err
+	}
 
 	if len(codeSchema) == 0 {
 		output.Warning("No models found in %s", modelsPath)

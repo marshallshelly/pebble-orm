@@ -2,6 +2,8 @@ package schema
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"unicode/utf8"
 )
@@ -251,6 +253,36 @@ func UniqueConstraintsFor(tableName string, columns []ColumnMetadata) []Constrai
 		}
 	}
 	return constraints
+}
+
+// CheckEnumTypes reports two columns that share an enum type name but list
+// different values. The type name comes from the Go type, so enum(...) on two
+// plain string fields names both "string", and the migration would create one
+// type with the first column's values.
+func CheckEnumTypes(tables map[string]*TableMetadata) error {
+	type use struct {
+		column string
+		values []string
+	}
+	first := make(map[string]use)
+	for _, name := range slices.Sorted(maps.Keys(tables)) {
+		for _, col := range tables[name].Columns {
+			if col.EnumType == "" {
+				continue
+			}
+			here := use{name + "." + col.Name, col.EnumValues}
+			prev, ok := first[col.EnumType]
+			if !ok {
+				first[col.EnumType] = here
+				continue
+			}
+			if !slices.Equal(prev.values, here.values) {
+				return fmt.Errorf("enum type %q is used by %s (%s) and %s (%s) with different values; give each column its own named Go type",
+					col.EnumType, prev.column, strings.Join(prev.values, ", "), here.column, strings.Join(here.values, ", "))
+			}
+		}
+	}
+	return nil
 }
 
 // CollectEnumTypes gathers the distinct enum types used by the given columns.

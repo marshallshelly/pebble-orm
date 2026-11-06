@@ -11,6 +11,7 @@ import (
 	"github.com/marshallshelly/pebble-orm/cmd/pebble/output"
 	"github.com/marshallshelly/pebble-orm/pkg/migration"
 	"github.com/marshallshelly/pebble-orm/pkg/registry"
+	"github.com/marshallshelly/pebble-orm/pkg/schema"
 	"github.com/spf13/cobra"
 )
 
@@ -59,6 +60,9 @@ func runDiff() error {
 
 	// Get code schema from registry
 	codeSchema := registry.AllTables()
+	if err := schema.CheckEnumTypes(codeSchema); err != nil {
+		return err
+	}
 
 	if len(codeSchema) == 0 {
 		return fmt.Errorf("no models registered - use registry.Register() to register your models")
