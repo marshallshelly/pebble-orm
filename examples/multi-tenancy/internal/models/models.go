@@ -36,7 +36,7 @@ type Tenant struct {
 	DataRegion string `po:"data_region,varchar(50),default('EU'),notNull"` // EU, US, UK, etc.
 
 	// GDPR configuration
-	DataRetentionDays int     `po:"data_retention_days,integer,default(365),notNull"`
+	DataRetentionDays *int    `po:"data_retention_days,integer,default(365),notNull"`
 	DPOEmail          *string `po:"dpo_email,varchar(320)"` // Data Protection Officer
 
 	// GDPR metadata

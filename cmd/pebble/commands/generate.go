@@ -105,6 +105,9 @@ func runGenerate() error {
 	if err := schema.CheckEnumTypes(codeSchema); err != nil {
 		return err
 	}
+	if err := schema.CheckZeroDefaults(codeSchema); err != nil {
+		return err
+	}
 
 	if len(codeSchema) == 0 {
 		output.Warning("No models found in %s", modelsPath)

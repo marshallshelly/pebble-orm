@@ -354,7 +354,7 @@ func (s *Service) CleanupExpiredData(ctx context.Context, tenantID string) error
 	}
 
 	tenant := tenants[0]
-	cutoffDate := time.Now().AddDate(0, 0, -tenant.DataRetentionDays)
+	cutoffDate := time.Now().AddDate(0, 0, -*tenant.DataRetentionDays)
 
 	// Anonymize users past retention (if not already anonymized)
 	_, err = builder.Update[models.User](s.db).
@@ -375,7 +375,7 @@ func (s *Service) CleanupExpiredData(ctx context.Context, tenantID string) error
 	// Log cleanup action
 	changes := map[string]any{
 		"cutoff_date":       cutoffDate.Format(time.RFC3339),
-		"retention_days":    tenant.DataRetentionDays,
+		"retention_days":    *tenant.DataRetentionDays,
 		"cleanup_timestamp": time.Now().Format(time.RFC3339),
 	}
 

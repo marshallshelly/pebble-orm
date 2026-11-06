@@ -14,7 +14,7 @@ type Product struct {
 	SKU         string    `po:"sku,varchar(100),unique,notNull,index(idx_product_sku)"` // Custom name
 	Price       float64   `po:"price,numeric(10,2),notNull,index"`                      // Auto-named: idx_products_price
 	Category    string    `po:"category,varchar(100),notNull,index"`                    // For filtering
-	InStock     bool      `po:"in_stock,boolean,default(true),notNull"`
+	InStock     *bool     `po:"in_stock,boolean,default(true),notNull"`
 	Tags        []string  `po:"tags,text[],index(idx_product_tags,gin)"` // GIN index for array searches
 	Description string    `po:"description,text"`
 	CreatedAt   time.Time `po:"created_at,timestamptz,default(NOW()),notNull,index(idx_products_created,btree,desc)"` // DESC for recent-first
@@ -117,7 +117,7 @@ type Document struct {
 	Title     string     `po:"title,varchar(500),notNull"`
 	Content   string     `po:"content,text,notNull"`
 	Status    string     `po:"status,varchar(50),default('draft'),notNull"`
-	Version   int        `po:"version,integer,default(1),notNull"`
+	Version   *int       `po:"version,integer,default(1),notNull"`
 	Tags      []string   `po:"tags,text[]"`
 	DeletedAt *time.Time `po:"deleted_at,timestamptz"`
 	CreatedAt time.Time  `po:"created_at,timestamptz,default(NOW()),notNull"`

@@ -53,6 +53,7 @@ type ColumnMetadata struct {
 	EnumValues    []string         // Enum values for this column (if enum type)
 	IsJSONB       bool             // Column is JSONB type (for automatic marshaling)
 	Check         string           // CHECK constraint expression from a check(...) tag, empty if none
+	GoNullable    bool             // Go field is a pointer or sql.Null* type, so nil can mean "not set"
 }
 
 // IdentityColumn represents a PostgreSQL identity column (GENERATED AS IDENTITY).

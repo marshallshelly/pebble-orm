@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 )
@@ -108,6 +109,7 @@ func BuildColumn(opts *TagOptions, fm FieldMeta) ColumnMetadata {
 	if fm.Nullable {
 		column.Nullable = true
 	}
+	column.GoNullable = fm.Nullable
 
 	if defaultVal := opts.Get("default"); defaultVal != "" {
 		column.Default = &defaultVal
@@ -283,6 +285,60 @@ func CheckEnumTypes(tables map[string]*TableMetadata) error {
 		}
 	}
 	return nil
+}
+
+// CheckZeroDefaults reports boolean and numeric columns whose Go field can't
+// store its zero value. INSERT leaves a zero field out when the column has a
+// default, so a bool with default(true) can never be saved as false, nor an
+// int with default(30) as 0: the default is stored instead. A pointer or
+// sql.Null* field can say "not set" with nil, so it is not reported.
+func CheckZeroDefaults(tables map[string]*TableMetadata) error {
+	var problems []string
+	for _, name := range slices.Sorted(maps.Keys(tables)) {
+		for _, col := range tables[name].Columns {
+			if col.GoNullable || col.Default == nil {
+				continue
+			}
+			if nonZeroDefault(col.SQLType, *col.Default) {
+				problems = append(problems, fmt.Sprintf("  %s.%s (field %s, default %s)", name, col.Name, col.GoField, *col.Default))
+			}
+		}
+	}
+	if len(problems) == 0 {
+		return nil
+	}
+	return fmt.Errorf("these columns can't store their Go zero value, because INSERT leaves a zero field out and the default is stored instead; make each field a pointer:\n%s",
+		strings.Join(problems, "\n"))
+}
+
+// nonZeroDefault reports whether expr is a boolean or numeric literal other
+// than zero, for a column of that kind. Function defaults such as nextval()
+// are not literals and are left alone.
+func nonZeroDefault(sqlType, expr string) bool {
+	base := strings.ToLower(strings.TrimSpace(sqlType))
+	if i := strings.IndexByte(base, '('); i >= 0 {
+		base = strings.TrimSpace(base[:i])
+	}
+	value := strings.TrimSpace(expr)
+	for strings.HasPrefix(value, "(") && strings.HasSuffix(value, ")") {
+		value = strings.TrimSpace(value[1 : len(value)-1])
+	}
+	if i := strings.Index(value, "::"); i >= 0 {
+		value = value[:i]
+	}
+	value = strings.ToLower(strings.Trim(value, "'"))
+
+	switch base {
+	case "boolean", "bool":
+		switch value {
+		case "true", "t", "yes", "y", "on", "1":
+			return true
+		}
+	case "smallint", "integer", "int", "int2", "int4", "int8", "bigint", "real", "float4", "float8", "double precision", "numeric", "decimal":
+		n, err := strconv.ParseFloat(value, 64)
+		return err == nil && n != 0
+	}
+	return false
 }
 
 // CollectEnumTypes gathers the distinct enum types used by the given columns.

@@ -44,5 +44,5 @@ type Product struct {
 	ID     int    `po:"id,primaryKey,serial"`
 	Name   string `po:"name,varchar(100),notNull"`
 	Prices []int  `po:"prices,integer[]"` // Integer array
-	Active bool   `po:"active,boolean,default(true),notNull"`
+	Active *bool  `po:"active,boolean,default(true),notNull"`
 }

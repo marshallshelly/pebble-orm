@@ -127,7 +127,7 @@ func (app *App) createTenant(c *fiber.Ctx) error {
 		Name              string  `json:"name"`
 		Subdomain         string  `json:"subdomain"`
 		DataRegion        string  `json:"data_region"`
-		DataRetentionDays int     `json:"data_retention_days"`
+		DataRetentionDays *int    `json:"data_retention_days"`
 		DPOEmail          *string `json:"dpo_email"`
 	}
 
@@ -145,9 +145,6 @@ func (app *App) createTenant(c *fiber.Ctx) error {
 
 	if tenant.DataRegion == "" {
 		tenant.DataRegion = "EU"
-	}
-	if tenant.DataRetentionDays == 0 {
-		tenant.DataRetentionDays = 365
 	}
 
 	tenants, err := builder.Insert[models.Tenant](app.db).

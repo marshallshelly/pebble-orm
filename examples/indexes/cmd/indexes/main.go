@@ -30,7 +30,7 @@ func main() {
 		SKU:         "PG-BOOK-001",
 		Price:       49.99,
 		Category:    "Books",
-		InStock:     true,
+		InStock:     new(true),
 		Tags:        []string{"database", "postgresql", "technical"},
 		Description: "Comprehensive guide to PostgreSQL",
 	}
@@ -318,7 +318,7 @@ func main() {
 			Title:   "PostgreSQL Index Optimization Guide",
 			Content: "This guide covers all aspects of PostgreSQL index optimization including btree, gin, gist, and brin indexes.",
 			Status:  "published",
-			Version: 1,
+			Version: new(1),
 			Tags:    []string{"postgresql", "performance", "indexes"},
 		}
 		insertedDocs, err := builder.Insert[models.Document](qb).

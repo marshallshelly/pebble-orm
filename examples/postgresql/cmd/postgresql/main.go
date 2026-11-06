@@ -112,7 +112,7 @@ func exampleArrays(ctx context.Context, qb *builder.DB) {
 	product := models.Product{
 		Name:   "Widget",
 		Prices: []int{100, 150, 200},
-		Active: true,
+		Active: new(true),
 	}
 
 	_, err = builder.Insert[models.Product](qb).Values(product).Exec(ctx)

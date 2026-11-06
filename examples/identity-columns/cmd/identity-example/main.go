@@ -27,7 +27,7 @@ func main() {
 		Name:        "Premium Widget",
 		Description: "A high-quality widget with advanced features",
 		Price:       49.99,
-		InStock:     true,
+		InStock:     new(true),
 	}
 
 	insertedProducts, err := builder.Insert[models.Product](qb).

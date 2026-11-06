@@ -30,6 +30,10 @@ Features:
   - Full transaction support with savepoints
   - Relationship loading (belongsTo, hasOne, hasMany, manyToMany)`,
 	Version: "1.28.0",
+	// Execute prints the error once; cobra would print it again with the
+	// whole usage text, which buries a failed check's message.
+	SilenceErrors: true,
+	SilenceUsage:  true,
 }
 
 // Execute runs the root command

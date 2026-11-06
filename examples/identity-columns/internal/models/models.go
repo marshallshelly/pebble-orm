@@ -9,7 +9,7 @@ type Product struct {
 	Name        string    `po:"name,varchar(255),notNull"`
 	Description string    `po:"description,text"`
 	Price       float64   `po:"price,numeric(10,2),notNull"`
-	InStock     bool      `po:"in_stock,boolean,default(true),notNull"`
+	InStock     *bool     `po:"in_stock,boolean,default(true),notNull"`
 	CreatedAt   time.Time `po:"created_at,timestamptz,default(NOW()),notNull"`
 	UpdatedAt   time.Time `po:"updated_at,timestamptz,default(NOW()),notNull"`
 }

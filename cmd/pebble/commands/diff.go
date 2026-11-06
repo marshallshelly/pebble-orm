@@ -63,6 +63,9 @@ func runDiff() error {
 	if err := schema.CheckEnumTypes(codeSchema); err != nil {
 		return err
 	}
+	if err := schema.CheckZeroDefaults(codeSchema); err != nil {
+		return err
+	}
 
 	if len(codeSchema) == 0 {
 		return fmt.Errorf("no models registered - use registry.Register() to register your models")
