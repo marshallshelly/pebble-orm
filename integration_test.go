@@ -1524,6 +1524,13 @@ func TestIntegration_PreloadBatching(t *testing.T) {
 				t.Errorf("round trips = %d, want 3", got)
 			}
 
+			authors, err = builder.Select[BAuthor](qb).OrderByAsc("id").Preload(preloads...).
+				WithCTE("named", "SELECT id FROM b_author WHERE name <> ''").All(ctx)
+			if err != nil {
+				t.Fatalf("cte preload: %v", err)
+			}
+			check(t, authors)
+
 			tx, err := qb.Begin(ctx)
 			if err != nil {
 				t.Fatalf("begin: %v", err)
