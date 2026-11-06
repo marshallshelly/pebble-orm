@@ -402,7 +402,7 @@ posts, err := builder.Select[Post](qb).
 // ArrayOverlap (&&), RegexpMatch (~), TSMatch (@@ full-text search)
 ```
 
-**Arrays** — native `[]string`/`[]int64` etc. just work; `schema.StringArray`, `schema.Int32Array`, … add text-format (`{a,b,c}`) parsing for PgBouncer / `simple_protocol` mode, and scan correctly through the builders in every query exec mode.
+**Arrays** — plain `[]string`, `[]int32`, `[]int64`, `[]float64` and `[]bool` work through the builders in every query exec mode, including `simple_protocol`. `schema.StringArray`, `schema.Int32Array`, … are only needed to scan the text format (`{a,b,c}`) yourself, with `database/sql` or `rows.Scan` in `simple_protocol`. Neither can hold a NULL element: scanning one is an error, so use `[]*string` for arrays that contain NULLs.
 
 **Reserved-word tables** — identifiers that collide with PostgreSQL reserved keywords (`user`, `order`, `group`, …) are quoted automatically in generated SQL and migrations.
 
@@ -481,7 +481,7 @@ No. `pebble generate` parses your source files with `go/ast`. Half-finished refa
 For generation, yes: with no `--db`, Pebble replays your existing `*.up.sql` files to reconstruct the baseline and diffs against that.
 
 **PgBouncer?**
-Yes — use the `schema.StringArray` family for array columns in `simple_protocol` mode, everything else just works.
+Yes. PgBouncer 1.21+ with `max_prepared_statements` set works in pgx's default mode. With an older PgBouncer, or prepared statements turned off, add `default_query_exec_mode=exec` to the connection string (`simple_protocol` works too). Plain slices work for array columns in every mode.
 
 **Does it scale?**
 It's pgx with the boilerplate removed. Your indexes are the ceiling, not the ORM.

@@ -2,6 +2,7 @@ package schema
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -53,9 +54,9 @@ func TestStringArray_Scan(t *testing.T) {
 			expected: StringArray{`path\to\file`, "normal"},
 		},
 		{
-			name:     "NULL values",
-			input:    "{a,NULL,b}",
-			expected: StringArray{"a", "", "b"},
+			name:     "quoted NULL is the string NULL",
+			input:    `{a,"NULL","null",b}`,
+			expected: StringArray{"a", "NULL", "null", "b"},
 		},
 		{
 			name:     "nil input",
@@ -609,5 +610,41 @@ func TestFormatPostgresArray(t *testing.T) {
 				t.Errorf("got %v, expected %v", result, tt.expected)
 			}
 		})
+	}
+}
+
+// An unquoted NULL is a SQL NULL element, which these slices can't hold; it must
+// not turn into a value, or a read and write would lose the NULL.
+func TestArrayScanRejectsNullElements(t *testing.T) {
+	for _, in := range []string{"{a,NULL,b}", "{NULL}", "{a,null}"} {
+		var s StringArray
+		if err := s.Scan(in); err == nil {
+			t.Errorf("StringArray.Scan(%s) = %q, want an error", in, s)
+		}
+	}
+	scanners := map[string]interface{ Scan(any) error }{
+		"Int32Array": &Int32Array{}, "Int64Array": &Int64Array{},
+		"Float64Array": &Float64Array{}, "BoolArray": &BoolArray{},
+	}
+	for name, a := range scanners {
+		err := a.Scan("{1,NULL}")
+		if err == nil || !strings.Contains(err.Error(), "NULL") {
+			t.Errorf("%s.Scan({1,NULL}) error = %v, want one naming the NULL", name, err)
+		}
+	}
+}
+
+func TestStringArrayRoundTripsNullLikeStrings(t *testing.T) {
+	in := StringArray{"NULL", "null", "", "x"}
+	v, err := in.Value()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out StringArray
+	if err := out.Scan(v); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(out, in) {
+		t.Errorf("round trip = %q, want %q", out, in)
 	}
 }

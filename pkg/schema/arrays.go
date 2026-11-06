@@ -286,8 +286,10 @@ func (a *BoolArray) scanString(s string) error {
 // Format: {value1,value2,value3} with support for:
 // - Quoted elements: {"hello world","foo"}
 // - Escaped characters: {"he said \"hi\""}
-// - NULL values (unquoted NULL)
 // - Empty arrays: {}
+//
+// An unquoted NULL is a SQL NULL element, which a slice of values can't hold,
+// so it is an error. A quoted "NULL" is the four-letter string.
 //
 // This implementation is based on pgx's parseUntypedTextArray but simplified
 // for single-dimensional arrays which covers most use cases.
@@ -315,7 +317,19 @@ func parsePostgresArray(s string) ([]string, error) {
 	var elements []string
 	var current bytes.Buffer
 	inQuotes := false
+	quoted := false
 	escaped := false
+
+	finish := func() error {
+		elem := current.String()
+		if !quoted && strings.EqualFold(strings.TrimSpace(elem), "NULL") {
+			return fmt.Errorf("element %d is NULL, which this array type can't hold", len(elements)+1)
+		}
+		elements = append(elements, elem)
+		current.Reset()
+		quoted = false
+		return nil
+	}
 
 	for i := 0; i < len(s); i++ {
 		ch := s[i]
@@ -331,17 +345,12 @@ func parsePostgresArray(s string) ([]string, error) {
 			escaped = true
 		case '"':
 			inQuotes = !inQuotes
+			quoted = true
 		case ',':
 			if inQuotes {
 				current.WriteByte(ch)
-			} else {
-				elem := current.String()
-				// Handle NULL (unquoted NULL is SQL NULL, but we treat as empty string for simplicity)
-				if elem == "NULL" {
-					elem = ""
-				}
-				elements = append(elements, elem)
-				current.Reset()
+			} else if err := finish(); err != nil {
+				return nil, err
 			}
 		default:
 			current.WriteByte(ch)
@@ -349,11 +358,9 @@ func parsePostgresArray(s string) ([]string, error) {
 	}
 
 	// Don't forget the last element
-	elem := current.String()
-	if elem == "NULL" {
-		elem = ""
+	if err := finish(); err != nil {
+		return nil, err
 	}
-	elements = append(elements, elem)
 
 	return elements, nil
 }
