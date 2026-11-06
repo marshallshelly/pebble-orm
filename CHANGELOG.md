@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.27.10] - 2026-11-06
+
+### Changed
+
+- Upgrade `github.com/jackc/pgx/v5` from v5.11.0 to v5.12.0.
+
+### Security
+
+- pgx v5.12.0 fixes SQL injection through simple-protocol batches
+  ([GHSA-j38q-h3ph-jjpq](https://github.com/jackc/pgx/security/advisories/GHSA-j38q-h3ph-jjpq)).
+- pgx v5.12.0 fixes a bypass of `require_auth` and `channel_binding=require`
+  ([GHSA-95fj-3fxw-g62g](https://github.com/jackc/pgx/security/advisories/GHSA-95fj-3fxw-g62g)).
+- Upgrade `golang.org/x/text` to v0.41.0, which fixes a panic on crafted input
+  reachable from `runtime.ConnectWithURL`
+  ([GO-2026-6629](https://pkg.go.dev/vuln/GO-2026-6629)).
+
 ## [1.27.9] - 2026-11-02
 
 ### Fixed
@@ -972,7 +988,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - golangci-lint integration.
 - GoReleaser configuration for multi-platform releases.
 
-[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.9...HEAD
+[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.10...HEAD
+[1.27.10]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.9...v1.27.10
 [1.27.9]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.8...v1.27.9
 [1.27.8]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.7...v1.27.8
 [1.27.7]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.6...v1.27.7
