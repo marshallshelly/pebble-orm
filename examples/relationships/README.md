@@ -77,7 +77,7 @@ for _, a := range authors {
 }
 ```
 
-Two queries total: authors, then `books WHERE author_id = ANY($1)`. Chain multiple `Preload` calls to load several relationships, or use dot notation (`Preload("Author.Profile")`) for nested loads.
+Two queries total: authors, then `books WHERE author_id = ANY($1)`. Chain multiple `Preload` calls to load several relationships, or use dot notation (`Preload("Author.Profile")`) for nested loads. Preloads at the same depth go to the server in one pgx batch, so `Preload("Profile", "Books")` is still two round trips.
 
 `Preload` works on plain `Select` queries and on `TxSelect` inside transactions.
 

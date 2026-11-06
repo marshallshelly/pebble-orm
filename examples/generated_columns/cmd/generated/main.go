@@ -19,7 +19,7 @@ func main() {
 	}
 	defer cleanup()
 
-	log.Println("=== PostgreSQL Generated Columns Example ===\n")
+	log.Print("=== PostgreSQL Generated Columns Example ===\n\n")
 
 	// Example 1: Full Name Generation
 	log.Println("--- Example 1: Full Name (Concatenation) ---")

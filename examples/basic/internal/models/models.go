@@ -7,27 +7,27 @@ type PostStatus string
 
 // UserPreferences stores user-specific settings as JSONB
 type UserPreferences struct {
-	Theme            string   `json:"theme"`
+	Theme              string   `json:"theme"`
 	EmailNotifications bool     `json:"emailNotifications"`
-	Language         string   `json:"language"`
-	FavoriteTopics   []string `json:"favoriteTopics,omitempty"`
+	Language           string   `json:"language"`
+	FavoriteTopics     []string `json:"favoriteTopics,omitempty"`
 }
 
 // PostMetadata stores additional post information as JSONB
 type PostMetadata struct {
-	Tags           []string `json:"tags,omitempty"`
+	Tags            []string `json:"tags,omitempty"`
 	ReadTimeMinutes int      `json:"readTimeMinutes,omitempty"`
-	FeaturedImage  string   `json:"featuredImage,omitempty"`
-	SEOKeywords    []string `json:"seoKeywords,omitempty"`
+	FeaturedImage   string   `json:"featuredImage,omitempty"`
+	SEOKeywords     []string `json:"seoKeywords,omitempty"`
 }
 
 // table_name: users
 type User struct {
 	ID          string           `po:"id,primaryKey,uuid,default(gen_random_uuid())"`
 	Name        string           `po:"name,varchar(255),notNull"`
-	Email       string           `po:"email,varchar(320),unique,notNull,index"` // Auto-named index for fast lookups
-	Age         int              `po:"age,integer,notNull,index"`                // Index for age-based queries
-	Preferences *UserPreferences `po:"preferences,jsonb"`                        // JSONB field with direct struct scanning
+	Email       string           `po:"email,varchar(320),unique,notNull,index"`                                           // Auto-named index for fast lookups
+	Age         int              `po:"age,integer,notNull,index"`                                                         // Index for age-based queries
+	Preferences *UserPreferences `po:"preferences,jsonb"`                                                                 // JSONB field with direct struct scanning
 	CreatedAt   time.Time        `po:"created_at,timestamptz,default(NOW()),notNull,index(idx_users_created,btree,desc)"` // DESC index for recent-first queries
 	UpdatedAt   time.Time        `po:"updated_at,timestamptz,default(NOW()),notNull"`
 }

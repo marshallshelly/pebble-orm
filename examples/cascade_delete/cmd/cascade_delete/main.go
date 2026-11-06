@@ -14,7 +14,7 @@ import (
 func main() {
 	ctx := context.Background()
 
-	log.Println("=== CASCADE DELETE & Foreign Key Actions Example ===\n")
+	log.Print("=== CASCADE DELETE & Foreign Key Actions Example ===\n\n")
 
 	// Connect to database
 	db, err := database.Connect(ctx)
@@ -23,7 +23,7 @@ func main() {
 	}
 	defer db.Close()
 
-	log.Println("✅ Connected to database\n")
+	log.Print("✅ Connected to database\n\n")
 
 	// Create query builder
 	qb := builder.New(db)

@@ -12,7 +12,7 @@ import (
 func main() {
 	ctx := context.Background()
 
-	log.Println("=== Custom Table Names Example ===\n")
+	log.Print("=== Custom Table Names Example ===\n\n")
 
 	// Connect to database
 	db, err := database.Connect(ctx)
@@ -21,7 +21,7 @@ func main() {
 	}
 	defer db.Close()
 
-	log.Println("✅ Connected to database\n")
+	log.Print("✅ Connected to database\n\n")
 
 	// Display actual table names
 	log.Println("--- Table Name Mappings ---")

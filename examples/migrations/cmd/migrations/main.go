@@ -62,8 +62,8 @@ func main() {
 		}
 		if len(diff.TablesDropped) > 0 {
 			fmt.Printf("  Tables to drop: %d\n", len(diff.TablesDropped))
-			for _, name := range diff.TablesDropped {
-				fmt.Printf("    - %s\n", name)
+			for _, table := range diff.TablesDropped {
+				fmt.Printf("    - %s\n", table.Name)
 			}
 		}
 		if len(diff.TablesModified) > 0 {

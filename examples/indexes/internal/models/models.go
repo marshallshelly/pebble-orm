@@ -10,10 +10,10 @@ import (
 // table_name: products
 type Product struct {
 	ID          int64     `po:"id,primaryKey,bigint,identity"`
-	Name        string    `po:"name,varchar(255),notNull,index"`                       // Auto-named: idx_products_name
+	Name        string    `po:"name,varchar(255),notNull,index"`                        // Auto-named: idx_products_name
 	SKU         string    `po:"sku,varchar(100),unique,notNull,index(idx_product_sku)"` // Custom name
-	Price       float64   `po:"price,numeric(10,2),notNull,index"`                     // Auto-named: idx_products_price
-	Category    string    `po:"category,varchar(100),notNull,index"`                   // For filtering
+	Price       float64   `po:"price,numeric(10,2),notNull,index"`                      // Auto-named: idx_products_price
+	Category    string    `po:"category,varchar(100),notNull,index"`                    // For filtering
 	InStock     bool      `po:"in_stock,boolean,default(true),notNull"`
 	Tags        []string  `po:"tags,text[],index(idx_product_tags,gin)"` // GIN index for array searches
 	Description string    `po:"description,text"`
@@ -56,13 +56,13 @@ type Order struct {
 // index: idx_events_tenant_created ON (tenant_id, created_at DESC NULLS LAST)
 // index: idx_events_user_type_created ON (user_id, event_type, created_at DESC)
 type Event struct {
-	ID        int64          `po:"id,primaryKey,bigint,identity"`
-	TenantID  int64          `po:"tenant_id,bigint,notNull"`
-	UserID    int64          `po:"user_id,bigint,notNull"`
-	EventType string         `po:"event_type,varchar(100),notNull"`
-	Data      schema.JSONB   `po:"data,jsonb,index(idx_events_data,gin)"` // GIN for JSONB queries
-	IPAddress string         `po:"ip_address,varchar(45),notNull"`
-	CreatedAt time.Time      `po:"created_at,timestamptz,default(NOW()),notNull"`
+	ID        int64        `po:"id,primaryKey,bigint,identity"`
+	TenantID  int64        `po:"tenant_id,bigint,notNull"`
+	UserID    int64        `po:"user_id,bigint,notNull"`
+	EventType string       `po:"event_type,varchar(100),notNull"`
+	Data      schema.JSONB `po:"data,jsonb,index(idx_events_data,gin)"` // GIN for JSONB queries
+	IPAddress string       `po:"ip_address,varchar(45),notNull"`
+	CreatedAt time.Time    `po:"created_at,timestamptz,default(NOW()),notNull"`
 }
 
 // Example 5: Operator Classes for Pattern Matching
@@ -96,14 +96,14 @@ type InternationalProduct struct {
 // index: idx_analytics_user_session ON (user_id, session_id) CONCURRENTLY
 // index: idx_analytics_event_type ON (event_type) CONCURRENTLY WHERE processed = false
 type AnalyticsEvent struct {
-	ID             int64          `po:"id,primaryKey,bigint,identity"`
-	UserID         *int64         `po:"user_id,bigint,index"`
-	SessionID      string         `po:"session_id,varchar(100),notNull"`
-	EventType      string         `po:"event_type,varchar(100),notNull"`
-	EventTimestamp time.Time      `po:"event_timestamp,timestamptz,default(NOW()),notNull"`
-	Processed      bool           `po:"processed,boolean,default(false),notNull"`
-	Properties     schema.JSONB   `po:"properties,jsonb,index(idx_analytics_props,gin)"` // JSONB search
-	CreatedAt      time.Time      `po:"created_at,timestamptz,default(NOW()),notNull"`
+	ID             int64        `po:"id,primaryKey,bigint,identity"`
+	UserID         *int64       `po:"user_id,bigint,index"`
+	SessionID      string       `po:"session_id,varchar(100),notNull"`
+	EventType      string       `po:"event_type,varchar(100),notNull"`
+	EventTimestamp time.Time    `po:"event_timestamp,timestamptz,default(NOW()),notNull"`
+	Processed      bool         `po:"processed,boolean,default(false),notNull"`
+	Properties     schema.JSONB `po:"properties,jsonb,index(idx_analytics_props,gin)"` // JSONB search
+	CreatedAt      time.Time    `po:"created_at,timestamptz,default(NOW()),notNull"`
 }
 
 // Example 8: Complex Multi-Feature Index
