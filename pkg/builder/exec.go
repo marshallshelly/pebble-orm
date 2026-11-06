@@ -17,6 +17,7 @@ type queryExecutor interface {
 	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
 	QueryRow(ctx context.Context, sql string, args ...interface{}) pgx.Row
 	Exec(ctx context.Context, sql string, args ...interface{}) (int64, error)
+	SendBatch(ctx context.Context, b *pgx.Batch) pgx.BatchResults
 }
 
 // txExecutor adapts a pgx.Tx to queryExecutor, converting the CommandTag from
@@ -29,6 +30,10 @@ func (t txExecutor) Query(ctx context.Context, sql string, args ...interface{}) 
 
 func (t txExecutor) QueryRow(ctx context.Context, sql string, args ...interface{}) pgx.Row {
 	return t.tx.QueryRow(ctx, sql, args...)
+}
+
+func (t txExecutor) SendBatch(ctx context.Context, b *pgx.Batch) pgx.BatchResults {
+	return t.tx.SendBatch(ctx, b)
 }
 
 func (t txExecutor) Exec(ctx context.Context, sql string, args ...interface{}) (int64, error) {
@@ -403,7 +408,7 @@ func queryRows[T any](ctx context.Context, exec queryExecutor, table *schema.Tab
 
 	if len(preloads) > 0 && len(results) > 0 {
 		rows.Close()
-		loader := &relationshipLoader{query: exec.Query, table: table, preloads: preloads}
+		loader := &relationshipLoader{exec: exec, table: table, preloads: preloads}
 		if err := loader.loadRelationships(ctx, &results); err != nil {
 			return nil, err
 		}

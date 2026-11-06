@@ -8,9 +8,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/marshallshelly/pebble-orm/pkg/builder"
@@ -1376,6 +1378,232 @@ func TestIntegration_GeometricTypes(t *testing.T) {
 			if cd.TypeChanged {
 				t.Errorf("phantom point-column type change: %+v", cd)
 			}
+		}
+	}
+}
+
+// roundTrips counts statements and batches, each of which is one round trip.
+type roundTrips struct{ n atomic.Int32 }
+
+func (r *roundTrips) TraceQueryStart(ctx context.Context, _ *pgx.Conn, _ pgx.TraceQueryStartData) context.Context {
+	r.n.Add(1)
+	return ctx
+}
+func (r *roundTrips) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}
+func (r *roundTrips) TraceBatchStart(ctx context.Context, _ *pgx.Conn, _ pgx.TraceBatchStartData) context.Context {
+	r.n.Add(1)
+	return ctx
+}
+func (r *roundTrips) TraceBatchQuery(context.Context, *pgx.Conn, pgx.TraceBatchQueryData) {}
+func (r *roundTrips) TraceBatchEnd(context.Context, *pgx.Conn, pgx.TraceBatchEndData)     {}
+
+// TestIntegration_PreloadBatching checks that preloads at the same depth share
+// one round trip, that a relationship named both directly and as a nested
+// parent loads once, and that nested manyToMany works.
+func TestIntegration_PreloadBatching(t *testing.T) {
+	_, connStr, cleanup := setupTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	type BComment struct {
+		ID     int    `po:"id,primaryKey,serial"`
+		PostID int    `po:"post_id,integer,notNull"`
+		Body   string `po:"body,text,notNull"`
+	}
+	type BLabel struct {
+		ID   int    `po:"id,primaryKey,serial"`
+		Name string `po:"name,text,notNull"`
+	}
+	type BPost struct {
+		ID       int        `po:"id,primaryKey,serial"`
+		AuthorID int        `po:"author_id,integer,notNull"`
+		Title    string     `po:"title,text,notNull"`
+		Comments []BComment `po:"-,hasMany,foreignKey(post_id),references(id)"`
+		Labels   []BLabel   `po:"-,manyToMany,joinTable(b_post_labels),foreignKey(b_post_id)"`
+	}
+	type BProfile struct {
+		ID       int    `po:"id,primaryKey,serial"`
+		AuthorID int    `po:"author_id,integer,notNull"`
+		Bio      string `po:"bio,text,notNull"`
+	}
+	type BTag struct {
+		ID   int    `po:"id,primaryKey,serial"`
+		Name string `po:"name,text,notNull"`
+	}
+	type BAuthor struct {
+		ID      int       `po:"id,primaryKey,serial"`
+		Name    string    `po:"name,text,notNull"`
+		Profile *BProfile `po:"-,hasOne,foreignKey(author_id),references(id)"`
+		Posts   []BPost   `po:"-,hasMany,foreignKey(author_id),references(id)"`
+		Tags    []BTag    `po:"-,manyToMany,joinTable(b_author_tags),foreignKey(b_author_id)"`
+	}
+	for _, m := range []interface{}{BComment{}, BLabel{}, BPost{}, BProfile{}, BTag{}, BAuthor{}} {
+		if err := registry.Register(m); err != nil {
+			t.Fatalf("register: %v", err)
+		}
+	}
+
+	setupPool, err := pgxpool.New(ctx, connStr)
+	if err != nil {
+		t.Fatalf("pool: %v", err)
+	}
+	defer setupPool.Close()
+	if _, err := setupPool.Exec(ctx, `
+		CREATE TABLE b_author (id serial PRIMARY KEY, name text NOT NULL);
+		CREATE TABLE b_profile (id serial PRIMARY KEY, author_id integer NOT NULL, bio text NOT NULL);
+		CREATE TABLE b_post (id serial PRIMARY KEY, author_id integer NOT NULL, title text NOT NULL);
+		CREATE TABLE b_comment (id serial PRIMARY KEY, post_id integer NOT NULL, body text NOT NULL);
+		CREATE TABLE b_tag (id serial PRIMARY KEY, name text NOT NULL);
+		CREATE TABLE b_label (id serial PRIMARY KEY, name text NOT NULL);
+		CREATE TABLE b_author_tags (b_author_id integer NOT NULL, b_tag_id integer NOT NULL);
+		CREATE TABLE b_post_labels (b_post_id integer NOT NULL, b_label_id integer NOT NULL);
+		INSERT INTO b_author VALUES (1, 'ann'), (2, 'bo');
+		INSERT INTO b_profile VALUES (1, 1, 'ann bio');
+		INSERT INTO b_post VALUES (1, 1, 'hello'), (2, 1, 'world'), (3, 2, 'solo');
+		INSERT INTO b_comment VALUES (1, 1, 'nice'), (2, 1, 'agree'), (3, 3, 'ok');
+		INSERT INTO b_tag VALUES (1, 'go'), (2, 'sql');
+		INSERT INTO b_label VALUES (1, 'draft'), (2, 'featured');
+		INSERT INTO b_author_tags VALUES (1, 1), (1, 2), (2, 2);
+		INSERT INTO b_post_labels VALUES (1, 1), (1, 2), (3, 2);`); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	check := func(t *testing.T, authors []BAuthor) {
+		t.Helper()
+		if len(authors) != 2 {
+			t.Fatalf("expected 2 authors, got %d", len(authors))
+		}
+		ann, bo := authors[0], authors[1]
+		if ann.Profile == nil || ann.Profile.Bio != "ann bio" || bo.Profile != nil {
+			t.Errorf("profiles: ann=%+v bo=%+v", ann.Profile, bo.Profile)
+		}
+		if len(ann.Posts) != 2 || len(bo.Posts) != 1 {
+			t.Fatalf("posts: ann=%d bo=%d, want 2 and 1", len(ann.Posts), len(bo.Posts))
+		}
+		if len(ann.Tags) != 2 || len(bo.Tags) != 1 || bo.Tags[0].Name != "sql" {
+			t.Errorf("tags: ann=%+v bo=%+v", ann.Tags, bo.Tags)
+		}
+		counts := map[string][2]int{}
+		for _, p := range append(ann.Posts, bo.Posts...) {
+			counts[p.Title] = [2]int{len(p.Comments), len(p.Labels)}
+		}
+		want := map[string][2]int{"hello": {2, 2}, "world": {0, 0}, "solo": {1, 1}}
+		for title, w := range want {
+			if counts[title] != w {
+				t.Errorf("post %q: comments, labels = %v, want %v", title, counts[title], w)
+			}
+		}
+	}
+	preloads := []string{"Profile", "Posts", "Tags", "Posts.Comments", "Posts.Labels"}
+
+	for _, mode := range []pgx.QueryExecMode{pgx.QueryExecModeCacheStatement, pgx.QueryExecModeExec, pgx.QueryExecModeSimpleProtocol} {
+		t.Run(mode.String(), func(t *testing.T) {
+			cfg, err := pgxpool.ParseConfig(connStr)
+			if err != nil {
+				t.Fatalf("config: %v", err)
+			}
+			cfg.ConnConfig.DefaultQueryExecMode = mode
+			trips := &roundTrips{}
+			cfg.ConnConfig.Tracer = trips
+			pool, err := pgxpool.NewWithConfig(ctx, cfg)
+			if err != nil {
+				t.Fatalf("pool: %v", err)
+			}
+			defer pool.Close()
+			db := runtime.NewDB(pool)
+			qb := builder.New(db)
+
+			trips.n.Store(0)
+			authors, err := builder.Select[BAuthor](qb).OrderByAsc("id").Preload(preloads...).All(ctx)
+			if err != nil {
+				t.Fatalf("preload: %v", err)
+			}
+			check(t, authors)
+			// authors, then {profile, posts, tags} together, then {comments, labels}.
+			if got := trips.n.Load(); got != 3 {
+				t.Errorf("round trips = %d, want 3", got)
+			}
+
+			tx, err := qb.Begin(ctx)
+			if err != nil {
+				t.Fatalf("begin: %v", err)
+			}
+			defer tx.Rollback()
+			authors, err = builder.TxSelect[BAuthor](tx).OrderBy("id", builder.Asc).Preload(preloads...).All()
+			if err != nil {
+				t.Fatalf("tx preload: %v", err)
+			}
+			check(t, authors)
+		})
+	}
+}
+
+// TestIntegration_PreloadSharedParent checks nested preloads below a belongsTo
+// that several rows share: every value copy of the parent gets its relations,
+// and a parent shared through a pointer gets them once.
+func TestIntegration_PreloadSharedParent(t *testing.T) {
+	_, connStr, cleanup := setupTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	type SProfile struct {
+		ID       int    `po:"id,primaryKey,serial"`
+		AuthorID int    `po:"author_id,integer,notNull"`
+		Bio      string `po:"bio,text,notNull"`
+	}
+	type SNote struct {
+		ID       int    `po:"id,primaryKey,serial"`
+		AuthorID int    `po:"author_id,integer,notNull"`
+		Body     string `po:"body,text,notNull"`
+	}
+	type SAuthor struct {
+		ID      int       `po:"id,primaryKey,serial"`
+		Name    string    `po:"name,text,notNull"`
+		Profile *SProfile `po:"-,hasOne,foreignKey(author_id),references(id)"`
+		Notes   []SNote   `po:"-,hasMany,foreignKey(author_id),references(id)"`
+	}
+	type SPost struct {
+		ID        int      `po:"id,primaryKey,serial"`
+		AuthorID  int      `po:"author_id,integer,notNull"`
+		Author    SAuthor  `po:"-,belongsTo,foreignKey(author_id),references(id)"`
+		AuthorRef *SAuthor `po:"-,belongsTo,foreignKey(author_id),references(id)"`
+	}
+	for _, m := range []interface{}{SProfile{}, SNote{}, SAuthor{}, SPost{}} {
+		if err := registry.Register(m); err != nil {
+			t.Fatalf("register: %v", err)
+		}
+	}
+	runtimeDB, err := runtime.ConnectWithURL(ctx, connStr)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer runtimeDB.Close()
+	if _, err := runtimeDB.Pool().Exec(ctx, `
+		CREATE TABLE s_author (id serial PRIMARY KEY, name text NOT NULL);
+		CREATE TABLE s_profile (id serial PRIMARY KEY, author_id integer NOT NULL, bio text NOT NULL);
+		CREATE TABLE s_note (id serial PRIMARY KEY, author_id integer NOT NULL, body text NOT NULL);
+		CREATE TABLE s_post (id serial PRIMARY KEY, author_id integer NOT NULL);
+		INSERT INTO s_author VALUES (1, 'ann');
+		INSERT INTO s_profile VALUES (1, 1, 'bio');
+		INSERT INTO s_note VALUES (1, 1, 'a'), (2, 1, 'b');
+		INSERT INTO s_post VALUES (1, 1), (2, 1);`); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	posts, err := builder.Select[SPost](builder.New(runtimeDB)).OrderByAsc("id").
+		Preload("Author.Profile", "Author.Notes", "AuthorRef.Profile", "AuthorRef.Notes").All(ctx)
+	if err != nil {
+		t.Fatalf("preload: %v", err)
+	}
+	if len(posts) != 2 {
+		t.Fatalf("expected 2 posts, got %d", len(posts))
+	}
+	for _, p := range posts {
+		if p.Author.Profile == nil || len(p.Author.Notes) != 2 {
+			t.Errorf("post %d value author: profile=%v notes=%d, want profile and 2 notes", p.ID, p.Author.Profile, len(p.Author.Notes))
+		}
+		if p.AuthorRef == nil || p.AuthorRef.Profile == nil || len(p.AuthorRef.Notes) != 2 {
+			t.Errorf("post %d pointer author: %+v, want profile and 2 notes", p.ID, p.AuthorRef)
 		}
 	}
 }

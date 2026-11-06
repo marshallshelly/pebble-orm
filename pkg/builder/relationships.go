@@ -3,7 +3,9 @@ package builder
 import (
 	"context"
 	"fmt"
+	"maps"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -11,661 +13,379 @@ import (
 	"github.com/marshallshelly/pebble-orm/pkg/schema"
 )
 
-// queryFunc executes a SQL query. Satisfied by both runtime.DB.Query and
-// pgx.Tx.Query, so relationship loading works inside and outside transactions.
-type queryFunc func(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
-
 // relationshipLoader loads preloaded relationships for a result set.
 type relationshipLoader struct {
-	query    queryFunc
+	exec     queryExecutor
 	table    *schema.TableMetadata
 	preloads []string
 }
 
-// loadRelationships loads all preloaded relationships for a set of results.
-// Supports nested preloads using dot notation (e.g., "Client.Route").
+// preloadTree maps a relationship field to the preloads nested under it, so a
+// field named both on its own and as a parent ("Posts", "Posts.Comments")
+// loads once.
+type preloadTree map[string]preloadTree
+
+func buildPreloadTree(paths []string) preloadTree {
+	root := preloadTree{}
+	for _, path := range paths {
+		node := root
+		for _, field := range strings.Split(path, ".") {
+			if node[field] == nil {
+				node[field] = preloadTree{}
+			}
+			node = node[field]
+		}
+	}
+	return root
+}
+
+// preloadLevel is a set of objects of one table and the preloads to load on
+// them. objects is a slice of structs or of struct pointers.
+type preloadLevel struct {
+	objects reflect.Value
+	table   *schema.TableMetadata
+	tree    preloadTree
+}
+
+// loadRelationships loads the preloads one depth at a time. Every query for a
+// depth is sent in one pgx batch, so sibling preloads share a round trip; the
+// next depth then loads on the objects this one produced.
 func (q *relationshipLoader) loadRelationships(ctx context.Context, results interface{}) error {
 	if len(q.preloads) == 0 {
 		return nil
 	}
 
 	resultsVal := reflect.ValueOf(results)
-	if resultsVal.Kind() != reflect.Pointer {
+	if resultsVal.Kind() != reflect.Pointer || resultsVal.Elem().Kind() != reflect.Slice {
 		return fmt.Errorf("results must be a pointer to slice")
 	}
-
 	resultsVal = resultsVal.Elem()
-	if resultsVal.Kind() != reflect.Slice {
-		return fmt.Errorf("results must be a pointer to slice")
-	}
-
 	if resultsVal.Len() == 0 {
-		return nil // No results to load relationships for
+		return nil
 	}
 
-	// Separate direct preloads from nested preloads
-	directPreloads := make([]string, 0)
-	nestedPreloads := make(map[string][]string) // parent -> []nested paths
-
-	for _, preloadPath := range q.preloads {
-		parts := strings.Split(preloadPath, ".")
-		if len(parts) == 1 {
-			// Direct preload (e.g., "Client")
-			directPreloads = append(directPreloads, preloadPath)
-		} else {
-			// Nested preload (e.g., "Client.Route")
-			parent := parts[0]
-			nestedPath := strings.Join(parts[1:], ".")
-			nestedPreloads[parent] = append(nestedPreloads[parent], nestedPath)
-		}
+	type loaded struct {
+		objects reflect.Value
+		rel     *schema.RelationshipMetadata
+		target  *schema.TableMetadata
+		tree    preloadTree
 	}
 
-	// Load direct relationships first
-	for _, fieldName := range directPreloads {
-		rel := q.table.GetRelationship(fieldName)
-		if rel == nil {
-			return fmt.Errorf("relationship %s not found on %s", fieldName, q.table.Name)
+	levels := []preloadLevel{{resultsVal, q.table, buildPreloadTree(q.preloads)}}
+	for len(levels) > 0 {
+		batch := &pgx.Batch{}
+		var finish []func()
+		var children []loaded
+		for _, level := range levels {
+			for _, field := range slices.Sorted(maps.Keys(level.tree)) {
+				rel := level.table.GetRelationship(field)
+				if rel == nil {
+					return fmt.Errorf("relationship %s not found on %s", field, level.table.Name)
+				}
+				target, err := relationshipTarget(rel)
+				if err != nil {
+					return err
+				}
+				done, err := queueRelationship(batch, level.objects, rel, level.table, target)
+				if err != nil {
+					return fmt.Errorf("failed to load relationship %s: %w", field, err)
+				}
+				if done != nil {
+					finish = append(finish, done)
+				}
+				if len(level.tree[field]) > 0 {
+					children = append(children, loaded{level.objects, rel, target, level.tree[field]})
+				}
+			}
 		}
 
-		if err := q.loadRelationship(ctx, resultsVal, rel); err != nil {
-			return fmt.Errorf("failed to load relationship %s: %w", fieldName, err)
+		if batch.Len() > 0 {
+			if err := q.exec.SendBatch(ctx, batch).Close(); err != nil {
+				return err
+			}
+		}
+		for _, done := range finish {
+			done()
+		}
+
+		levels = levels[:0:0]
+		for _, c := range children {
+			if objects := relatedObjects(c.objects, c.rel, c.target); objects.Len() > 0 {
+				levels = append(levels, preloadLevel{objects, c.target, c.tree})
+			}
 		}
 	}
-
-	// Load nested relationships
-	for parent, nestedPaths := range nestedPreloads {
-		rel := q.table.GetRelationship(parent)
-		if rel == nil {
-			return fmt.Errorf("relationship %s not found on %s", parent, q.table.Name)
-		}
-
-		// Load the parent relationship first (if not already loaded)
-		if err := q.loadRelationship(ctx, resultsVal, rel); err != nil {
-			return fmt.Errorf("failed to load relationship %s: %w", parent, err)
-		}
-
-		// Now load nested relationships on the parent
-		if err := q.loadNestedRelationships(ctx, resultsVal, rel, nestedPaths); err != nil {
-			return fmt.Errorf("failed to load nested relationships on %s: %w", parent, err)
-		}
-	}
-
 	return nil
 }
 
-// loadRelationship loads a specific relationship for all results.
-func (q *relationshipLoader) loadRelationship(ctx context.Context, results reflect.Value, rel *schema.RelationshipMetadata) error {
-	switch rel.Type {
-	case schema.BelongsTo:
-		return q.loadBelongsTo(ctx, results, rel)
-	case schema.HasOne:
-		return q.loadHasOne(ctx, results, rel)
-	case schema.HasMany:
-		return q.loadHasMany(ctx, results, rel)
-	case schema.ManyToMany:
-		return q.loadManyToMany(ctx, results, rel)
-	default:
-		return fmt.Errorf("unsupported relationship type: %s", rel.Type)
+// relationshipTarget resolves the table a relationship points at, by Go type
+// when known and by table name otherwise.
+func relationshipTarget(rel *schema.RelationshipMetadata) (*schema.TableMetadata, error) {
+	var target *schema.TableMetadata
+	var err error
+	if rel.TargetType != nil {
+		target, err = registry.Get(rel.TargetType)
+	} else {
+		target, err = registry.GetByName(rel.TargetTable)
 	}
+	if err != nil {
+		return nil, fmt.Errorf("target table %s not registered: %w", rel.TargetTable, err)
+	}
+	return target, nil
 }
 
-// loadNestedRelationships loads nested relationships on already-loaded parent objects.
-// For example, after loading "Client", this loads "Route" on each Client.
-func (q *relationshipLoader) loadNestedRelationships(ctx context.Context, results reflect.Value, parentRel *schema.RelationshipMetadata, nestedPaths []string) error {
-	// Get the target table metadata for the parent relationship
-	var parentTable *schema.TableMetadata
-	var err error
-
-	if parentRel.TargetType != nil {
-		parentTable, err = registry.Get(parentRel.TargetType)
-	} else {
-		parentTable, err = registry.GetByName(parentRel.TargetTable)
+// queueRelationship adds the queries that load rel onto objects to batch. The
+// returned func, when not nil, must run after the batch has been read.
+func queueRelationship(batch *pgx.Batch, objects reflect.Value, rel *schema.RelationshipMetadata, source, target *schema.TableMetadata) (func(), error) {
+	switch rel.Type {
+	case schema.BelongsTo:
+		queueBelongsTo(batch, objects, rel, target)
+	case schema.HasOne:
+		queueHasOne(batch, objects, rel, target)
+	case schema.HasMany:
+		queueHasMany(batch, objects, rel, target)
+	case schema.ManyToMany:
+		return queueManyToMany(batch, objects, rel, source, target)
+	default:
+		return nil, fmt.Errorf("unsupported relationship type: %s", rel.Type)
 	}
+	return nil, nil
+}
 
-	if err != nil {
-		return fmt.Errorf("parent table %s not registered: %w", parentRel.TargetTable, err)
+// relatedObjects collects pointers to the objects a loaded relationship put on
+// objects, so the next depth's assignments reach the real values. A value
+// element of a slice ([]Post) is addressed rather than copied, and an object
+// several parents point at is collected once.
+func relatedObjects(objects reflect.Value, rel *schema.RelationshipMetadata, target *schema.TableMetadata) reflect.Value {
+	collected := reflect.MakeSlice(reflect.SliceOf(reflect.PointerTo(target.GoType)), 0, objects.Len())
+	seen := make(map[uintptr]bool)
+	add := func(ptr reflect.Value) {
+		if !seen[ptr.Pointer()] {
+			seen[ptr.Pointer()] = true
+			collected = reflect.Append(collected, ptr)
+		}
 	}
-
-	// Collect all loaded parent objects from results
-	var parentObjects reflect.Value
-
-	// Determine if parent is a slice or single object
-	isParentSlice := parentRel.Type == schema.HasMany || parentRel.Type == schema.ManyToMany
-
-	if isParentSlice {
-		// Parent is a slice (HasMany/ManyToMany) - collect all items from all results
-		parentSliceType := reflect.SliceOf(reflect.PointerTo(parentTable.GoType))
-		parentObjects = reflect.MakeSlice(parentSliceType, 0, 0)
-
-		for i := 0; i < results.Len(); i++ {
-			item := results.Index(i)
-			if item.Kind() == reflect.Pointer {
-				item = item.Elem()
-			}
-
-			relationField := item.FieldByName(parentRel.SourceField)
-			if !relationField.IsValid() || relationField.IsNil() {
-				continue
-			}
-
-			// Append a pointer to each item so nested loads mutate the real
-			// slice elements. Value-element slices ([]Post) need Addr(); pointer
-			// slices ([]*Post) are already pointers. Appending a value directly
-			// into the []*Parent collection would panic.
-			for j := 0; j < relationField.Len(); j++ {
-				elem := relationField.Index(j)
+	for i := 0; i < objects.Len(); i++ {
+		field := structAt(objects, i).FieldByName(rel.SourceField)
+		if !field.IsValid() {
+			continue
+		}
+		switch {
+		case field.Kind() == reflect.Slice:
+			for j := 0; j < field.Len(); j++ {
+				elem := field.Index(j)
 				if elem.Kind() != reflect.Pointer {
 					elem = elem.Addr()
 				}
-				parentObjects = reflect.Append(parentObjects, elem)
+				add(elem)
 			}
-		}
-	} else {
-		// Parent is a single object (BelongsTo/HasOne) - collect from all results
-		parentSliceType := reflect.SliceOf(reflect.PointerTo(parentTable.GoType))
-		parentObjects = reflect.MakeSlice(parentSliceType, 0, results.Len())
-
-		for i := 0; i < results.Len(); i++ {
-			item := results.Index(i)
-			if item.Kind() == reflect.Pointer {
-				item = item.Elem()
+		case field.Kind() == reflect.Pointer:
+			if !field.IsNil() {
+				add(field)
 			}
-
-			relationField := item.FieldByName(parentRel.SourceField)
-			if !relationField.IsValid() {
-				continue
-			}
-
-			// Handle both pointer and non-pointer fields
-			if relationField.Kind() == reflect.Pointer {
-				if !relationField.IsNil() {
-					parentObjects = reflect.Append(parentObjects, relationField)
-				}
-			} else if relationField.IsValid() && !relationField.IsZero() {
-				// Non-pointer field, take address
-				parentObjects = reflect.Append(parentObjects, relationField.Addr())
-			}
+		case !field.IsZero():
+			add(field.Addr())
 		}
 	}
-
-	if parentObjects.Len() == 0 {
-		return nil // No parent objects to load nested relationships for
-	}
-
-	// Load each nested relationship on the parent objects
-	for _, nestedPath := range nestedPaths {
-		parts := strings.Split(nestedPath, ".")
-		directField := parts[0]
-
-		// Get the relationship metadata from parent table
-		nestedRel := parentTable.GetRelationship(directField)
-		if nestedRel == nil {
-			return fmt.Errorf("relationship %s not found on %s", directField, parentTable.Name)
-		}
-
-		// Load the direct nested relationship
-		if err := q.loadRelationshipOnCollection(ctx, parentObjects, nestedRel, parentTable); err != nil {
-			return fmt.Errorf("failed to load nested relationship %s: %w", directField, err)
-		}
-
-		// If there are deeper nested paths (e.g., "Route.Assignments"), recurse
-		if len(parts) > 1 {
-			deeperPath := strings.Join(parts[1:], ".")
-			if err := q.loadNestedRelationships(ctx, parentObjects, nestedRel, []string{deeperPath}); err != nil {
-				return fmt.Errorf("failed to load deeper nested relationships: %w", err)
-			}
-		}
-	}
-
-	return nil
+	return collected
 }
 
-// loadRelationshipOnCollection loads a relationship on a collection of objects.
-// This is similar to loadRelationship but works with any table, not just the query's base table.
-func (q *relationshipLoader) loadRelationshipOnCollection(ctx context.Context, objects reflect.Value, rel *schema.RelationshipMetadata, sourceTable *schema.TableMetadata) error {
-	if objects.Len() == 0 {
+// structAt returns the struct at index i, dereferencing a pointer element.
+func structAt(objects reflect.Value, i int) reflect.Value {
+	item := objects.Index(i)
+	if item.Kind() == reflect.Pointer {
+		item = item.Elem()
+	}
+	return item
+}
+
+// keyValue returns a field's value as a map key and query argument, with a
+// non-nil pointer dereferenced.
+func keyValue(field reflect.Value) interface{} {
+	if field.Kind() == reflect.Pointer && !field.IsNil() {
+		return field.Elem().Interface()
+	}
+	return field.Interface()
+}
+
+// setRelated stores related (a pointer to a target struct) in field, as the
+// pointer or the value depending on the field's type.
+func setRelated(field reflect.Value, related reflect.Value) {
+	if field.Kind() == reflect.Pointer {
+		field.Set(related)
+	} else {
+		field.Set(related.Elem())
+	}
+}
+
+// appendRelated appends related to a slice field of values or pointers.
+func appendRelated(field reflect.Value, related reflect.Value) {
+	if field.Type().Elem().Kind() == reflect.Pointer {
+		field.Set(reflect.Append(field, related))
+	} else {
+		field.Set(reflect.Append(field, related.Elem()))
+	}
+}
+
+// queueRows queues sql and scans each result row into a new target struct,
+// handing it to assign.
+func queueRows(batch *pgx.Batch, rel *schema.RelationshipMetadata, target *schema.TableMetadata, sql string, keys []interface{}, assign func(related reflect.Value)) {
+	scanner := newRowScanner(target)
+	batch.Queue(sql, convertToTypedSlice(keys)).Query(func(rows pgx.Rows) error {
+		for rows.Next() {
+			related := reflect.New(target.GoType)
+			if err := scanner.scan(rows, related.Interface()); err != nil {
+				return fmt.Errorf("failed to load relationship %s: failed to scan related record: %w", rel.SourceField, err)
+			}
+			assign(related)
+		}
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("failed to load relationship %s: %w", rel.SourceField, err)
+		}
 		return nil
-	}
-
-	// Get target table metadata
-	var targetTable *schema.TableMetadata
-	var err error
-
-	if rel.TargetType != nil {
-		targetTable, err = registry.Get(rel.TargetType)
-	} else {
-		targetTable, err = registry.GetByName(rel.TargetTable)
-	}
-
-	if err != nil {
-		return fmt.Errorf("target table %s not registered: %w", rel.TargetTable, err)
-	}
-
-	switch rel.Type {
-	case schema.BelongsTo:
-		return q.loadBelongsToOnCollection(ctx, objects, rel, targetTable)
-	case schema.HasOne:
-		return q.loadHasOneOnCollection(ctx, objects, rel, targetTable)
-	case schema.HasMany:
-		return q.loadHasManyOnCollection(ctx, objects, rel, targetTable)
-	case schema.ManyToMany:
-		// ManyToMany not yet implemented for nested preloads
-		return fmt.Errorf("nested ManyToMany preloads not yet supported")
-	default:
-		return fmt.Errorf("unsupported relationship type: %s", rel.Type)
-	}
+	})
 }
 
-// loadBelongsTo loads belongsTo relationships.
+// queueBelongsTo loads a belongsTo relationship.
 // Example: Post belongsTo User (post.user_id -> users.id)
-func (q *relationshipLoader) loadBelongsTo(ctx context.Context, results reflect.Value, rel *schema.RelationshipMetadata) error {
-	// Get target table metadata using TargetType (accurate) or fallback to TargetTable (legacy)
-	var targetTable *schema.TableMetadata
-	var err error
-
-	if rel.TargetType != nil {
-		targetTable, err = registry.Get(rel.TargetType)
-	} else {
-		targetTable, err = registry.GetByName(rel.TargetTable)
-	}
-
-	if err != nil {
-		return fmt.Errorf("target table %s not registered: %w", rel.TargetTable, err)
-	}
-
-	// Collect foreign key values from all results
-	foreignKeys := make([]interface{}, 0, results.Len())
-	foreignKeyMap := make(map[interface{}][]int) // Map FK value to result indices
-
-	for i := 0; i < results.Len(); i++ {
-		item := results.Index(i)
-		if item.Kind() == reflect.Pointer {
-			item = item.Elem()
-		}
-
-		// Get the foreign key field value
-		fkField := item.FieldByName(toPascalCase(rel.ForeignKey))
-		if !fkField.IsValid() {
+func queueBelongsTo(batch *pgx.Batch, objects reflect.Value, rel *schema.RelationshipMetadata, target *schema.TableMetadata) {
+	var keys []interface{}
+	byKey := make(map[interface{}][]int)
+	for i := 0; i < objects.Len(); i++ {
+		fk := structAt(objects, i).FieldByName(toPascalCase(rel.ForeignKey))
+		if !fk.IsValid() || isZeroValue(fk.Interface()) {
 			continue
 		}
-
-		fkValue := fkField.Interface()
-
-		// Skip nil/zero values
-		if isZeroValue(fkValue) {
-			continue
+		key := keyValue(fk)
+		if _, ok := byKey[key]; !ok {
+			keys = append(keys, key)
 		}
-
-		// Dereference pointer if needed (for nullable foreign keys like *string)
-		if fkField.Kind() == reflect.Pointer && !fkField.IsNil() {
-			fkValue = fkField.Elem().Interface()
-		}
-
-		// Track which results have this FK value
-		if _, exists := foreignKeyMap[fkValue]; !exists {
-			foreignKeys = append(foreignKeys, fkValue)
-			foreignKeyMap[fkValue] = make([]int, 0)
-		}
-		foreignKeyMap[fkValue] = append(foreignKeyMap[fkValue], i)
+		byKey[key] = append(byKey[key], i)
+	}
+	if len(keys) == 0 {
+		return
 	}
 
-	if len(foreignKeys) == 0 {
-		return nil // No foreign keys to load
-	}
-
-	// Convert []interface{} to typed slice for pgx encoding
-	// pgx needs a properly typed slice, not []interface{}
-	typedKeys := convertToTypedSlice(foreignKeys)
-
-	// Query related records using IN clause
-	sql := fmt.Sprintf("SELECT * FROM %s WHERE %s = ANY($1)", schema.QuoteReservedIdent(targetTable.Name), schema.QuoteReservedIdent(rel.References))
-	rows, err := q.query(ctx, sql, typedKeys)
-	if err != nil {
-		return fmt.Errorf("failed to query related records: %w", err)
-	}
-	defer rows.Close()
-
-	// Scan related records and assign to results
-	scanner := newRowScanner(targetTable)
-	for rows.Next() {
-		related := reflect.New(targetTable.GoType)
-		if err := scanner.scan(rows, related.Interface()); err != nil {
-			return fmt.Errorf("failed to scan related record: %w", err)
+	sql := fmt.Sprintf("SELECT * FROM %s WHERE %s = ANY($1)", schema.QuoteReservedIdent(target.Name), schema.QuoteReservedIdent(rel.References))
+	queueRows(batch, rel, target, sql, keys, func(related reflect.Value) {
+		id := related.Elem().FieldByName(toPascalCase(rel.References))
+		if !id.IsValid() {
+			return
 		}
-
-		// Get the ID value from the related record
-		relatedElem := related.Elem()
-		idField := relatedElem.FieldByName(toPascalCase(rel.References))
-		if !idField.IsValid() {
-			continue
-		}
-		idValue := idField.Interface()
-
-		// Assign to all results that reference this related record
-		for _, idx := range foreignKeyMap[idValue] {
-			item := results.Index(idx)
-			if item.Kind() == reflect.Pointer {
-				item = item.Elem()
-			}
-
-			relationField := item.FieldByName(rel.SourceField)
-			if !relationField.IsValid() || !relationField.CanSet() {
-				continue
-			}
-
-			// Set the relationship field
-			if relationField.Kind() == reflect.Pointer {
-				relationField.Set(related)
-			} else {
-				relationField.Set(related.Elem())
+		for _, i := range byKey[id.Interface()] {
+			if field := structAt(objects, i).FieldByName(rel.SourceField); field.IsValid() && field.CanSet() {
+				setRelated(field, related)
 			}
 		}
-	}
-
-	return rows.Err()
+	})
 }
 
-// loadHasOne loads hasOne relationships.
+// parentKeys collects the distinct referenced keys of objects, for hasOne,
+// hasMany and manyToMany, and maps each key to every object that has it: rows
+// below a shared belongsTo hold separate copies of the same parent.
+func parentKeys(objects reflect.Value, rel *schema.RelationshipMetadata) ([]interface{}, map[interface{}][]int) {
+	keys := make([]interface{}, 0, objects.Len())
+	byKey := make(map[interface{}][]int)
+	for i := 0; i < objects.Len(); i++ {
+		pk := structAt(objects, i).FieldByName(toPascalCase(rel.References))
+		if !pk.IsValid() {
+			continue
+		}
+		key := keyValue(pk)
+		if _, ok := byKey[key]; !ok {
+			keys = append(keys, key)
+		}
+		byKey[key] = append(byKey[key], i)
+	}
+	return keys, byKey
+}
+
+// queueHasOne loads a hasOne relationship.
 // Example: User hasOne Profile (profiles.user_id -> users.id)
-func (q *relationshipLoader) loadHasOne(ctx context.Context, results reflect.Value, rel *schema.RelationshipMetadata) error {
-	// Get target table metadata using TargetType (accurate) or fallback to TargetTable (legacy)
-	var targetTable *schema.TableMetadata
-	var err error
-
-	if rel.TargetType != nil {
-		targetTable, err = registry.Get(rel.TargetType)
-	} else {
-		targetTable, err = registry.GetByName(rel.TargetTable)
+func queueHasOne(batch *pgx.Batch, objects reflect.Value, rel *schema.RelationshipMetadata, target *schema.TableMetadata) {
+	keys, byKey := parentKeys(objects, rel)
+	if len(keys) == 0 {
+		return
 	}
 
-	if err != nil {
-		return fmt.Errorf("target table %s not registered: %w", rel.TargetTable, err)
-	}
-
-	// Collect primary key values from all results
-	primaryKeys := make([]interface{}, 0, results.Len())
-	pkMap := make(map[interface{}]int) // Map PK value to result index
-
-	for i := 0; i < results.Len(); i++ {
-		item := results.Index(i)
-		if item.Kind() == reflect.Pointer {
-			item = item.Elem()
+	sql := fmt.Sprintf("SELECT * FROM %s WHERE %s = ANY($1)", schema.QuoteReservedIdent(target.Name), schema.QuoteReservedIdent(rel.ForeignKey))
+	queueRows(batch, rel, target, sql, keys, func(related reflect.Value) {
+		fk := related.Elem().FieldByName(toPascalCase(rel.ForeignKey))
+		if !fk.IsValid() {
+			return
 		}
-
-		// Get the primary key field value
-		pkField := item.FieldByName(toPascalCase(rel.References))
-		if !pkField.IsValid() {
-			continue
+		for _, i := range byKey[fk.Interface()] {
+			if field := structAt(objects, i).FieldByName(rel.SourceField); field.IsValid() && field.CanSet() {
+				setRelated(field, related)
+			}
 		}
-
-		pkValue := pkField.Interface()
-
-		// Dereference pointer if needed
-		if pkField.Kind() == reflect.Pointer && !pkField.IsNil() {
-			pkValue = pkField.Elem().Interface()
-		}
-
-		primaryKeys = append(primaryKeys, pkValue)
-		pkMap[pkValue] = i
-	}
-
-	if len(primaryKeys) == 0 {
-		return nil
-	}
-
-	// Convert []interface{} to typed slice for pgx encoding
-	typedKeys := convertToTypedSlice(primaryKeys)
-
-	// Query related records using IN clause
-	sql := fmt.Sprintf("SELECT * FROM %s WHERE %s = ANY($1)", schema.QuoteReservedIdent(targetTable.Name), schema.QuoteReservedIdent(rel.ForeignKey))
-	rows, err := q.query(ctx, sql, typedKeys)
-	if err != nil {
-		return fmt.Errorf("failed to query related records: %w", err)
-	}
-	defer rows.Close()
-
-	// Scan related records and assign to results
-	scanner := newRowScanner(targetTable)
-	for rows.Next() {
-		related := reflect.New(targetTable.GoType)
-		if err := scanner.scan(rows, related.Interface()); err != nil {
-			return fmt.Errorf("failed to scan related record: %w", err)
-		}
-
-		// Get the foreign key value from the related record
-		relatedElem := related.Elem()
-		fkField := relatedElem.FieldByName(toPascalCase(rel.ForeignKey))
-		if !fkField.IsValid() {
-			continue
-		}
-		fkValue := fkField.Interface()
-
-		// Find the parent result
-		idx, exists := pkMap[fkValue]
-		if !exists {
-			continue
-		}
-
-		item := results.Index(idx)
-		if item.Kind() == reflect.Pointer {
-			item = item.Elem()
-		}
-
-		relationField := item.FieldByName(rel.SourceField)
-		if !relationField.IsValid() || !relationField.CanSet() {
-			continue
-		}
-
-		// Set the relationship field
-		if relationField.Kind() == reflect.Pointer {
-			relationField.Set(related)
-		} else {
-			relationField.Set(related.Elem())
-		}
-	}
-
-	return rows.Err()
+	})
 }
 
-// loadHasMany loads hasMany relationships.
+// initSlices gives every object an empty slice for rel, so a parent with no
+// related rows reads as loaded rather than nil.
+func initSlices(objects reflect.Value, rel *schema.RelationshipMetadata) {
+	for i := 0; i < objects.Len(); i++ {
+		if field := structAt(objects, i).FieldByName(rel.SourceField); field.IsValid() && field.CanSet() && field.IsNil() {
+			field.Set(reflect.MakeSlice(field.Type(), 0, 0))
+		}
+	}
+}
+
+// queueHasMany loads a hasMany relationship.
 // Example: User hasMany Posts (posts.user_id -> users.id)
-func (q *relationshipLoader) loadHasMany(ctx context.Context, results reflect.Value, rel *schema.RelationshipMetadata) error {
-	// Get target table metadata using TargetType (accurate) or fallback to TargetTable (legacy)
-	var targetTable *schema.TableMetadata
-	var err error
-
-	if rel.TargetType != nil {
-		targetTable, err = registry.Get(rel.TargetType)
-	} else {
-		targetTable, err = registry.GetByName(rel.TargetTable)
+func queueHasMany(batch *pgx.Batch, objects reflect.Value, rel *schema.RelationshipMetadata, target *schema.TableMetadata) {
+	keys, byKey := parentKeys(objects, rel)
+	initSlices(objects, rel)
+	if len(keys) == 0 {
+		return
 	}
 
-	if err != nil {
-		return fmt.Errorf("target table %s not registered: %w", rel.TargetTable, err)
-	}
-
-	// Collect primary key values from all results
-	primaryKeys := make([]interface{}, 0, results.Len())
-	pkMap := make(map[interface{}]int) // Map PK value to result index
-
-	for i := 0; i < results.Len(); i++ {
-		item := results.Index(i)
-		if item.Kind() == reflect.Pointer {
-			item = item.Elem()
+	sql := fmt.Sprintf("SELECT * FROM %s WHERE %s = ANY($1)", schema.QuoteReservedIdent(target.Name), schema.QuoteReservedIdent(rel.ForeignKey))
+	queueRows(batch, rel, target, sql, keys, func(related reflect.Value) {
+		fk := related.Elem().FieldByName(toPascalCase(rel.ForeignKey))
+		if !fk.IsValid() {
+			return
 		}
-
-		// Get the primary key field value
-		pkField := item.FieldByName(toPascalCase(rel.References))
-		if !pkField.IsValid() {
-			continue
-		}
-
-		pkValue := pkField.Interface()
-
-		// Dereference pointer if needed
-		if pkField.Kind() == reflect.Pointer && !pkField.IsNil() {
-			pkValue = pkField.Elem().Interface()
-		}
-
-		primaryKeys = append(primaryKeys, pkValue)
-		pkMap[pkValue] = i
-
-		// Initialize the slice field
-		relationField := item.FieldByName(rel.SourceField)
-		if relationField.IsValid() && relationField.CanSet() {
-			if relationField.IsNil() {
-				relationField.Set(reflect.MakeSlice(relationField.Type(), 0, 0))
+		for _, i := range byKey[fk.Interface()] {
+			if field := structAt(objects, i).FieldByName(rel.SourceField); field.IsValid() && field.CanSet() && field.Kind() == reflect.Slice {
+				appendRelated(field, related)
 			}
 		}
-	}
-
-	if len(primaryKeys) == 0 {
-		return nil
-	}
-
-	// Convert []interface{} to typed slice for pgx encoding
-	typedKeys := convertToTypedSlice(primaryKeys)
-
-	// Query related records using IN clause
-	sql := fmt.Sprintf("SELECT * FROM %s WHERE %s = ANY($1)", schema.QuoteReservedIdent(targetTable.Name), schema.QuoteReservedIdent(rel.ForeignKey))
-	rows, err := q.query(ctx, sql, typedKeys)
-	if err != nil {
-		return fmt.Errorf("failed to query related records: %w", err)
-	}
-	defer rows.Close()
-
-	// Scan related records and append to results
-	scanner := newRowScanner(targetTable)
-	for rows.Next() {
-		related := reflect.New(targetTable.GoType)
-		if err := scanner.scan(rows, related.Interface()); err != nil {
-			return fmt.Errorf("failed to scan related record: %w", err)
-		}
-
-		// Get the foreign key value from the related record
-		relatedElem := related.Elem()
-		fkField := relatedElem.FieldByName(toPascalCase(rel.ForeignKey))
-		if !fkField.IsValid() {
-			continue
-		}
-		fkValue := fkField.Interface()
-
-		// Find the parent result
-		idx, exists := pkMap[fkValue]
-		if !exists {
-			continue
-		}
-
-		item := results.Index(idx)
-		if item.Kind() == reflect.Pointer {
-			item = item.Elem()
-		}
-
-		relationField := item.FieldByName(rel.SourceField)
-		if !relationField.IsValid() || !relationField.CanSet() {
-			continue
-		}
-
-		// Append to the slice
-		if relationField.Kind() == reflect.Slice {
-			var elemToAppend reflect.Value
-			if relationField.Type().Elem().Kind() == reflect.Pointer {
-				elemToAppend = related
-			} else {
-				elemToAppend = related.Elem()
-			}
-			relationField.Set(reflect.Append(relationField, elemToAppend))
-		}
-	}
-
-	return rows.Err()
+	})
 }
 
-// loadManyToMany loads manyToMany relationships through a junction table.
+// queueManyToMany loads a manyToMany relationship through its junction table.
 // Example: User manyToMany Roles (users_roles junction table)
-func (q *relationshipLoader) loadManyToMany(ctx context.Context, results reflect.Value, rel *schema.RelationshipMetadata) error {
+// The junction rows and the target rows are separate queries in the same
+// batch; the returned func pairs them up once both have been read.
+func queueManyToMany(batch *pgx.Batch, objects reflect.Value, rel *schema.RelationshipMetadata, source, target *schema.TableMetadata) (func(), error) {
 	if rel.JoinTable == nil {
-		return fmt.Errorf("manyToMany relationship requires a junction table")
+		return nil, fmt.Errorf("manyToMany relationship requires a junction table")
 	}
 
-	// Get target table metadata using TargetType (accurate) or fallback to TargetTable (legacy)
-	var targetTable *schema.TableMetadata
-	var err error
-
-	if rel.TargetType != nil {
-		targetTable, err = registry.Get(rel.TargetType)
-	} else {
-		targetTable, err = registry.GetByName(rel.TargetTable)
+	keys, byKey := parentKeys(objects, rel)
+	initSlices(objects, rel)
+	if len(keys) == 0 {
+		return nil, nil
 	}
 
-	if err != nil {
-		return fmt.Errorf("target table %s not registered: %w", rel.TargetTable, err)
-	}
-
-	// Collect primary key values from all results
-	primaryKeys := make([]interface{}, 0, results.Len())
-	pkMap := make(map[interface{}]int) // Map PK value to result index
-
-	for i := 0; i < results.Len(); i++ {
-		item := results.Index(i)
-		if item.Kind() == reflect.Pointer {
-			item = item.Elem()
-		}
-
-		// Get the primary key field value
-		pkField := item.FieldByName(toPascalCase(rel.References))
-		if !pkField.IsValid() {
-			continue
-		}
-
-		pkValue := pkField.Interface()
-
-		// Dereference pointer if needed
-		if pkField.Kind() == reflect.Pointer && !pkField.IsNil() {
-			pkValue = pkField.Elem().Interface()
-		}
-
-		primaryKeys = append(primaryKeys, pkValue)
-		pkMap[pkValue] = i
-
-		// Initialize the slice field
-		relationField := item.FieldByName(rel.SourceField)
-		if relationField.IsValid() && relationField.CanSet() {
-			if relationField.IsNil() {
-				relationField.Set(reflect.MakeSlice(relationField.Type(), 0, 0))
-			}
-		}
-	}
-
-	if len(primaryKeys) == 0 {
-		return nil
-	}
-
-	// Generate foreign key column names for junction table
 	// Convention: source_table_id and target_table_id
-	sourceFKCol := toSnakeCase(q.table.GoType.Name()) + "_id"
-	targetFKCol := toSnakeCase(targetTable.GoType.Name()) + "_id"
+	sourceFKCol := toSnakeCase(source.GoType.Name()) + "_id"
+	targetFKCol := toSnakeCase(target.GoType.Name()) + "_id"
 
-	// Junction PKs must be scanned into the SAME Go type as the struct PK
-	// fields. Scanning into bare interface{} yields pgx's raw decoded types
-	// (int32 for an int field, [16]byte for a uuid string, etc.), which never
-	// compare equal to the struct-derived map keys — silently returning empty
-	// relations. Resolve the source/target PK field types up front.
+	// Junction keys scan into the struct fields' own types: pgx decodes into
+	// int32, [16]byte and so on otherwise, which never equal the map keys.
 	refField := toPascalCase(rel.References)
-	sourceKeyType, err := pkFieldType(q.table.GoType, refField)
+	sourceKeyType, err := pkFieldType(source.GoType, refField)
 	if err != nil {
-		return fmt.Errorf("source %w", err)
+		return nil, fmt.Errorf("source %w", err)
 	}
-	targetKeyType, err := pkFieldType(targetTable.GoType, refField)
+	targetKeyType, err := pkFieldType(target.GoType, refField)
 	if err != nil {
-		return fmt.Errorf("target %w", err)
+		return nil, fmt.Errorf("target %w", err)
 	}
 
-	// Convert []interface{} to typed slice for pgx encoding
-	typedKeys := convertToTypedSlice(primaryKeys)
-
-	// Query the junction table first and drain it fully before the next query,
-	// so the two result sets never overlap on a single (transaction) connection.
 	junctionSQL := fmt.Sprintf(
 		"SELECT %s, %s FROM %s WHERE %s = ANY($1)",
 		schema.QuoteReservedIdent(sourceFKCol),
@@ -673,350 +393,50 @@ func (q *relationshipLoader) loadManyToMany(ctx context.Context, results reflect
 		schema.QuoteReservedIdent(*rel.JoinTable),
 		schema.QuoteReservedIdent(sourceFKCol),
 	)
-
-	junctionRows, err := q.query(ctx, junctionSQL, typedKeys)
-	if err != nil {
-		return fmt.Errorf("failed to query junction table: %w", err)
-	}
-
-	// Build a map of source PK -> target PKs (keys typed to the struct fields).
-	junctionMap := make(map[interface{}][]interface{})
-	for junctionRows.Next() {
-		sourcePtr := reflect.New(sourceKeyType)
-		targetPtr := reflect.New(targetKeyType)
-		if err := junctionRows.Scan(sourcePtr.Interface(), targetPtr.Interface()); err != nil {
-			junctionRows.Close()
-			return fmt.Errorf("failed to scan junction row: %w", err)
+	var junction [][2]interface{}
+	batch.Queue(junctionSQL, convertToTypedSlice(keys)).Query(func(rows pgx.Rows) error {
+		for rows.Next() {
+			sourcePtr := reflect.New(sourceKeyType)
+			targetPtr := reflect.New(targetKeyType)
+			if err := rows.Scan(sourcePtr.Interface(), targetPtr.Interface()); err != nil {
+				return fmt.Errorf("failed to load relationship %s: failed to scan junction row: %w", rel.SourceField, err)
+			}
+			junction = append(junction, [2]interface{}{sourcePtr.Elem().Interface(), targetPtr.Elem().Interface()})
 		}
-		sk := sourcePtr.Elem().Interface()
-		junctionMap[sk] = append(junctionMap[sk], targetPtr.Elem().Interface())
-	}
-	junctionRows.Close()
-	if err := junctionRows.Err(); err != nil {
-		return err
-	}
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("failed to load relationship %s: %w", rel.SourceField, err)
+		}
+		return nil
+	})
 
-	// Query through the junction with a JOIN to fetch the target records.
 	sql := fmt.Sprintf(
 		"SELECT t.* FROM %s t INNER JOIN %s j ON t.%s = j.%s WHERE j.%s = ANY($1)",
-		schema.QuoteReservedIdent(targetTable.Name),
+		schema.QuoteReservedIdent(target.Name),
 		schema.QuoteReservedIdent(*rel.JoinTable),
 		schema.QuoteReservedIdent(rel.References),
 		schema.QuoteReservedIdent(targetFKCol),
 		schema.QuoteReservedIdent(sourceFKCol),
 	)
-
-	rows, err := q.query(ctx, sql, typedKeys)
-	if err != nil {
-		return fmt.Errorf("failed to query related records: %w", err)
-	}
-
-	// Build a map of target records by their PK.
-	targetMap := make(map[interface{}]reflect.Value)
-	scanner := newRowScanner(targetTable)
-	for rows.Next() {
-		related := reflect.New(targetTable.GoType)
-		if err := scanner.scan(rows, related.Interface()); err != nil {
-			rows.Close()
-			return fmt.Errorf("failed to scan related record: %w", err)
+	targets := make(map[interface{}]reflect.Value)
+	queueRows(batch, rel, target, sql, keys, func(related reflect.Value) {
+		if id := related.Elem().FieldByName(refField); id.IsValid() {
+			targets[id.Interface()] = related
 		}
+	})
 
-		// Get the ID value from the related record
-		relatedElem := related.Elem()
-		idField := relatedElem.FieldByName(refField)
-		if !idField.IsValid() {
-			continue
-		}
-		targetMap[idField.Interface()] = related
-	}
-	rows.Close()
-
-	if err := rows.Err(); err != nil {
-		return err
-	}
-
-	// Assign related records to results based on junction table
-	for sourcePK, targetPKs := range junctionMap {
-		idx, exists := pkMap[sourcePK]
-		if !exists {
-			continue
-		}
-
-		item := results.Index(idx)
-		if item.Kind() == reflect.Pointer {
-			item = item.Elem()
-		}
-
-		relationField := item.FieldByName(rel.SourceField)
-		if !relationField.IsValid() || !relationField.CanSet() {
-			continue
-		}
-
-		// Append all related records
-		for _, targetPK := range targetPKs {
-			related, exists := targetMap[targetPK]
-			if !exists {
+	return func() {
+		for _, pair := range junction {
+			related, found := targets[pair[1]]
+			if !found {
 				continue
 			}
-
-			if relationField.Kind() == reflect.Slice {
-				var elemToAppend reflect.Value
-				if relationField.Type().Elem().Kind() == reflect.Pointer {
-					elemToAppend = related
-				} else {
-					elemToAppend = related.Elem()
+			for _, i := range byKey[pair[0]] {
+				if field := structAt(objects, i).FieldByName(rel.SourceField); field.IsValid() && field.CanSet() && field.Kind() == reflect.Slice {
+					appendRelated(field, related)
 				}
-				relationField.Set(reflect.Append(relationField, elemToAppend))
 			}
 		}
-	}
-
-	return nil
-}
-
-// loadBelongsToOnCollection loads belongsTo relationships on a collection of objects.
-func (q *relationshipLoader) loadBelongsToOnCollection(ctx context.Context, objects reflect.Value, rel *schema.RelationshipMetadata, targetTable *schema.TableMetadata) error {
-	// Collect foreign key values
-	foreignKeys := make([]interface{}, 0, objects.Len())
-	foreignKeyMap := make(map[interface{}][]int)
-
-	for i := 0; i < objects.Len(); i++ {
-		item := objects.Index(i)
-		if item.Kind() == reflect.Pointer {
-			item = item.Elem()
-		}
-
-		fkField := item.FieldByName(toPascalCase(rel.ForeignKey))
-		if !fkField.IsValid() {
-			continue
-		}
-
-		fkValue := fkField.Interface()
-		if isZeroValue(fkValue) {
-			continue
-		}
-
-		if fkField.Kind() == reflect.Pointer && !fkField.IsNil() {
-			fkValue = fkField.Elem().Interface()
-		}
-
-		if _, exists := foreignKeyMap[fkValue]; !exists {
-			foreignKeys = append(foreignKeys, fkValue)
-			foreignKeyMap[fkValue] = make([]int, 0)
-		}
-		foreignKeyMap[fkValue] = append(foreignKeyMap[fkValue], i)
-	}
-
-	if len(foreignKeys) == 0 {
-		return nil
-	}
-
-	typedKeys := convertToTypedSlice(foreignKeys)
-	sql := fmt.Sprintf("SELECT * FROM %s WHERE %s = ANY($1)", schema.QuoteReservedIdent(targetTable.Name), schema.QuoteReservedIdent(rel.References))
-	rows, err := q.query(ctx, sql, typedKeys)
-	if err != nil {
-		return fmt.Errorf("failed to query related records: %w", err)
-	}
-	defer rows.Close()
-
-	scanner := newRowScanner(targetTable)
-	for rows.Next() {
-		related := reflect.New(targetTable.GoType)
-		if err := scanner.scan(rows, related.Interface()); err != nil {
-			return fmt.Errorf("failed to scan related record: %w", err)
-		}
-
-		relatedElem := related.Elem()
-		idField := relatedElem.FieldByName(toPascalCase(rel.References))
-		if !idField.IsValid() {
-			continue
-		}
-		idValue := idField.Interface()
-
-		for _, idx := range foreignKeyMap[idValue] {
-			item := objects.Index(idx)
-			if item.Kind() == reflect.Pointer {
-				item = item.Elem()
-			}
-
-			relationField := item.FieldByName(rel.SourceField)
-			if !relationField.IsValid() || !relationField.CanSet() {
-				continue
-			}
-
-			if relationField.Kind() == reflect.Pointer {
-				relationField.Set(related)
-			} else {
-				relationField.Set(related.Elem())
-			}
-		}
-	}
-
-	return rows.Err()
-}
-
-// loadHasOneOnCollection loads hasOne relationships on a collection of objects.
-func (q *relationshipLoader) loadHasOneOnCollection(ctx context.Context, objects reflect.Value, rel *schema.RelationshipMetadata, targetTable *schema.TableMetadata) error {
-	primaryKeys := make([]interface{}, 0, objects.Len())
-	pkMap := make(map[interface{}]int)
-
-	for i := 0; i < objects.Len(); i++ {
-		item := objects.Index(i)
-		if item.Kind() == reflect.Pointer {
-			item = item.Elem()
-		}
-
-		pkField := item.FieldByName(toPascalCase(rel.References))
-		if !pkField.IsValid() {
-			continue
-		}
-
-		pkValue := pkField.Interface()
-		if pkField.Kind() == reflect.Pointer && !pkField.IsNil() {
-			pkValue = pkField.Elem().Interface()
-		}
-
-		primaryKeys = append(primaryKeys, pkValue)
-		pkMap[pkValue] = i
-	}
-
-	if len(primaryKeys) == 0 {
-		return nil
-	}
-
-	typedKeys := convertToTypedSlice(primaryKeys)
-	sql := fmt.Sprintf("SELECT * FROM %s WHERE %s = ANY($1)", schema.QuoteReservedIdent(targetTable.Name), schema.QuoteReservedIdent(rel.ForeignKey))
-	rows, err := q.query(ctx, sql, typedKeys)
-	if err != nil {
-		return fmt.Errorf("failed to query related records: %w", err)
-	}
-	defer rows.Close()
-
-	scanner := newRowScanner(targetTable)
-	for rows.Next() {
-		related := reflect.New(targetTable.GoType)
-		if err := scanner.scan(rows, related.Interface()); err != nil {
-			return fmt.Errorf("failed to scan related record: %w", err)
-		}
-
-		relatedElem := related.Elem()
-		fkField := relatedElem.FieldByName(toPascalCase(rel.ForeignKey))
-		if !fkField.IsValid() {
-			continue
-		}
-		fkValue := fkField.Interface()
-
-		idx, exists := pkMap[fkValue]
-		if !exists {
-			continue
-		}
-
-		item := objects.Index(idx)
-		if item.Kind() == reflect.Pointer {
-			item = item.Elem()
-		}
-
-		relationField := item.FieldByName(rel.SourceField)
-		if !relationField.IsValid() || !relationField.CanSet() {
-			continue
-		}
-
-		if relationField.Kind() == reflect.Pointer {
-			relationField.Set(related)
-		} else {
-			relationField.Set(related.Elem())
-		}
-	}
-
-	return rows.Err()
-}
-
-// loadHasManyOnCollection loads hasMany relationships on a collection of objects.
-func (q *relationshipLoader) loadHasManyOnCollection(ctx context.Context, objects reflect.Value, rel *schema.RelationshipMetadata, targetTable *schema.TableMetadata) error {
-	primaryKeys := make([]interface{}, 0, objects.Len())
-	pkMap := make(map[interface{}]int)
-
-	for i := 0; i < objects.Len(); i++ {
-		item := objects.Index(i)
-		if item.Kind() == reflect.Pointer {
-			item = item.Elem()
-		}
-
-		pkField := item.FieldByName(toPascalCase(rel.References))
-		if !pkField.IsValid() {
-			continue
-		}
-
-		pkValue := pkField.Interface()
-		if pkField.Kind() == reflect.Pointer && !pkField.IsNil() {
-			pkValue = pkField.Elem().Interface()
-		}
-
-		primaryKeys = append(primaryKeys, pkValue)
-		pkMap[pkValue] = i
-
-		// Initialize the slice field
-		relationField := item.FieldByName(rel.SourceField)
-		if relationField.IsValid() && relationField.CanSet() {
-			if relationField.IsNil() {
-				relationField.Set(reflect.MakeSlice(relationField.Type(), 0, 0))
-			}
-		}
-	}
-
-	if len(primaryKeys) == 0 {
-		return nil
-	}
-
-	typedKeys := convertToTypedSlice(primaryKeys)
-	sql := fmt.Sprintf("SELECT * FROM %s WHERE %s = ANY($1)", schema.QuoteReservedIdent(targetTable.Name), schema.QuoteReservedIdent(rel.ForeignKey))
-	rows, err := q.query(ctx, sql, typedKeys)
-	if err != nil {
-		return fmt.Errorf("failed to query related records: %w", err)
-	}
-	defer rows.Close()
-
-	scanner := newRowScanner(targetTable)
-	for rows.Next() {
-		related := reflect.New(targetTable.GoType)
-		if err := scanner.scan(rows, related.Interface()); err != nil {
-			return fmt.Errorf("failed to scan related record: %w", err)
-		}
-
-		relatedElem := related.Elem()
-		fkField := relatedElem.FieldByName(toPascalCase(rel.ForeignKey))
-		if !fkField.IsValid() {
-			continue
-		}
-		fkValue := fkField.Interface()
-
-		idx, exists := pkMap[fkValue]
-		if !exists {
-			continue
-		}
-
-		item := objects.Index(idx)
-		if item.Kind() == reflect.Pointer {
-			item = item.Elem()
-		}
-
-		relationField := item.FieldByName(rel.SourceField)
-		if !relationField.IsValid() || !relationField.CanSet() {
-			continue
-		}
-
-		if relationField.Kind() == reflect.Slice {
-			var elemToAppend reflect.Value
-			if relationField.Type().Elem().Kind() == reflect.Pointer {
-				elemToAppend = related
-			} else {
-				elemToAppend = related.Elem()
-			}
-			relationField.Set(reflect.Append(relationField, elemToAppend))
-		}
-	}
-
-	return rows.Err()
+	}, nil
 }
 
 // Helper functions

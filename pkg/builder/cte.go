@@ -150,7 +150,7 @@ func (q *CTESelect[T]) All(ctx context.Context) ([]T, error) {
 
 	// Load preloaded relationships
 	if len(q.preloads) > 0 && len(results) > 0 {
-		loader := &relationshipLoader{query: q.db.db.Query, table: q.table, preloads: q.preloads}
+		loader := &relationshipLoader{exec: q.db.db, table: q.table, preloads: q.preloads}
 		if err := loader.loadRelationships(ctx, &results); err != nil {
 			return nil, err
 		}

@@ -142,6 +142,11 @@ func (db *DB) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
 	return db.pool.QueryRow(ctx, sql, args...)
 }
 
+// SendBatch sends every query in b in one round trip on a single connection.
+func (db *DB) SendBatch(ctx context.Context, b *pgx.Batch) pgx.BatchResults {
+	return db.pool.SendBatch(ctx, b)
+}
+
 // buildConnectionString builds a PostgreSQL connection string from config.
 func buildConnectionString(config *Config) string {
 	sslMode := config.SSLMode
