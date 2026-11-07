@@ -29,7 +29,7 @@ Features:
   - Interactive TUI and non-interactive CLI modes
   - Full transaction support with savepoints
   - Relationship loading (belongsTo, hasOne, hasMany, manyToMany)`,
-	Version: "1.29.0",
+	Version: "1.29.1",
 	// Execute prints the error once; cobra would print it again with the
 	// whole usage text, which buries a failed check's message.
 	SilenceErrors: true,
