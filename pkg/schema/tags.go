@@ -103,12 +103,9 @@ func BuildColumn(opts *TagOptions, fm FieldMeta) ColumnMetadata {
 		column.SQLType = "text"
 	}
 
-	// Nullability: nullable unless notNull/primaryKey, or forced by a nullable
-	// Go type (pointer, sql.Null*).
+	// The tag decides the column's nullability. A pointer or sql.Null* field
+	// only says nil can mean "not set", which INSERT turns into the default.
 	column.Nullable = !opts.Has("notNull") && !opts.Has("primaryKey")
-	if fm.Nullable {
-		column.Nullable = true
-	}
 	column.GoNullable = fm.Nullable
 
 	if defaultVal := opts.Get("default"); defaultVal != "" {

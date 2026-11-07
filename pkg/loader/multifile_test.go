@@ -10,7 +10,7 @@ import (
 )
 
 // One file dot-imports database/sql; a sibling declares its own NullString.
-// If sqlImports leaked across files, the sibling's column would become nullable.
+// If sqlImports leaked across files, the sibling's type would count as sql.NullString.
 func TestImportsDoNotLeakAcrossFiles(t *testing.T) {
 	dir := t.TempDir()
 
@@ -49,8 +49,8 @@ func TestImportsDoNotLeakAcrossFiles(t *testing.T) {
 	}
 
 	want := map[string]map[string]bool{
-		"dotted":   {"d": true},  // real sql.NullString -> nullable
-		"siblings": {"s": false}, // the file's own type -> notNull stands
+		"dotted":   {"d": true},  // real sql.NullString
+		"siblings": {"s": false}, // the file's own type
 	}
 	for table, cols := range want {
 		tbl, ok := byName[table]
@@ -58,8 +58,8 @@ func TestImportsDoNotLeakAcrossFiles(t *testing.T) {
 			t.Fatalf("table %q not registered (got %v)", table, byName)
 		}
 		for _, col := range tbl.Columns {
-			if exp, tracked := cols[col.Name]; tracked && col.Nullable != exp {
-				t.Errorf("%s.%s Nullable = %t, want %t", table, col.Name, col.Nullable, exp)
+			if exp, tracked := cols[col.Name]; tracked && col.GoNullable != exp {
+				t.Errorf("%s.%s GoNullable = %t, want %t", table, col.Name, col.GoNullable, exp)
 			}
 		}
 	}

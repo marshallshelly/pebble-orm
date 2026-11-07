@@ -80,8 +80,7 @@ func TestParity_DoubleQuotedTagLiteral(t *testing.T) {
 }
 
 // astNullable matched the package qualifier by name, so an aliased
-// database/sql import defeated it. Only observable when the tag also says
-// notNull, since a column is otherwise nullable by default.
+// database/sql import defeated it.
 type AliasedNull struct {
 	ID string            `po:"id,primaryKey"`
 	D  stdsql.NullString `po:"d,text,notNull"`
@@ -105,8 +104,8 @@ func TestParity_AliasedSQLImportNullability(t *testing.T) {
 
 	for i := range fromAST.Columns {
 		name := fromAST.Columns[i].Name
-		if a, r := fromAST.Columns[i].Nullable, fromReflect.Columns[i].Nullable; a != r {
-			t.Errorf("column %q Nullable: AST=%t reflection=%t", name, a, r)
+		if a, r := fromAST.Columns[i].GoNullable, fromReflect.Columns[i].GoNullable; a != r {
+			t.Errorf("column %q GoNullable: AST=%t reflection=%t", name, a, r)
 		}
 	}
 }
@@ -123,8 +122,8 @@ func TestParity_UnaliasedSQLImportNullability(t *testing.T) {
 
 	table := loadOneTable(t, src)
 	for _, c := range table.Columns {
-		if c.Name == "d" && !c.Nullable {
-			t.Error("sql.NullString with notNull should still be nullable")
+		if c.Name == "d" && !c.GoNullable {
+			t.Error("sql.NullString should be recognised as a nullable Go type")
 		}
 	}
 }
@@ -153,8 +152,8 @@ func TestParity_DotImportedSQLNullability(t *testing.T) {
 
 	for i := range fromAST.Columns {
 		name := fromAST.Columns[i].Name
-		if a, r := fromAST.Columns[i].Nullable, fromReflect.Columns[i].Nullable; a != r {
-			t.Errorf("column %q Nullable: AST=%t reflection=%t", name, a, r)
+		if a, r := fromAST.Columns[i].GoNullable, fromReflect.Columns[i].GoNullable; a != r {
+			t.Errorf("column %q GoNullable: AST=%t reflection=%t", name, a, r)
 		}
 	}
 }
@@ -187,13 +186,13 @@ func TestParity_DotImportDoesNotMatchUserTypes(t *testing.T) {
 
 	for i := range fromAST.Columns {
 		name := fromAST.Columns[i].Name
-		if a, r := fromAST.Columns[i].Nullable, fromReflect.Columns[i].Nullable; a != r {
-			t.Errorf("column %q Nullable: AST=%t reflection=%t (a user type must not match)", name, a, r)
+		if a, r := fromAST.Columns[i].GoNullable, fromReflect.Columns[i].GoNullable; a != r {
+			t.Errorf("column %q GoNullable: AST=%t reflection=%t (a user type must not match)", name, a, r)
 		}
 	}
 	for _, c := range fromAST.Columns {
-		if c.Name == "n" && c.Nullable {
-			t.Error("Nullish is a user type, not a sql.Null*; notNull must stand")
+		if c.Name == "n" && c.GoNullable {
+			t.Error("Nullish is a user type, not a sql.Null*")
 		}
 	}
 }
@@ -210,7 +209,7 @@ func TestParity_BlankImportIsNotDotImport(t *testing.T) {
 		"}\n"
 
 	for _, c := range loadOneTable(t, src).Columns {
-		if c.Name == "d" && c.Nullable {
+		if c.Name == "d" && c.GoNullable {
 			t.Error("a blank import puts nothing in scope; the local NullString must not be treated as sql.NullString")
 		}
 	}
