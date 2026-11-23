@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.29.2] - 2026-11-23
+
+### Changed
+
+- Upgrade `github.com/jackc/pgx/v5` from v5.12.0 to v5.13.0.
+- Client certificates set with `sslcert` and `sslkey` in a connection URL are
+  reloaded for each new connection, so rotated files apply without a restart.
+
+### Security
+
+- pgx v5.13.0 fixes a panic in `Rows.Values` on a malformed server response
+  ([GHSA-w9rp-vfrh-q8vv](https://github.com/jackc/pgx/security/advisories/GHSA-w9rp-vfrh-q8vv)).
+
 ## [1.29.1] - 2026-11-07
 
 ### Changed
@@ -1062,7 +1075,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - golangci-lint integration.
 - GoReleaser configuration for multi-platform releases.
 
-[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.29.1...HEAD
+[unreleased]: https://github.com/marshallshelly/pebble-orm/compare/v1.29.2...HEAD
+[1.29.2]: https://github.com/marshallshelly/pebble-orm/compare/v1.29.1...v1.29.2
 [1.29.1]: https://github.com/marshallshelly/pebble-orm/compare/v1.29.0...v1.29.1
 [1.29.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.28.0...v1.29.0
 [1.28.0]: https://github.com/marshallshelly/pebble-orm/compare/v1.27.11...v1.28.0
